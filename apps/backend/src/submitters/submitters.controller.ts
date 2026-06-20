@@ -5,6 +5,7 @@ import {
   Param,
   Put,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -14,9 +15,11 @@ import {
   ApiSecurity,
   ApiTags,
 } from '@nestjs/swagger';
+import type { Request } from 'express';
 import { ApiOrJwtGuard } from '../auth/guards/api-or-jwt/api-or-jwt.guard';
 import { UserHydrationGuard } from '../auth/guards/user-hydration/user-hydration.guard';
 import { CurrentUser } from '../common/decorators/user.decorator';
+import type { SubmissionRequestMetadata } from '../submissions/submission-event-data';
 import { User } from '../users/entities/user.entity';
 import { ListSubmittersQueryDto } from './dto/list-submitters-query.dto';
 import {
@@ -74,12 +77,23 @@ export class SubmittersController {
     @Param('id') submitterId: string,
     @Body() body: UpdateSubmitterDto,
     @Query('include') include?: string,
+    @Req() request?: Request,
   ): Promise<SubmitterResponseDto> {
     return this.submittersService.updateSubmitter(
       user,
       submitterId,
       body,
       include,
+      getSubmissionRequestMetadata(request),
     );
   }
+}
+
+function getSubmissionRequestMetadata(
+  request: Request | undefined,
+): SubmissionRequestMetadata {
+  return {
+    ip: request?.ip,
+    ua: request?.get('user-agent'),
+  };
 }

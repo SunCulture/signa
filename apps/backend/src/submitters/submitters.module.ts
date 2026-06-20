@@ -6,6 +6,7 @@ import { StorageModule } from '../storage/storage.module';
 import { UsersModule } from '../users/users.module';
 import { SubmissionEvent } from '../submissions/entities/submission-event.entity';
 import { Submission } from '../submissions/entities/submission.entity';
+import { SubmissionsModule } from '../submissions/submissions.module';
 import { Submitter } from './entities/submitter.entity';
 import { SubmittersController } from './submitters.controller';
 import { SubmittersService } from './submitters.service';
@@ -14,6 +15,7 @@ import { SubmittersService } from './submitters.service';
   imports: [
     AuthModule,
     StorageModule,
+    SubmissionsModule,
     UsersModule,
     TypeOrmModule.forFeature([Submitter, Submission, SubmissionEvent]),
   ],

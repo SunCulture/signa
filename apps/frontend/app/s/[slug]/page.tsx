@@ -5,10 +5,10 @@ export default async function PublicSigningPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ f?: string }>;
+  searchParams: Promise<{ f?: string; t?: string }>;
 }) {
   const { slug } = await params;
-  const { f } = await searchParams;
+  const { f, t } = await searchParams;
 
-  return <SigningPage focusFieldPrefix={f} slug={slug} />;
+  return <SigningPage focusFieldPrefix={f} slug={slug} trackingParam={t} />;
 }

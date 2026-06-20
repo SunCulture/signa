@@ -3,14 +3,19 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import sharp from 'sharp';
 import { DataSource, Repository } from 'typeorm';
 import { StorageAttachment } from '../storage/entities/storage-attachment.entity';
 import { StorageService } from '../storage/storage.service';
 import { UploadedBufferFile } from '../storage/storage.types';
+import { runtimeEvents } from '../runtime/runtime-events';
+import { SubmissionDocumentsService } from '../submissions/submission-documents.service';
 import { SubmissionEvent } from '../submissions/entities/submission-event.entity';
 import { Submission } from '../submissions/entities/submission.entity';
+import { isValidSubmitterEventTrackingParam } from '../submissions/submission-event-tracking';
 import {
   TemplateField,
   TemplateSchemaItem,
@@ -27,6 +32,10 @@ import {
   SigningFieldValueResponseDto,
   SigningResponseDto,
 } from './dto/signing-response.dto';
+import {
+  buildEventData,
+  SigningRequestMetadata,
+} from './signing-request-metadata';
 
 @Injectable()
 export class SigningService {
@@ -35,12 +44,18 @@ export class SigningService {
     private readonly submitters: Repository<Submitter>,
     private readonly dataSource: DataSource,
     private readonly storageService: StorageService,
+    private readonly submissionDocumentsService: SubmissionDocumentsService,
+    private readonly events: EventEmitter2,
+    private readonly config: ConfigService,
   ) {}
 
-  async getSigningForm(slug: string): Promise<SigningResponseDto> {
+  async getSigningForm(
+    slug: string,
+    metadata?: SigningRequestMetadata,
+  ): Promise<SigningResponseDto> {
     const submitter = await this.findSubmitterBySlugOrFail(slug);
 
-    await this.markOpened(submitter);
+    await this.markOpened(submitter, metadata);
 
     return this.toSigningResponse(submitter);
   }
@@ -50,6 +65,39 @@ export class SigningService {
     file: UploadedBufferFile,
     type: string | undefined,
   ): Promise<SigningAttachmentDto> {
+    return this.toAttachmentResponse(
+      await this.createSubmitterAttachment(slug, file, type),
+    );
+  }
+
+  async uploadApiAttachment(
+    slug: string,
+    file: UploadedBufferFile,
+    type: string | undefined,
+  ): Promise<{
+    content_type: string | null;
+    created_at: Date;
+    filename: string;
+    url: string;
+    uuid: string;
+  }> {
+    const attachment = await this.createSubmitterAttachment(slug, file, type);
+    const response = this.toAttachmentResponse(attachment);
+
+    return {
+      content_type: response.content_type,
+      created_at: attachment.createdAt,
+      filename: response.filename,
+      url: response.url,
+      uuid: response.uuid,
+    };
+  }
+
+  private async createSubmitterAttachment(
+    slug: string,
+    file: UploadedBufferFile,
+    type: string | undefined,
+  ): Promise<StorageAttachment> {
     const submitter = await this.findSubmitterBySlugOrFail(slug);
     this.assertCanUpdate(submitter);
 
@@ -77,7 +125,7 @@ export class SigningService {
       },
     });
 
-    return this.toAttachmentResponse(attachment);
+    return attachment;
   }
 
   async getFieldValue(
@@ -106,9 +154,14 @@ export class SigningService {
   async updateValues(
     slug: string,
     input: UpdateSigningValuesDto,
+    metadata?: SigningRequestMetadata,
   ): Promise<SigningResponseDto> {
     const submitter = await this.findSubmitterBySlugOrFail(slug);
     this.assertCanUpdate(submitter);
+    const shouldRecordStart = await this.shouldRecordStartFormEvent(
+      submitter,
+      input,
+    );
 
     submitter.values = {
       ...(submitter.values ?? {}),
@@ -123,6 +176,19 @@ export class SigningService {
     await this.dataSource.transaction(async (manager) => {
       await manager.getRepository(Submitter).save(submitter);
 
+      if (shouldRecordStart) {
+        await manager.getRepository(SubmissionEvent).save(
+          manager.getRepository(SubmissionEvent).create({
+            accountId: submitter.accountId,
+            submissionId: submitter.submissionId,
+            submitterId: submitter.id,
+            eventType: 'start_form',
+            eventTimestamp: new Date(),
+            data: buildEventData(metadata),
+          }),
+        );
+      }
+
       if (input.completed) {
         await manager.getRepository(SubmissionEvent).save(
           manager.getRepository(SubmissionEvent).create({
@@ -131,11 +197,21 @@ export class SigningService {
             submitterId: submitter.id,
             eventType: 'complete_form',
             eventTimestamp: new Date(),
-            data: {},
+            data: buildEventData(metadata),
           }),
         );
       }
     });
+
+    if (input.completed) {
+      await this.submissionDocumentsService.processSubmitterCompletion(
+        submitter,
+      );
+      this.events.emit(runtimeEvents.formCompleted, {
+        submitterId: submitter.id,
+        accountId: submitter.accountId,
+      });
+    }
 
     return this.toSigningResponse(submitter);
   }
@@ -143,6 +219,7 @@ export class SigningService {
   async decline(
     slug: string,
     input: DeclineSigningDto,
+    metadata?: SigningRequestMetadata,
   ): Promise<SigningResponseDto> {
     const submitter = await this.findSubmitterBySlugOrFail(slug);
     this.assertCanUpdate(submitter);
@@ -158,9 +235,15 @@ export class SigningService {
           submitterId: submitter.id,
           eventType: 'decline_form',
           eventTimestamp: new Date(),
-          data: { reason: input.reason ?? '' },
+          data: buildEventData(metadata, { reason: input.reason ?? '' }),
         }),
       );
+    });
+
+    this.events.emit(runtimeEvents.formDeclined, {
+      submitterId: submitter.id,
+      accountId: submitter.accountId,
+      reason: input.reason ?? null,
     });
 
     return this.toSigningResponse(submitter);
@@ -168,9 +251,28 @@ export class SigningService {
 
   async getDownload(slug: string): Promise<SigningDownloadResponseDto> {
     const submitter = await this.findSubmitterBySlugOrFail(slug);
+    const documents = submitter.completedAt
+      ? await this.submissionDocumentsService.getSubmissionDocuments(
+          submitter.submission,
+          { merge: false },
+        )
+      : [];
 
     return {
-      documents: await this.serializeDocuments(submitter.submission),
+      documents:
+        documents.length > 0
+          ? documents.map((attachment) => ({
+              id: attachment.id,
+              uuid: attachment.uuid,
+              filename: attachment.blob.filename,
+              name: attachment.blob.filename,
+              url: this.storageService.createBlobProxyUrl(
+                attachment.blob,
+                3600,
+              ),
+              preview_images: [],
+            }))
+          : await this.serializeDocuments(submitter.submission),
     };
   }
 
@@ -192,15 +294,34 @@ export class SigningService {
     return submitter;
   }
 
-  private async markOpened(submitter: Submitter): Promise<void> {
-    if (submitter.openedAt) {
-      return;
+  private async markOpened(
+    submitter: Submitter,
+    metadata?: SigningRequestMetadata,
+  ): Promise<void> {
+    const isFirstOpen = !submitter.openedAt;
+
+    if (isFirstOpen) {
+      submitter.openedAt = new Date();
     }
 
-    submitter.openedAt = new Date();
-
     await this.dataSource.transaction(async (manager) => {
-      await manager.getRepository(Submitter).save(submitter);
+      if (isFirstOpen) {
+        await manager.getRepository(Submitter).save(submitter);
+      }
+
+      if (this.isValidClickEmailTracking(submitter, metadata)) {
+        await manager.getRepository(SubmissionEvent).save(
+          manager.getRepository(SubmissionEvent).create({
+            accountId: submitter.accountId,
+            submissionId: submitter.submissionId,
+            submitterId: submitter.id,
+            eventType: 'click_email',
+            eventTimestamp: new Date(),
+            data: buildEventData(metadata),
+          }),
+        );
+      }
+
       await manager.getRepository(SubmissionEvent).save(
         manager.getRepository(SubmissionEvent).create({
           accountId: submitter.accountId,
@@ -208,10 +329,47 @@ export class SigningService {
           submitterId: submitter.id,
           eventType: 'view_form',
           eventTimestamp: new Date(),
-          data: {},
+          data: buildEventData(metadata),
         }),
       );
     });
+
+    this.events.emit(runtimeEvents.formViewed, {
+      submitterId: submitter.id,
+      accountId: submitter.accountId,
+    });
+  }
+
+  private isValidClickEmailTracking(
+    submitter: Submitter,
+    metadata?: SigningRequestMetadata,
+  ): boolean {
+    return isValidSubmitterEventTrackingParam({
+      eventType: 'click_email',
+      secret: this.config.get<string>('JWT_SECRET', 'signa-development-secret'),
+      submitterSlug: submitter.slug,
+      trackingParam: metadata?.trackingParam,
+    });
+  }
+
+  private async shouldRecordStartFormEvent(
+    submitter: Submitter,
+    input: UpdateSigningValuesDto,
+  ): Promise<boolean> {
+    if (!Object.keys(input.values ?? {}).length) {
+      return false;
+    }
+
+    const existingStartEvent = await this.dataSource
+      .getRepository(SubmissionEvent)
+      .exists({
+        where: {
+          submitterId: submitter.id,
+          eventType: 'start_form',
+        },
+      });
+
+    return !existingStartEvent;
   }
 
   private assertCanUpdate(submitter: Submitter): void {

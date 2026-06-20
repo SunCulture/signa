@@ -1,5 +1,12 @@
+import { signaRoles } from '@repo/shared';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsIn,
+  IsOptional,
+  IsString,
+  MinLength,
+} from 'class-validator';
 
 export class CreateUserDto {
   @ApiProperty({ example: 'grace@example.com' })
@@ -14,9 +21,13 @@ export class CreateUserDto {
   @IsString()
   last_name!: string;
 
-  @ApiPropertyOptional({ example: 'admin', default: 'admin' })
+  @ApiPropertyOptional({
+    enum: signaRoles,
+    example: 'member',
+    default: 'member',
+  })
   @IsOptional()
-  @IsString()
+  @IsIn(signaRoles)
   role?: string;
 
   @ApiPropertyOptional({

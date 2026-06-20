@@ -6,18 +6,20 @@ import { ArrowLeftIcon, BotIcon, CircleHelpIcon, InfoIcon } from "lucide-react"
 const settingsLinks = [
   { href: "/settings/profile", label: "Profile" },
   { href: "/settings/account", label: "Account" },
-  { href: "#", label: "Notifications" },
+  { href: "/settings/notifications", label: "Notifications" },
   { href: "#", label: "E-Signature" },
   { href: "#", label: "Personalization" },
-  { href: "#", label: "Users" },
-  { href: "#", label: "Teams" },
+  { href: "/settings/users", label: "Users" },
+  { href: "/settings/teams", label: "Teams" },
   { href: "#", label: "Integrations" },
   { href: "#", label: "Plans", badge: "Pro" },
   { href: "#", label: "API" },
   { href: "#", label: "Embedding" },
 ]
 
-export function SettingsSidebar({ active }: { active: "Account" | "Profile" }) {
+type SettingsSection = "Account" | "Notifications" | "Profile" | "Teams" | "Users"
+
+export function SettingsSidebar({ active }: { active: SettingsSection }) {
   return (
     <aside className="w-full shrink-0 md:w-52">
       <Link

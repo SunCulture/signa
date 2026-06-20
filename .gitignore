@@ -5,6 +5,7 @@ out
 dist
 coverage
 *.tsbuildinfo
+apps/backend/storage/blobs/*
 .env
 .env.*
 !.env.example

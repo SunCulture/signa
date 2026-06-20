@@ -280,7 +280,7 @@ function TemplatesDashboard() {
               <span className="text-[var(--auth-primary)]/70">|</span>
               <Link
                 className="flex items-center gap-2 transition-colors hover:text-[var(--auth-primary)]"
-                href="/settings"
+                href="/settings/account"
               >
                 <SettingsIcon data-icon="inline-start" />
                 Settings
@@ -530,7 +530,7 @@ function TemplateCard({
     <article className="group relative h-36">
       <Link
         className="flex h-full flex-col justify-between rounded-2xl bg-[var(--auth-muted)] px-7 pb-6 pt-6 transition-colors before:absolute before:inset-0 before:hidden before:rounded-2xl before:border-2 before:border-dashed before:border-[var(--auth-input-border)] hover:bg-[color-mix(in_srgb,var(--auth-muted),var(--auth-primary)_4%)]"
-        href={`/templates/${template.id}/edit`}
+        href={`/templates/${template.id}`}
       >
         <h2 className="line-clamp-2 text-xl font-semibold leading-[1.6rem] tracking-normal">
           {template.name}
@@ -599,7 +599,7 @@ function TemplateListRow({
     <article className="flex min-h-[86px] overflow-hidden rounded-2xl bg-[var(--auth-muted)]">
       <Link
         className="flex w-60 shrink-0 flex-col justify-center gap-2 bg-[color-mix(in_srgb,var(--auth-muted),var(--auth-primary)_5%)] px-5 py-3 hover:bg-[color-mix(in_srgb,var(--auth-muted),var(--auth-primary)_8%)]"
-        href={`/templates/${template.id}/edit`}
+        href={`/templates/${template.id}`}
       >
         <h2 className="flex items-center gap-1.5 text-sm font-bold">
           <FileTextIcon data-icon="inline-start" />

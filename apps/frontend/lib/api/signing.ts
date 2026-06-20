@@ -74,8 +74,15 @@ export type SigningFieldValue = {
   attachment: SigningAttachment | null
 }
 
-export function getSigningForm(slug: string): Promise<SigningForm> {
-  return apiFetch<SigningForm>(`/signing/${slug}`)
+export function getSigningForm(
+  slug: string,
+  trackingParam?: string
+): Promise<SigningForm> {
+  const path = trackingParam
+    ? `/signing/${slug}?${new URLSearchParams({ t: trackingParam })}`
+    : `/signing/${slug}`
+
+  return apiFetch<SigningForm>(path)
 }
 
 export function uploadSigningAttachment(

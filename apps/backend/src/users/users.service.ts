@@ -1,9 +1,11 @@
 import {
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { isSignaRole, type SignaRole } from '@repo/shared';
 import { randomBytes } from 'node:crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Not, Repository } from 'typeorm';
@@ -14,6 +16,11 @@ import {
   throwIfUniqueConstraint,
 } from '../common/utils/error';
 import { CreateUserDto } from './dto/create-user.dto';
+import { ImportUsersDto } from './dto/import-users.dto';
+import {
+  ImportUserResultDto,
+  ImportUsersResponseDto,
+} from './dto/import-users-response.dto';
 import { UpdatePasswordDto } from './dto/update-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -123,6 +130,9 @@ export class UsersService {
     user.lastName = input.last_name ?? user.lastName;
 
     if (options.currentUserId !== user.id) {
+      if (input.role && input.role !== user.role) {
+        await this.ensureCanChangeRole(user);
+      }
       user.role = input.role ? this.normalizeRole(input.role) : user.role;
       user.otpRequiredForLogin =
         input.otp_required_for_login ?? user.otpRequiredForLogin;
@@ -202,6 +212,7 @@ export class UsersService {
       options.accountId,
       options.userId,
     );
+    await this.ensureCanArchiveUser(user);
     user.archivedAt = new Date();
 
     try {
@@ -209,6 +220,19 @@ export class UsersService {
     } catch (error) {
       throwDatabaseErrors(error);
     }
+  }
+
+  async importUsers(
+    accountId: string,
+    input: ImportUsersDto,
+  ): Promise<ImportUsersResponseDto> {
+    const results: ImportUserResultDto[] = [];
+
+    for (const [index, row] of input.users.entries()) {
+      results.push(await this.importUserRow(accountId, row, index + 1));
+    }
+
+    return this.toImportUsersResponse(results);
   }
 
   private async ensureEmailAvailable(
@@ -246,8 +270,121 @@ export class UsersService {
     }
   }
 
-  private normalizeRole(role: string | undefined): string {
-    return role === 'admin' ? role : 'admin';
+  private async importUserRow(
+    accountId: string,
+    input: CreateUserDto,
+    row: number,
+  ): Promise<ImportUserResultDto> {
+    try {
+      const status = await this.createOrRestoreImportedUser(accountId, input);
+
+      return {
+        row,
+        email: input.email.toLowerCase(),
+        status,
+      };
+    } catch (error) {
+      return {
+        row,
+        email: input.email.toLowerCase(),
+        status: this.getImportFailureStatus(error),
+        message: this.getImportFailureMessage(error),
+      };
+    }
+  }
+
+  private async createOrRestoreImportedUser(
+    accountId: string,
+    input: CreateUserDto,
+  ): Promise<'created' | 'restored'> {
+    const email = input.email.toLowerCase();
+    const existingUser = await this.users.findOne({ where: { email } });
+
+    if (existingUser && !existingUser.archivedAt) {
+      throw new ConflictException({ error: 'Email already exists' });
+    }
+
+    await this.createUser(accountId, input);
+
+    return existingUser ? 'restored' : 'created';
+  }
+
+  private getImportFailureStatus(
+    error: unknown,
+  ): ImportUserResultDto['status'] {
+    return error instanceof ConflictException ? 'skipped' : 'failed';
+  }
+
+  private getImportFailureMessage(error: unknown): string {
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+
+      if (typeof response === 'object' && response && 'error' in response) {
+        return String(response.error);
+      }
+    }
+
+    if (error instanceof Error) {
+      return error.message;
+    }
+
+    return 'Unable to import user';
+  }
+
+  private async ensureCanChangeRole(user: User): Promise<void> {
+    if (user.role !== 'admin') {
+      return;
+    }
+
+    await this.ensureAnotherActiveAdmin(user);
+  }
+
+  private async ensureCanArchiveUser(user: User): Promise<void> {
+    if (user.role !== 'admin') {
+      return;
+    }
+
+    await this.ensureAnotherActiveAdmin(user);
+  }
+
+  private async ensureAnotherActiveAdmin(user: User): Promise<void> {
+    const adminCount = await this.users.count({
+      where: {
+        accountId: user.accountId,
+        archivedAt: IsNull(),
+        role: 'admin',
+      },
+    });
+
+    if (adminCount <= 1) {
+      throw new ForbiddenException({
+        error: 'At least one active admin is required',
+      });
+    }
+  }
+
+  private normalizeRole(role: string | undefined): SignaRole {
+    return isSignaRole(role) ? role : 'member';
+  }
+
+  private toImportUsersResponse(
+    results: ImportUserResultDto[],
+  ): ImportUsersResponseDto {
+    return {
+      results,
+      total: results.length,
+      created: this.countImportResults(results, 'created'),
+      restored: this.countImportResults(results, 'restored'),
+      skipped: this.countImportResults(results, 'skipped'),
+      failed: this.countImportResults(results, 'failed'),
+    };
+  }
+
+  private countImportResults(
+    results: ImportUserResultDto[],
+    status: ImportUserResultDto['status'],
+  ): number {
+    return results.filter((result) => result.status === status).length;
   }
 
   toUserResponse(user: User): UserResponseDto {

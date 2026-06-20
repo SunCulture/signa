@@ -9,6 +9,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Account } from '../accounts/entities/account.entity';
 import { throwIfUniqueConstraint } from '../common/utils/error';
+import { TeamMember } from '../teams/entities/team-member.entity';
+import { Team } from '../teams/entities/team.entity';
+import { createTeamSlug } from '../teams/team-slug';
 import { User } from '../users/entities/user.entity';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { LoginDto } from './dto/login.dto';
@@ -72,6 +75,8 @@ export class AuthService {
       const { account, user } = await this.dataSource.transaction(
         async (manager) => {
           const accountRepository = manager.getRepository(Account);
+          const teamMemberRepository = manager.getRepository(TeamMember);
+          const teamRepository = manager.getRepository(Team);
           const userRepository = manager.getRepository(User);
 
           const account = accountRepository.create({
@@ -90,6 +95,23 @@ export class AuthService {
             encryptedPassword: await hashPassword(input.password),
           });
           const savedUser = await userRepository.save(user);
+
+          const team = teamRepository.create({
+            accountId: savedAccount.id,
+            createdByUserId: savedUser.id,
+            name: savedAccount.name,
+            slug: createTeamSlug(savedAccount.name),
+          });
+          const savedTeam = await teamRepository.save(team);
+
+          await teamMemberRepository.save(
+            teamMemberRepository.create({
+              accountId: savedAccount.id,
+              role: 'manager',
+              teamId: savedTeam.id,
+              userId: savedUser.id,
+            }),
+          );
 
           return { account: savedAccount, user: savedUser };
         },

@@ -173,3 +173,78 @@ export class CreateSubmissionDto {
   @IsString()
   include?: string;
 }
+
+export class CreateSubmissionAliasDto {
+  @ApiPropertyOptional({ example: '1000001' })
+  @IsOptional()
+  @IsString()
+  template_id?: string;
+
+  @ApiPropertyOptional({ example: ['john@example.com', 'jane@example.com'] })
+  @IsOptional()
+  emails?: string[] | string;
+
+  @ApiPropertyOptional({ example: 'john@example.com' })
+  @IsOptional()
+  email?: string[] | string;
+
+  @ApiPropertyOptional({ type: [CreateSubmissionSubmitterDto] })
+  @IsOptional()
+  @IsArray()
+  submitters?: CreateSubmissionSubmitterDto[];
+
+  @ApiPropertyOptional({ example: 'Test Submission Document' })
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  send_email?: boolean;
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @IsBoolean()
+  send_sms?: boolean;
+
+  @ApiPropertyOptional({ enum: ['preserved', 'random'], default: 'preserved' })
+  @IsOptional()
+  @IsIn(['preserved', 'random'])
+  order?: 'preserved' | 'random';
+
+  @ApiPropertyOptional({ enum: ['preserved', 'random'], default: 'preserved' })
+  @IsOptional()
+  @IsIn(['preserved', 'random'])
+  submitters_order?: 'preserved' | 'random';
+
+  @ApiPropertyOptional({ example: '2026-09-01T12:00:00.000Z' })
+  @IsOptional()
+  @IsString()
+  expire_at?: string;
+
+  @ApiPropertyOptional({ example: {} })
+  @IsOptional()
+  @IsObject()
+  variables?: Record<string, unknown>;
+
+  @ApiPropertyOptional({ example: 'completed@example.com' })
+  @IsOptional()
+  @IsString()
+  bcc_completed?: string;
+
+  @ApiPropertyOptional({ example: 'https://example.test/completed' })
+  @IsOptional()
+  @IsString()
+  completed_redirect_url?: string;
+
+  @ApiPropertyOptional({ example: 'reply@example.com' })
+  @IsOptional()
+  @IsString()
+  reply_to?: string;
+
+  @ApiPropertyOptional({ example: 'fields' })
+  @IsOptional()
+  @IsString()
+  include?: string;
+}

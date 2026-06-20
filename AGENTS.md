@@ -78,3 +78,11 @@ Signa is a TypeScript recreation of DocuSeal. Keep backend endpoints compatible 
 
 - Buttons that combine an icon and text must keep balanced leading padding and a clear icon/text gap. Do not let `data-icon="inline-start"` or `has-data-[icon=inline-start]` compress the icon against the button edge.
 - When button text is hidden at small breakpoints, turn the control into a true centered icon button with square dimensions and no leftover inline-start text spacing.
+
+## Readable TypeScript Guardrail
+
+- Use the local skill at `.agents/skills/write-readable-typescript` for TypeScript/React/Nest work, especially before creating or extending components, hooks, services, controllers, or helpers.
+- Before finishing a code change, run `python3 .agents/skills/write-readable-typescript/scripts/check_code_shape.py <changed-file-or-folder>` for touched TypeScript/TSX files where practical.
+- Treat files over 500 lines and functions over 30 lines as split candidates. React JSX can exceed the function threshold only when the component remains a single visual unit and state/business logic has already been extracted.
+- Do not add new broad catch-all files. Split by feature ownership: components, hooks, model/domain helpers, API adapters, persistence services, or workflow actions.
+- If a touched file already exceeds the threshold, avoid making it worse; either split the relevant section in the same pass or leave a clear note in `CONTEXT/progress.md` when a larger follow-up refactor is intentionally deferred.

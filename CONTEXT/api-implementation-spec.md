@@ -70,19 +70,73 @@ Signa implementation rules:
 Initial Signa tenancy tables to plan:
 
 - `accounts`: tenant root, `uuid`, `name`, `timezone`, `locale`, `archived_at`.
-- `users`: belongs to account, has auth credentials and role.
+- `users`: belongs to account, has auth credentials and account-level role (`admin`, `editor`, `member`, `viewer`, `agent`).
 - `access_tokens`: API keys hashed and linked to users.
 - `account_configs`: account-scoped JSON/config values.
 - `encrypted_configs`: account-scoped secret config values.
 - `account_linked_accounts`: production/testing or future linked-account relationships.
+- `teams`: account-scoped user groups with `manager`, `member`, and `viewer` team roles.
+- `team_members`: many-to-many account-scoped user/team membership rows with soft archive.
+- `team_invitations`: hashed-token team invitations for users not yet assigned to a team.
 - Tenant-owned business tables: templates, template folders, submissions, submitters, documents/blob metadata, webhooks, events.
 
 Account settings preference scope:
 
-- `GET /api/account/preferences` returns account-level boolean config flags normalized from `account_configs`.
-- `PATCH /api/account/preferences` persists supported flags as account-scoped config rows.
+- `GET /api/account/preferences` returns account-level config flags normalized from `account_configs`.
+- `PATCH /api/account/preferences` persists supported flags/configs as account-scoped config rows and removes empty string/reminder configs, matching DocuSeal's account-config behavior.
 - Defaults mirror DocuSeal account settings behavior where practical: typed signatures, resubmission, decline, pre-fill signatures, and expiring download links are enabled unless explicitly disabled; stricter auth/compliance features are opt-in.
-- Current supported keys: `force_mfa`, `with_signature_id`, `require_signing_reason`, `allow_typed_signature`, `allow_to_resubmit`, `allow_to_decline`, `allow_to_delegate`, `form_prefill_signature`, `download_links_expire`, `download_links_auth`, `combine_pdf_result_key`, `enforce_signing_order`, `with_file_links`, `hipaa`, and `cfr_part_11`.
+- Current supported keys: `receive_completed_email`, `bcc_emails`, `submitter_reminders`, `force_mfa`, `with_signature_id`, `require_signing_reason`, `allow_typed_signature`, `allow_to_resubmit`, `allow_to_decline`, `allow_to_delegate`, `form_prefill_signature`, `download_links_expire`, `download_links_auth`, `combine_pdf_result_key`, `enforce_signing_order`, `with_file_links`, `hipaa`, `cfr_part_11`, and `knowledge_based_authentication`.
+- Notification parity note: DocuSeal stores completed-notification email enablement as a user config and BCC/reminders as account configs. Signa currently exposes all three through account preferences for a simpler tenant-level settings page; split to user-level config later if per-user notification preferences become required.
+
+Team management scope:
+
+- `Account` remains the tenant/workspace boundary.
+- `Team` is an account-local collaboration group. Users can belong to multiple teams in the same account.
+- `users.role` remains the account-level role; `team_members.role` is team-level and supports `manager`, `member`, and `viewer`.
+- Account-level roles are unlocked in Signa even though DocuSeal OSS gates non-admin roles behind Pro. Signa uses CASL policies as the backend authorization boundary:
+  - `admin`: manages account, users, teams, templates, submissions, and settings.
+  - `editor`: document workflow editor for templates/submissions.
+  - `member`: standard creator/collaborator for document workflows.
+  - `viewer`: read-only document workflow access.
+  - `agent`: operational send/resend/support role for submission workflows.
+- New account registration creates a default team named after the account and adds the registering user as `manager`.
+- Team managers can manage members/invitations for their team; account admins can manage all teams.
+- Current invitation implementation stores only a token hash and returns the raw accept token only on creation. Queued invitation email delivery remains a mail-workflow integration task.
+
+Team endpoints:
+
+| Method | Path                                      | Operation                      | Status |
+| ------ | ----------------------------------------- | ------------------------------ | ------ |
+| GET    | `/teams`                                  | List active/archived teams     | Done   |
+| POST   | `/teams`                                  | Create an account team         | Done   |
+| GET    | `/teams/{id}`                             | Get a team                     | Done   |
+| PATCH  | `/teams/{id}`                             | Update team name/description   | Done   |
+| DELETE | `/teams/{id}`                             | Archive a team                 | Done   |
+| GET    | `/teams/{id}/members`                     | List team members              | Done   |
+| POST   | `/teams/{id}/members`                     | Add or restore a team member   | Done   |
+| PATCH  | `/teams/{id}/members/{memberId}`          | Change a team member role      | Done   |
+| DELETE | `/teams/{id}/members/{memberId}`          | Remove a team member           | Done   |
+| GET    | `/teams/{id}/invitations`                 | List team invitations          | Done   |
+| POST   | `/teams/{id}/invitations`                 | Create a team invitation       | Done   |
+| DELETE | `/teams/{id}/invitations/{invitationId}`  | Revoke a pending invitation    | Done   |
+| POST   | `/team-invitations/{token}/accept`        | Accept a pending invitation    | Done   |
+
+User management scope:
+
+- DocuSeal OSS exposes admin-only user management and shows editor/viewer as disabled Pro options. Signa keeps the same modal/table UX direction but implements the full role set using CASL.
+- Bulk user import currently accepts normalized JSON rows created from frontend CSV parsing. Each row returns `created`, `restored`, `skipped`, or `failed`.
+- CSV headers supported now: `email`, `first_name`, `last_name`, optional `role`, optional `team`.
+- Pending import parity: XLS/XLSX parsing and automatic `team` membership assignment.
+
+User endpoints:
+
+| Method | Path              | Operation                         | Status |
+| ------ | ----------------- | --------------------------------- | ------ |
+| GET    | `/users`          | List active/archived users        | Done   |
+| POST   | `/users`          | Create or restore a user          | Done   |
+| POST   | `/users/import`   | Bulk import normalized user rows  | Done   |
+| PATCH  | `/users/{id}`     | Update user profile/role/MFA      | Done   |
+| DELETE | `/users/{id}`     | Archive user                      | Done   |
 
 ## Public Endpoint Inventory
 
@@ -90,17 +144,17 @@ Account settings preference scope:
 
 Submissions create signature requests from templates, uploaded PDFs, DOCX files, or HTML.
 
-| Method | Path | Operation | Priority | Status |
-| --- | --- | --- | --- | --- |
-| GET | `/submissions` | List all submissions | P0 | Done |
-| GET | `/submissions/{id}` | Get a submission | P0 | Done |
-| GET | `/submissions/{id}/documents` | Get generated submission documents | P0 | Partial |
-| POST | `/submissions` | Create a submission from an existing template | P0 | Done |
-| POST | `/submissions/emails` | Create submissions from email list | P1 | Todo |
-| POST | `/submissions/pdf` | Create a submission from PDF uploads | P0 | Done |
-| POST | `/submissions/docx` | Create a submission from DOCX uploads | P1 | Todo |
-| POST | `/submissions/html` | Create a submission from HTML | P1 | Todo |
-| DELETE | `/submissions/{id}` | Archive or permanently delete a submission | P0 | Done |
+| Method | Path                          | Operation                                     | Priority | Status  |
+| ------ | ----------------------------- | --------------------------------------------- | -------- | ------- |
+| GET    | `/submissions`                | List all submissions                          | P0       | Done    |
+| GET    | `/submissions/{id}`           | Get a submission                              | P0       | Done    |
+| GET    | `/submissions/{id}/documents` | Get generated submission documents            | P0       | Partial |
+| POST   | `/submissions`                | Create a submission from an existing template | P0       | Done    |
+| POST   | `/submissions/emails`         | Create submissions from email list            | P1       | Done    |
+| POST   | `/submissions/pdf`            | Create a submission from PDF uploads          | P0       | Done    |
+| POST   | `/submissions/docx`           | Create a submission from DOCX uploads         | P1       | Todo    |
+| POST   | `/submissions/html`           | Create a submission from HTML                 | P1       | Todo    |
+| DELETE | `/submissions/{id}`           | Archive or permanently delete a submission    | P0       | Done    |
 
 #### GET `/submissions`
 
@@ -157,8 +211,38 @@ Behavior from Rails:
 
 Signa status:
 
-- Implemented tenant-scoped retrieval with submitters, template, creator, optional events, optional fields, status, completion timestamp, values, and current template-backed documents.
-- Pending: audit trail generation, final signed result documents, combined document generation.
+- Implemented tenant-scoped retrieval with submitters, template, creator, optional events, optional fields, status, completion timestamp, values, and generated documents.
+- Completed submissions now lazily generate audit trail and combined-document URLs when document serialization is requested.
+- Remaining gap: generated PDFs are value-stamped with `pdf-lib`, but DocuSeal's HexaPDF/PDFium-grade flattening, cryptographic signatures, LTV, PDF/A, and timestamp server behavior are not complete.
+
+#### GET `/submissions/{id}/events`
+
+Purpose: return the DocuSeal-style event log timeline for the submission detail modal.
+
+Path params:
+
+- `id` required.
+
+Response shape:
+
+- `data[]`: ordered timeline entries.
+- Each entry includes `id`, `event_type`, `event_timestamp`, `submitter_id`, `icon`, `title`, `actor`, `device`, `message`, and raw `data`.
+
+Behavior from Rails:
+
+- The first timeline row is derived from submission creation metadata.
+- Persisted `submission_events` are ordered by `event_timestamp`.
+- Event icons follow `SubmissionEventsController::SUBMISSION_EVENT_ICONS`.
+- Device icons are derived from the event user agent.
+
+Signa status:
+
+- Implemented tenant-scoped endpoint.
+- Synthesizes the creation row from the submission record and maps persisted events to DocuSeal-compatible titles/icons/device metadata.
+- Public signing now records repeated `view_form`, first `start_form`, `complete_form`, and `decline_form` events with request IP/user-agent metadata.
+- Signature request email links now include a DocuSeal-style signed `t` tracking param; visiting `/s/:slug?t=...` records `click_email` before the normal `view_form` event.
+- API-created and API-updated completed submitters now include request IP/user-agent metadata on `api_complete_form` events.
+- Remaining gap: SMS clicks/sends, reminders, provider opens/bounces, delegation, identity verification/KBA, and payment events depend on their pending subsystems.
 
 #### GET `/submissions/{id}/documents`
 
@@ -181,9 +265,12 @@ Behavior from Rails:
 
 Signa status:
 
-- Implemented current template/backing-template document URL response.
-- Pending: generated prefilled preview PDFs, final signed PDFs, merge support, and caching generated submission documents.
-- This endpoint is intentionally marked `Partial` until generated preview/result/merged documents are implemented.
+- Implemented DocuSeal-style lazy generated documents:
+  - pending submissions generate prefilled preview PDFs from current field default values and submitter values;
+  - completed submissions generate result PDFs attached to the last completed submitter;
+  - `merge=true` generates and caches preview/result merged PDFs on the submission;
+  - generated outputs are stored through the existing ActiveStorage-compatible local storage layer.
+- Remaining gap: generated PDFs are stamped/serialized with the currently supported Signa field set; advanced DocuSeal rendering details such as exact font/layout parity, PDF/A, cryptographic signing, LTV, timestamp server integration, and HexaPDF edge cases remain pending.
 
 #### POST `/submissions`
 
@@ -226,10 +313,15 @@ Behavior from Rails:
 
 Signa status:
 
-- Implemented single-submission creation from an existing template.
-- Preserves tenant scoping, template archived/fieldless validation, submitter role matching, multi-role submitter merge, send-email/send-SMS preferences, sent timestamp behavior, values, metadata, field overrides/default values, completion timestamp, and `api_complete_form` event persistence.
+- Implemented submission creation from an existing template, including the DocuSeal `/submissions/init` wrapper response and nested `/templates/{id}/submissions` alias.
+- Preserves tenant scoping, template archived/fieldless validation, submitter role matching, multi-role submitter merge, send-email/send-SMS preferences, values, metadata, field overrides/default values, completion timestamp, and `api_complete_form` event persistence.
+- API submitter values are normalized through a DocuSeal-style submitter value normalizer before persistence. Values can be keyed by field UUID, field name, or parameterized field name; attachment-backed field values (`signature`, `initials`, `image`, `file`, `stamp`) support HTTPS URL ingestion, base64/data URI ingestion, short typed signature/initials text converted to PNG, and arrays for multi-file fields.
+- Normalized API attachment values are persisted as submitter attachments and submitter values are replaced with attachment UUIDs, matching DocuSeal's `NormalizeParamUtils`/`NormalizeValues` flow.
+- `send_email=true` now emits a queued signature-request email event; `sent_at` is set only after the mail processor successfully delivers and records `send_email`, matching DocuSeal's send job semantics.
 - Returns DocuSeal-style submitter responses with `embed_src`.
-- Pending: multiple submissions in one request, webhook enqueueing, real email/SMS dispatch, and submitter completion processing.
+- Email-list creation is implemented through `POST /api/submissions/emails`; each email creates an individual submission and reuses the existing queued signature-request flow.
+- Pending: complex multi-submission payload arrays beyond email-list aliases, webhook enqueueing, SMS dispatch, and full delivery/provider-event persistence.
+- Runtime foundations for webhook/email/SMS side effects now exist through Nest EventEmitter, BullMQ queues, ScheduleModule, and MailerModule; the first mail processor is implemented, while webhook/SMS processors and delivery persistence remain pending.
 
 #### POST `/submissions/emails`
 
@@ -245,7 +337,7 @@ Body fields:
 Notes:
 
 - This endpoint exists in OpenAPI and Rails as `resources :emails` collection route.
-- Treat as P1 because the main public nav does not list it, but the OpenAPI spec does.
+- Implemented. Accepts `email` or `emails` as a string/list, creates one submission per recipient email, and queues signature request email when enabled.
 
 #### POST `/submissions/pdf`
 
@@ -341,11 +433,11 @@ Behavior:
 
 Submitters are individual signers within a submission.
 
-| Method | Path | Operation | Priority | Status |
-| --- | --- | --- | --- | --- |
-| GET | `/submitters` | List all submitters | P0 | Done |
-| GET | `/submitters/{id}` | Get a submitter | P0 | Done |
-| PUT | `/submitters/{id}` | Update a submitter | P0 | Partial |
+| Method | Path               | Operation           | Priority | Status  |
+| ------ | ------------------ | ------------------- | -------- | ------- |
+| GET    | `/submitters`      | List all submitters | P0       | Done    |
+| GET    | `/submitters/{id}` | Get a submitter     | P0       | Done    |
+| PUT    | `/submitters/{id}` | Update a submitter  | P0       | Partial |
 
 #### GET `/submitters`
 
@@ -382,8 +474,7 @@ Behavior:
 
 Signa status:
 
-- Implemented tenant-scoped retrieval with template, events, values, current template-backed documents, role, preferences, status, and optional `include=fields`.
-- Pending: result document generation before responding for completed submitters.
+- Implemented tenant-scoped retrieval with template, events, values, generated completed documents for completed submitters, role, preferences, status, and optional `include=fields`.
 
 #### PUT `/submitters/{id}`
 
@@ -415,25 +506,27 @@ Signa status:
 
 - Implemented update guards for completed/declined submitters.
 - Implemented email/phone normalization, metadata replacement, values merge, `application_key`/`external_id`, preference updates, readonly field handling, field default/config overrides, API completion timestamp, and `api_complete_form` event persistence.
+- Implemented DocuSeal-style API value normalization for submitter updates, including field-name/parameterized-name lookup, attachment UUID passthrough for already-uploaded submitter attachments, base64/data URI ingestion, HTTPS URL ingestion with localhost/private-network blocking, short typed signature/initials text converted to PNG, and array values for multi-file fields.
+- `send_email=true` emits the queued signature-request email flow; `sent_at` is set by the mail processor after successful delivery.
 - Returns DocuSeal-style payload with `embed_src`, values, role, and current template-backed documents.
-- Pending: attachment value normalization, real email/SMS dispatch, completion processing, and final signed result document generation.
+- Pending: SMS dispatch.
 
 ### Templates
 
 Templates are reusable signing forms with documents, submitters, and fields.
 
-| Method | Path | Operation | Priority | Status |
-| --- | --- | --- | --- | --- |
-| GET | `/templates` | List all templates | P0 | Done |
-| GET | `/templates/{id}` | Get a template | P0 | Done |
-| POST | `/templates/pdf` | Create a template from PDF | P0 | Done |
-| POST | `/templates/docx` | Create a template from Word DOCX | P1 | Todo |
-| POST | `/templates/html` | Create a template from HTML | P1 | Todo |
-| POST | `/templates/{id}/clone` | Clone a template | P1 | Todo |
-| POST | `/templates/merge` | Merge templates | P1 | Todo |
-| PUT | `/templates/{id}` | Update a template | P0 | Done |
-| PUT | `/templates/{id}/documents` | Update template documents | P0 | Done |
-| DELETE | `/templates/{id}` | Archive or permanently delete a template | P0 | Done |
+| Method | Path                        | Operation                                | Priority | Status |
+| ------ | --------------------------- | ---------------------------------------- | -------- | ------ |
+| GET    | `/templates`                | List all templates                       | P0       | Done   |
+| GET    | `/templates/{id}`           | Get a template                           | P0       | Done   |
+| POST   | `/templates/pdf`            | Create a template from PDF               | P0       | Done   |
+| POST   | `/templates/docx`           | Create a template from Word DOCX         | P1       | Todo   |
+| POST   | `/templates/html`           | Create a template from HTML              | P1       | Todo   |
+| POST   | `/templates/{id}/clone`     | Clone a template                         | P1       | Todo   |
+| POST   | `/templates/merge`          | Merge templates                          | P1       | Todo   |
+| PUT    | `/templates/{id}`           | Update a template                        | P0       | Done   |
+| PUT    | `/templates/{id}/documents` | Update template documents                | P0       | Done   |
+| DELETE | `/templates/{id}`           | Archive or permanently delete a template | P0       | Done   |
 
 #### GET `/templates`
 
@@ -644,19 +737,25 @@ Behavior:
 
 These are present in `docuseal/config/routes.rb` but are not part of the public API docs/OpenAPI inventory. Treat them as internal compatibility candidates after the public API is stable.
 
-| Method | Path | Purpose | Priority |
-| --- | --- | --- | --- |
-| GET | `/api/user` | Current API user | P2 |
-| POST | `/api/attachments` | Upload signer/template attachments | P2 |
-| POST | `/api/submitter_email_clicks` | Track email clicks | P2 |
-| POST | `/api/submitter_form_views` | Track form views | P2 |
-| POST | `/api/submissions/init` | Legacy/init submission creation shape | P2 |
-| GET | `/api/templates/{id}/submissions` | List submissions for template | P2 |
-| POST | `/api/templates/{id}/submissions` | Create submission for template nested route | P2 |
-| POST | `/api/tools/merge` | Merge base64 PDFs | P2 |
-| POST | `/api/tools/verify` | Verify PDF signatures/checksum | P2 |
-| GET | `/api/events/form/{type}` | Form webhook event listing | P2 |
-| GET | `/api/events/submission/{type}` | Submission webhook event listing | P2 |
+| Method | Path                              | Purpose                                     | Priority | Status |
+| ------ | --------------------------------- | ------------------------------------------- | -------- | ------ |
+| GET    | `/api/user`                       | Current API user                            | P2       | Done   |
+| POST   | `/api/attachments`                | Upload signer/template attachments          | P2       | Done   |
+| POST   | `/api/submitter_email_clicks`     | Track email clicks                          | P2       | Todo   |
+| POST   | `/api/submitter_form_views`       | Track form views                            | P2       | Todo   |
+| POST   | `/api/submissions/init`           | Legacy/init submission creation shape       | P2       | Done   |
+| GET    | `/api/templates/{id}/submissions` | List submissions for template               | P2       | Done   |
+| POST   | `/api/templates/{id}/submissions` | Create submission for template nested route | P2       | Done   |
+| POST   | `/api/tools/merge`                | Merge base64 PDFs                           | P2       | Todo   |
+| POST   | `/api/tools/verify`               | Verify PDF signatures/checksum              | P2       | Todo   |
+| GET    | `/api/events/form/{type}`         | Form webhook event listing                  | P2       | Done   |
+| GET    | `/api/events/submission/{type}`   | Submission webhook event listing            | P2       | Done   |
+
+Implemented dashboard/send compatibility routes:
+
+- `POST /api/submissions/{id}/resend_email`: queues signature-request emails for pending, non-declined submitters with email addresses.
+- `POST /api/submitters/{id}/send_email`: queues a signature-request email for one pending submitter.
+- `POST /api/send_submission_email`: queues a completed documents-copy email for a completed submitter selected by submitter slug, or by submission/template slug plus email.
 
 ## Webhooks To Model Later
 
@@ -718,7 +817,7 @@ DocuSeal parity target:
 - `GET /s/:slug` renders a public submitter signing form.
 - Signer pages render pre-generated document preview images, overlay fields for the current submitter, allow decline/download where account/template preferences permit, and complete the submitter when all required values are present.
 - Signature capture supports drawing, typing, and image upload. DocuSeal uses `signature_pad`; Signa uses `react-signature-canvas`, a typed React wrapper around `signature_pad`, plus a local signature-like font for typed signatures.
-- Completion stores signer values, signature attachments, and a completion event, then later result generation stamps/serializes values into final PDFs and audit trails.
+- Completion stores signer values, signature attachments, and a completion event, then synchronously processes generated result PDFs, completed document checksums, completion tracking records, and audit trail artifacts.
 
 Current Signa implementation:
 
@@ -727,13 +826,11 @@ Current Signa implementation:
 - `PUT /api/signing/:slug/values` saves in-progress signer values.
 - `POST /api/signing/:slug/complete` validates required values and marks the submitter completed.
 - `POST /api/signing/:slug/decline` marks the submitter declined.
-- `GET /api/signing/:slug/download` returns current document URLs until final signed result generation is implemented.
+- `GET /api/signing/:slug/download` returns generated completed result PDFs once the submitter has completed, and falls back to current template documents before completion.
 
 Remaining parity gaps:
 
-- Final signed PDF stamping/flattening.
-- Audit trail and combined-document generation.
-- Completed-result download URLs.
+- HexaPDF/PDFium-grade final PDF flattening, annotation preservation, exact typography/layout parity, cryptographic signing, LTV, PDF/A, and timestamp server support.
 - Full DocuSeal signer field widget coverage, signing order enforcement, signing reason prompts, signer authentication, delegation, and resubmission rules.
 
 ### Template Email Preferences
@@ -757,9 +854,33 @@ Current Signa implementation:
 
 Remaining parity gaps:
 
-- Real notification dispatch is not wired yet.
-- Email queues, SMTP/provider adapters, retry state, delivery events, and click/open tracking are pending.
+- Mail queue dispatch is wired for submitter invitation, submitter verification, completed notification, documents copy, and declined emails.
+- Signature request email click tracking is implemented through signed public signing URLs and `submission_events.click_email`.
+- Email delivery persistence, provider-specific opens/bounces, reminders, and `EmailMessage`/`EmailEvent` tables are pending.
 - Account-level email defaults and inheritance need to be reconciled when the notification module is implemented.
+
+### Runtime Utility Foundation
+
+Implemented:
+
+- Nest ScheduleModule for future expiry/cleanup jobs.
+- Nest EventEmitterModule for local lifecycle events that map to DocuSeal Sidekiq-triggered workflows.
+- BullMQ root configuration with Redis URL, queue prefix, retry/backoff, and retention defaults.
+- Bull Board setup guarded by `BULL_BOARD_ENABLED` and basic auth.
+- Nest MailerModule SMTP/Handlebars setup for submitter/user/account mailers.
+- Reserved queues:
+  - `document-generation`
+  - `mail`
+  - `webhooks`
+  - `sms`
+  - `maintenance`
+
+Pending:
+
+- Queue processors for document generation, webhooks, SMS, and maintenance jobs.
+- Webhook URL/event/attempt persistence and signed delivery.
+- Mail delivery status persistence and SMS delivery orchestration.
+- Scheduler handlers for submission expiry and cleanup.
 
 ### Risk Areas
 

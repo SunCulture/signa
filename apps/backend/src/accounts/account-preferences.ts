@@ -5,10 +5,29 @@ export type AccountPreferenceKey = keyof AccountPreferencesResponseDto;
 export type AccountPreferenceDefinition = {
   property: AccountPreferenceKey;
   key: string;
-  defaultValue: boolean;
+  defaultValue: unknown;
 };
 
 export const accountPreferenceDefinitions = [
+  {
+    property: 'receive_completed_email',
+    key: 'receive_completed_email',
+    defaultValue: true,
+  },
+  {
+    property: 'bcc_emails',
+    key: 'bcc_emails',
+    defaultValue: '',
+  },
+  {
+    property: 'submitter_reminders',
+    key: 'submitter_reminders',
+    defaultValue: {
+      first_duration: null,
+      second_duration: null,
+      third_duration: null,
+    },
+  },
   {
     property: 'force_mfa',
     key: 'force_mfa',

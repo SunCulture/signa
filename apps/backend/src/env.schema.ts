@@ -29,7 +29,64 @@ const validationSchema = Joi.object({
   CACHE_NAMESPACE: Joi.string().default('signa-cache'),
   CACHE_TTL_MS: Joi.number().integer().min(0).default(3_600_000),
 
+  QUEUE_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  QUEUE_REDIS_URL: Joi.string()
+    .uri({ scheme: ['redis', 'rediss'] })
+    .allow('')
+    .optional(),
+  QUEUE_PREFIX: Joi.string().default('signa'),
+  QUEUE_DEFAULT_ATTEMPTS: Joi.number().integer().min(1).default(3),
+  QUEUE_BACKOFF_MS: Joi.number().integer().min(0).default(5000),
+  QUEUE_REMOVE_ON_COMPLETE: Joi.number().integer().min(0).default(1000),
+  QUEUE_REMOVE_ON_FAIL: Joi.number().integer().min(0).default(5000),
+
+  BULL_BOARD_ENABLED: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .default(false),
+  BULL_BOARD_ROUTE: Joi.string().default('/queues'),
+  BULL_BOARD_USER: Joi.string().default('admin'),
+  BULL_BOARD_PASS: Joi.when('BULL_BOARD_ENABLED', {
+    is: true,
+    then: Joi.string().min(12).required(),
+    otherwise: Joi.string().default('change-me'),
+  }),
+
+  MAIL_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  MAIL_HOST: Joi.string().default('localhost'),
+  MAIL_PORT: Joi.number().port().default(1025),
+  MAIL_SECURE: Joi.boolean().truthy('true').falsy('false').default(false),
+  MAIL_AUTH_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  MAIL_USER: Joi.when('MAIL_AUTH_ENABLED', {
+    is: true,
+    then: Joi.string().required(),
+    otherwise: Joi.string().allow('').optional(),
+  }),
+  MAIL_PASS: Joi.when('MAIL_AUTH_ENABLED', {
+    is: true,
+    then: Joi.string().required(),
+    otherwise: Joi.string().allow('').optional(),
+  }),
+  MAIL_FROM_NAME: Joi.string().default('Signa'),
+  MAIL_FROM_ADDRESS: Joi.string().email().default('no-reply@signa.local'),
+  MAIL_REPLY_TO: Joi.string().email().allow('').optional(),
+  MAIL_TEMPLATE_DIR: Joi.string().allow('').optional(),
+  MAIL_LOGO_URL: Joi.string().uri().allow('').optional(),
+  MAIL_ASSET_BASE_URL: Joi.string().uri().allow('').optional(),
+  MAIL_TLS_REJECT_UNAUTHORIZED: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .default(false),
+
+  WEBHOOK_TIMEOUT_MS: Joi.number().integer().min(1000).default(10_000),
+  WEBHOOK_MAX_ATTEMPTS: Joi.number().integer().min(1).default(8),
+  WEBHOOK_BACKOFF_MS: Joi.number().integer().min(1000).default(30_000),
+
   STORAGE_PATH: Joi.string().default('storage'),
+  ATTACHMENT_INGEST_MAX_BYTES: Joi.number()
+    .integer()
+    .min(1)
+    .default(10 * 1024 * 1024),
   PDF_PREVIEW_MAX_PAGES: Joi.number().integer().min(1).default(15),
   PDF_PREVIEW_MAX_WIDTH: Joi.number().integer().min(300).default(1400),
   HEALTH_HEAP_LIMIT_MB: Joi.number().integer().min(64).default(512),
@@ -49,6 +106,10 @@ const validationSchema = Joi.object({
 
   THROTTLE_TTL_MS: Joi.number().integer().min(1_000).default(60_000),
   THROTTLE_LIMIT: Joi.number().integer().min(1).default(120),
+
+  TWILIO_ACCOUNT_SID: Joi.string().allow('').optional(),
+  TWILIO_AUTH_TOKEN: Joi.string().allow('').optional(),
+  TWILIO_VERIFY_SERVICE_SID: Joi.string().allow('').optional(),
 });
 
 export default validationSchema;

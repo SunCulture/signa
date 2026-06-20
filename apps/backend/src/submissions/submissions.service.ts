@@ -1,5 +1,6 @@
 import { Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, extname } from 'node:path';
@@ -7,10 +8,12 @@ import {
   Brackets,
   DataSource,
   EntityManager,
+  ObjectLiteral,
   Repository,
   SelectQueryBuilder,
 } from 'typeorm';
 import { throwDatabaseErrors, throwIfNotFound } from '../common/utils/error';
+import { runtimeEvents } from '../runtime/runtime-events';
 import { StorageService } from '../storage/storage.service';
 import { UploadedBufferFile } from '../storage/storage.types';
 import { Submitter } from '../submitters/entities/submitter.entity';
@@ -24,11 +27,16 @@ import {
 import { User } from '../users/entities/user.entity';
 import { CreateSubmissionFromPdfDto } from './dto/create-submission-from-pdf.dto';
 import {
+  CreateSubmissionAliasDto,
   CreateSubmissionDto,
   CreateSubmissionSubmitterDto,
 } from './dto/create-submission.dto';
 import { DeleteSubmissionQueryDto } from './dto/delete-submission-query.dto';
+import { EventFeedResponseDto } from './dto/event-feed-response.dto';
 import { ListSubmissionsQueryDto } from './dto/list-submissions-query.dto';
+import { SendEmailResponseDto } from './dto/send-email-response.dto';
+import { SubmissionEventLogResponseDto } from './dto/submission-event-log-response.dto';
+import { SubmissionInitResponseDto } from './dto/submission-init-response.dto';
 import {
   SubmissionDeleteResponseDto,
   SubmissionDocumentResponseDto,
@@ -40,6 +48,13 @@ import {
 } from './dto/submission-response.dto';
 import { SubmissionEvent } from './entities/submission-event.entity';
 import { Submission } from './entities/submission.entity';
+import {
+  buildSubmissionEventData,
+  type SubmissionRequestMetadata,
+} from './submission-event-data';
+import { buildSubmissionEventLog } from './submission-event-log.mapper';
+import { SubmissionDocumentsService } from './submission-documents.service';
+import { SubmitterValueNormalizer } from './submitter-value-normalizer.service';
 
 @Injectable()
 export class SubmissionsService {
@@ -57,6 +72,9 @@ export class SubmissionsService {
     private readonly templatesService: TemplatesService,
     private readonly storageService: StorageService,
     private readonly config: ConfigService,
+    private readonly submissionDocumentsService: SubmissionDocumentsService,
+    private readonly events: EventEmitter2,
+    private readonly submitterValueNormalizer: SubmitterValueNormalizer,
   ) {}
 
   async listSubmissions(
@@ -117,10 +135,80 @@ export class SubmissionsService {
     );
   }
 
+  async getSubmissionEvents(
+    user: User,
+    submissionId: string,
+  ): Promise<SubmissionEventLogResponseDto> {
+    const submission = await this.findAccountSubmissionOrFail(
+      user,
+      submissionId,
+      true,
+    );
+
+    return {
+      data: buildSubmissionEventLog(submission),
+    };
+  }
+
   async createSubmission(
     user: User,
     input: CreateSubmissionDto,
+    metadata?: SubmissionRequestMetadata,
   ): Promise<SubmissionSubmitterResponseDto[]> {
+    const submission = await this.createSubmissionRecord(user, input, metadata);
+
+    return this.serializeCreatedSubmitters(submission);
+  }
+
+  async createSubmissionFromAlias(
+    user: User,
+    input: CreateSubmissionAliasDto,
+    metadata?: SubmissionRequestMetadata,
+  ): Promise<SubmissionSubmitterResponseDto[]> {
+    const submissions = await this.createSubmissionRecordsFromAlias(
+      user,
+      input,
+      metadata,
+    );
+
+    return submissions.flatMap((submission) =>
+      this.serializeCreatedSubmitters(submission),
+    );
+  }
+
+  async createSubmissionInit(
+    user: User,
+    input: CreateSubmissionAliasDto,
+    metadata?: SubmissionRequestMetadata,
+  ): Promise<SubmissionInitResponseDto> {
+    const submissions = await this.createSubmissionRecordsFromAlias(
+      user,
+      input,
+      metadata,
+    );
+    const submitters = submissions.flatMap((submission) =>
+      this.serializeCreatedSubmitters(submission),
+    );
+
+    if (submissions.length === 1) {
+      const [submission] = submissions;
+
+      return {
+        id: submission.id,
+        submitters,
+        expire_at: submission.expireAt,
+        created_at: submission.createdAt,
+      };
+    }
+
+    return { submitters };
+  }
+
+  private async createSubmissionRecord(
+    user: User,
+    input: CreateSubmissionDto,
+    metadata?: SubmissionRequestMetadata,
+  ): Promise<Submission> {
     const template = await this.findTemplateForCreate(user, input.template_id);
 
     const submission = await this.persistSubmissionFromTemplate(
@@ -128,8 +216,18 @@ export class SubmissionsService {
       template,
       input,
       true,
+      metadata,
     );
 
+    await this.processInitiallyCompletedSubmitters(submission);
+    this.emitInitialSubmitterInvitations(submission);
+
+    return submission;
+  }
+
+  private serializeCreatedSubmitters(
+    submission: Submission,
+  ): SubmissionSubmitterResponseDto[] {
     return submission.submitters.map((submitter) =>
       this.toSubmitterResponse(submitter, submission, {
         includeValues: true,
@@ -139,10 +237,55 @@ export class SubmissionsService {
     );
   }
 
+  private async createSubmissionRecordsFromAlias(
+    user: User,
+    input: CreateSubmissionAliasDto,
+    metadata?: SubmissionRequestMetadata,
+  ): Promise<Submission[]> {
+    if (!input.template_id) {
+      throw new UnprocessableEntityException({ error: 'Template not found' });
+    }
+
+    const emails = parseEmailList(input.emails ?? input.email);
+
+    if (emails.length && !input.submitters?.length) {
+      const submissions: Submission[] = [];
+
+      for (const email of emails) {
+        submissions.push(
+          await this.createSubmissionRecord(
+            user,
+            {
+              ...input,
+              template_id: input.template_id,
+              submitters: [{ email }],
+            },
+            metadata,
+          ),
+        );
+      }
+
+      return submissions;
+    }
+
+    return [
+      await this.createSubmissionRecord(
+        user,
+        {
+          ...input,
+          template_id: input.template_id,
+          submitters: input.submitters ?? [],
+        },
+        metadata,
+      ),
+    ];
+  }
+
   async createSubmissionFromPdf(
     user: User,
     input: CreateSubmissionFromPdfDto,
     multipartFiles?: Record<string, UploadedBufferFile[]>,
+    metadata?: SubmissionRequestMetadata,
   ): Promise<SubmissionSubmitterResponseDto[]> {
     const template = await this.templatesService.createBackingTemplateFromPdf(
       user,
@@ -157,15 +300,20 @@ export class SubmissionsService {
       multipartFiles,
     );
 
-    return this.createSubmission(user, {
-      ...input,
-      template_id: template.id,
-    });
+    return this.createSubmission(
+      user,
+      {
+        ...input,
+        template_id: template.id,
+      },
+      metadata,
+    );
   }
 
   async getSubmissionDocuments(
     user: User,
     submissionId: string,
+    options: { merge?: boolean } = {},
   ): Promise<SubmissionDocumentsResponseDto> {
     const submission = await this.findAccountSubmissionOrFail(
       user,
@@ -175,8 +323,172 @@ export class SubmissionsService {
 
     return {
       id: submission.id,
-      documents: await this.serializeSubmissionDocuments(submission),
+      documents: await this.serializeGeneratedSubmissionDocuments(
+        submission,
+        options,
+      ),
     };
+  }
+
+  async listFormEvents(
+    user: User,
+    type: string,
+    query: EventFeedQuery,
+  ): Promise<EventFeedResponseDto> {
+    const eventType = `form.${type}`;
+    const builder = this.submitters
+      .createQueryBuilder('submitter')
+      .leftJoinAndSelect('submitter.submission', 'submission')
+      .leftJoinAndSelect('submission.template', 'template')
+      .leftJoinAndSelect('template.folder', 'templateFolder')
+      .leftJoinAndSelect('templateFolder.parentFolder', 'parentFolder')
+      .leftJoinAndSelect('submission.submitters', 'submissionSubmitter')
+      .where('submitter.account_id = :accountId', {
+        accountId: user.accountId,
+      })
+      .andWhere('submitter.completed_at IS NOT NULL');
+
+    applyCompletedAtCursor(builder, 'submitter.completed_at', query);
+
+    const submitters = await builder
+      .orderBy('submitter.completed_at', 'DESC')
+      .limit(this.parseEventLimit(query.limit))
+      .getMany();
+
+    return {
+      data: await Promise.all(
+        submitters.map(async (submitter) => ({
+          event_type: eventType,
+          timestamp: submitter.completedAt!,
+          data: await this.toSubmitterWebhookData(submitter),
+        })),
+      ),
+      pagination: buildTimestampPagination(
+        submitters.map((submitter) => submitter.completedAt),
+      ),
+    };
+  }
+
+  async listSubmissionEvents(
+    user: User,
+    type: string,
+    query: EventFeedQuery,
+  ): Promise<EventFeedResponseDto> {
+    const eventType = `submission.${type}`;
+    const builder = this.submissions
+      .createQueryBuilder('submission')
+      .leftJoinAndSelect('submission.submitters', 'submitter')
+      .leftJoinAndSelect('submission.template', 'template')
+      .leftJoinAndSelect('template.folder', 'templateFolder')
+      .leftJoinAndSelect('submission.createdByUser', 'createdByUser')
+      .where('submission.account_id = :accountId', {
+        accountId: user.accountId,
+      })
+      .andWhere(
+        'NOT EXISTS (SELECT 1 FROM submitters pending_submitter WHERE pending_submitter.submission_id = submission.id AND pending_submitter.completed_at IS NULL)',
+      )
+      .andWhere(
+        'EXISTS (SELECT 1 FROM submitters completed_submitter WHERE completed_submitter.submission_id = submission.id AND completed_submitter.completed_at IS NOT NULL)',
+      )
+      .addSelect(
+        '(SELECT MAX(event_submitter.completed_at) FROM submitters event_submitter WHERE event_submitter.submission_id = submission.id)',
+        'completed_at_cursor',
+      );
+
+    applyCompletedAtCursor(
+      builder,
+      '(SELECT MAX(cursor_submitter.completed_at) FROM submitters cursor_submitter WHERE cursor_submitter.submission_id = submission.id)',
+      query,
+    );
+
+    const { entities, raw } = await builder
+      .orderBy('completed_at_cursor', 'DESC')
+      .limit(this.parseEventLimit(query.limit))
+      .getRawAndEntities();
+    const rows = raw as Array<{ completed_at_cursor?: string | Date | null }>;
+    const timestamps = rows.map((row) => parseDate(row.completed_at_cursor));
+
+    return {
+      data: await Promise.all(
+        entities.map(async (submission, index) => ({
+          event_type: eventType,
+          timestamp: timestamps[index] ?? submission.updatedAt,
+          data: (await this.toSubmissionResponse(submission, {
+            includeDocuments: true,
+            includeEvents: false,
+            includeFields: false,
+            includeValues: true,
+          })) as unknown as Record<string, unknown>,
+        })),
+      ),
+      pagination: buildTimestampPagination(timestamps),
+    };
+  }
+
+  async resendSubmissionEmail(
+    user: User,
+    submissionId: string,
+  ): Promise<SendEmailResponseDto> {
+    const submission = await this.findAccountSubmissionOrFail(
+      user,
+      submissionId,
+      true,
+    );
+    const submitters = (submission.submitters ?? []).filter(
+      isPendingEmailCandidate,
+    );
+
+    this.emitSubmitterInvitations(submitters);
+
+    return buildQueuedEmailResponse(submitters.length);
+  }
+
+  async sendSubmitterEmail(
+    user: User,
+    submitterId: string,
+  ): Promise<SendEmailResponseDto> {
+    const submitter = await this.submitters.findOne({
+      where: {
+        id: submitterId,
+        accountId: user.accountId,
+      },
+      relations: {
+        submission: {
+          template: true,
+          submitters: true,
+        },
+      },
+    });
+
+    if (!submitter) {
+      throw new UnprocessableEntityException({ error: 'Submitter not found' });
+    }
+
+    const submitters = isPendingEmailCandidate(submitter) ? [submitter] : [];
+
+    this.emitSubmitterInvitations(submitters);
+
+    return buildQueuedEmailResponse(submitters.length);
+  }
+
+  async sendCompletedSubmissionEmail(input: {
+    email?: string;
+    submissionSlug?: string;
+    submitterSlug?: string;
+    templateSlug?: string;
+  }): Promise<SendEmailResponseDto> {
+    const submitter = await this.findCompletedSubmitterForEmail(input);
+
+    if (!submitter) {
+      throw new UnprocessableEntityException({ error: 'Submitter not found' });
+    }
+
+    this.events.emit(runtimeEvents.submitterDocumentsCopyRequested, {
+      submitterId: submitter.id,
+      accountId: submitter.accountId,
+    });
+
+    return buildQueuedEmailResponse(1);
   }
 
   async deleteSubmission(
@@ -220,10 +532,37 @@ export class SubmissionsService {
     template: Template,
     input: CreateSubmissionDto,
     withTemplate: boolean,
+    metadata?: SubmissionRequestMetadata,
   ): Promise<Submission> {
     return this.dataSource.transaction(async (manager) => {
       const resolution = this.resolveSubmitters(template, input);
-      const resolvedSubmitters = resolution.submitters;
+      const normalizedSubmitters = await Promise.all(
+        resolution.submitters.map(async (resolved) => {
+          const normalized =
+            await this.submitterValueNormalizer.normalizeCreateInput({
+              templateFields: resolution.templateFields,
+              submitterInput: resolved.input,
+              submitterUuid: resolved.uuid,
+            });
+
+          return {
+            resolved: {
+              ...resolved,
+              input: normalized.input,
+            },
+            pendingAttachments: normalized.pendingAttachments,
+          };
+        }),
+      );
+      const resolvedSubmitters = normalizedSubmitters.map(
+        (item) => item.resolved,
+      );
+      const pendingAttachmentsBySubmitterUuid = new Map(
+        normalizedSubmitters.map((item) => [
+          item.resolved.uuid,
+          item.pendingAttachments,
+        ]),
+      );
       const templateSubmitters = resolvedSubmitters.map(
         ({ templateSubmitter, input: submitterInput }) => ({
           ...templateSubmitter,
@@ -262,25 +601,24 @@ export class SubmissionsService {
 
       const savedSubmitters: Submitter[] = [];
 
-      for (const [index, resolved] of resolvedSubmitters.entries()) {
+      for (const resolved of resolvedSubmitters) {
         const submitter = await manager
           .getRepository(Submitter)
           .save(
             manager
               .getRepository(Submitter)
               .create(
-                this.buildSubmitterEntity(
-                  user,
-                  submission,
-                  resolved,
-                  input,
-                  order,
-                  index,
-                ),
+                this.buildSubmitterEntity(user, submission, resolved, input),
               ),
           );
 
         savedSubmitters.push(submitter);
+        submitter.submission = submission;
+
+        await this.submitterValueNormalizer.persistPendingAttachments(
+          submitter,
+          pendingAttachmentsBySubmitterUuid.get(resolved.uuid) ?? [],
+        );
 
         if (submitter.completedAt) {
           await this.createSubmissionEvent(
@@ -289,6 +627,7 @@ export class SubmissionsService {
             submission.id,
             submitter.id,
             'api_complete_form',
+            metadata,
           );
         }
       }
@@ -308,6 +647,7 @@ export class SubmissionsService {
     submissionId: string,
     submitterId: string,
     eventType: string,
+    metadata?: SubmissionRequestMetadata,
   ): Promise<void> {
     await manager.getRepository(SubmissionEvent).save(
       manager.getRepository(SubmissionEvent).create({
@@ -316,9 +656,21 @@ export class SubmissionsService {
         submitterId,
         eventType,
         eventTimestamp: new Date(),
-        data: {},
+        data: buildSubmissionEventData(metadata),
       }),
     );
+  }
+
+  private async processInitiallyCompletedSubmitters(
+    submission: Submission,
+  ): Promise<void> {
+    for (const submitter of submission.submitters ?? []) {
+      if (submitter.completedAt) {
+        await this.submissionDocumentsService.processSubmitterCompletion(
+          submitter,
+        );
+      }
+    }
   }
 
   private async findTemplateForCreate(
@@ -781,12 +1133,9 @@ export class SubmissionsService {
     submission: Submission,
     resolved: ResolvedSubmitter,
     input: CreateSubmissionDto,
-    order: string,
-    index: number,
   ): Partial<Submitter> {
     const sendEmail = resolved.input.send_email ?? input.send_email ?? true;
     const sendSms = resolved.input.send_sms ?? input.send_sms ?? false;
-    const isOrderSent = order === 'random' || index === 0;
     const values = resolved.input.values ?? {};
 
     return {
@@ -815,8 +1164,7 @@ export class SubmissionsService {
           : {}),
         ...(Object.keys(values).length ? { default_values: values } : {}),
       },
-      sentAt:
-        sendEmail && resolved.input.email && isOrderSent ? new Date() : null,
+      sentAt: null,
       openedAt: null,
       declinedAt: null,
       timezone: null,
@@ -951,7 +1299,7 @@ export class SubmissionsService {
                 id: 'ASC',
               },
               submissionEvents: {
-                id: 'ASC',
+                eventTimestamp: 'ASC',
               },
             }
           : undefined,
@@ -987,8 +1335,16 @@ export class SubmissionsService {
       archived_at: submission.archivedAt,
       status,
       completed_at: completedAt,
-      audit_log_url: null,
-      combined_document_url: null,
+      audit_log_url:
+        status === 'completed' && options.includeDocuments
+          ? await this.submissionDocumentsService.getAuditTrailUrl(submission)
+          : null,
+      combined_document_url:
+        status === 'completed' && options.includeDocuments
+          ? await this.submissionDocumentsService.getCombinedDocumentUrl(
+              submission,
+            )
+          : null,
       variables: submission.variables ?? {},
       submitters: submitters.map((submitter) =>
         this.toSubmitterResponse(submitter, submission, {
@@ -1023,7 +1379,10 @@ export class SubmissionsService {
           }
         : {}),
       ...(options.includeDocuments
-        ? { documents: await this.serializeSubmissionDocuments(submission) }
+        ? {
+            documents:
+              await this.serializeGeneratedSubmissionDocuments(submission),
+          }
         : {}),
       ...(options.includeFields
         ? {
@@ -1112,6 +1471,99 @@ export class SubmissionsService {
     return 'awaiting';
   }
 
+  private emitInitialSubmitterInvitations(submission: Submission): void {
+    for (const submitter of this.getInitiallyInvitedSubmitters(submission)) {
+      this.events.emit(runtimeEvents.submitterInvitationRequested, {
+        submitterId: submitter.id,
+        accountId: submitter.accountId,
+      });
+    }
+  }
+
+  private getInitiallyInvitedSubmitters(submission: Submission): Submitter[] {
+    const submitters = submission.submitters ?? [];
+
+    if (submission.submittersOrder === 'random') {
+      return submitters.filter(isEmailInvitationCandidate);
+    }
+
+    const [firstSubmitter] = submitters.filter(isEmailInvitationCandidate);
+
+    return firstSubmitter ? [firstSubmitter] : [];
+  }
+
+  private emitSubmitterInvitations(submitters: Submitter[]): void {
+    for (const submitter of submitters) {
+      this.events.emit(runtimeEvents.submitterInvitationRequested, {
+        submitterId: submitter.id,
+        accountId: submitter.accountId,
+      });
+    }
+  }
+
+  private parseEventLimit(limit: string | undefined): number {
+    return Math.min(Number(limit) || this.defaultLimit, this.maxLimit);
+  }
+
+  private async toSubmitterWebhookData(
+    submitter: Submitter,
+  ): Promise<Record<string, unknown>> {
+    return {
+      id: submitter.id,
+      submission_id: submitter.submissionId,
+      uuid: submitter.uuid,
+      email: submitter.email,
+      slug: submitter.slug,
+      name: submitter.name,
+      phone: submitter.phone,
+      completed_at: submitter.completedAt,
+      values: this.serializeSubmitterValues(submitter, submitter.submission),
+      documents: await this.serializeGeneratedSubmissionDocuments(
+        submitter.submission,
+      ),
+      role: this.findSubmitterRole(submitter, submitter.submission),
+      metadata: submitter.metadata ?? {},
+      status: this.buildSubmitterStatus(submitter),
+    };
+  }
+
+  private async findCompletedSubmitterForEmail(input: {
+    email?: string;
+    submissionSlug?: string;
+    submitterSlug?: string;
+    templateSlug?: string;
+  }): Promise<Submitter | null> {
+    const email = normalizeEmail(input.email);
+    const builder = this.submitters
+      .createQueryBuilder('submitter')
+      .leftJoinAndSelect('submitter.submission', 'submission')
+      .leftJoinAndSelect('submission.template', 'template')
+      .leftJoinAndSelect('submission.submitters', 'submissionSubmitter')
+      .where('submitter.completed_at IS NOT NULL');
+
+    if (input.submitterSlug) {
+      builder.andWhere('submitter.slug = :submitterSlug', {
+        submitterSlug: input.submitterSlug,
+      });
+    } else if (input.submissionSlug && email) {
+      builder
+        .andWhere('submission.slug = :submissionSlug', {
+          submissionSlug: input.submissionSlug,
+        })
+        .andWhere('LOWER(submitter.email) = :email', { email });
+    } else if (input.templateSlug && email) {
+      builder
+        .andWhere('template.slug = :templateSlug', {
+          templateSlug: input.templateSlug,
+        })
+        .andWhere('LOWER(submitter.email) = :email', { email });
+    } else {
+      return null;
+    }
+
+    return builder.orderBy('submitter.completed_at', 'DESC').getOne();
+  }
+
   private findSubmitterRole(
     submitter: Submitter,
     submission: Submission,
@@ -1177,6 +1629,22 @@ export class SubmissionsService {
     }));
   }
 
+  private async serializeGeneratedSubmissionDocuments(
+    submission: Submission,
+    options: { merge?: boolean } = {},
+  ): Promise<SubmissionDocumentResponseDto[]> {
+    const attachments =
+      await this.submissionDocumentsService.getSubmissionDocuments(
+        submission,
+        options,
+      );
+
+    return attachments.map((attachment) => ({
+      name: getBaseName(attachment.blob.filename),
+      url: this.storageService.createBlobProxyUrl(attachment.blob),
+    }));
+  }
+
   private buildSubmitterEmbedUrl(submitter: Submitter): string {
     const apiBase = this.config.get<string>(
       'API_PUBLIC_URL',
@@ -1236,12 +1704,117 @@ type SerializeSubmitterOptions = {
   includeUrls: boolean;
 };
 
+type EventFeedQuery = {
+  after?: string;
+  before?: string;
+  limit?: string;
+};
+
 function normalizeEmail(value: string | undefined): string | null {
   return value?.trim().toLowerCase() || null;
 }
 
 function normalizePhone(value: string | undefined): string | null {
   return value?.replace(/[^0-9+]/g, '') || null;
+}
+
+function isEmailInvitationCandidate(submitter: Submitter): boolean {
+  return (
+    !!submitter.email &&
+    !submitter.completedAt &&
+    !submitter.declinedAt &&
+    submitter.preferences?.send_email !== false
+  );
+}
+
+function isPendingEmailCandidate(submitter: Submitter): boolean {
+  return (
+    isEmailInvitationCandidate(submitter) &&
+    !submitter.submission?.archivedAt &&
+    !submitter.submission?.template?.archivedAt
+  );
+}
+
+function buildQueuedEmailResponse(count: number): SendEmailResponseDto {
+  return {
+    count,
+    message: count === 0 ? 'Email has been sent already' : 'Email queued',
+  };
+}
+
+function parseEmailList(value: string[] | string | undefined): string[] {
+  const values = Array.isArray(value) ? value : [value ?? ''];
+
+  return values
+    .flatMap((item) => item.split(/[\s,;]+/))
+    .map((item) => normalizeEmail(item))
+    .filter((item): item is string => !!item)
+    .filter((item, index, items) => items.indexOf(item) === index);
+}
+
+function applyCompletedAtCursor<T extends ObjectLiteral>(
+  builder: SelectQueryBuilder<T>,
+  column: string,
+  query: EventFeedQuery,
+): void {
+  const after = parseUnixTimestamp(query.after);
+  const before = parseUnixTimestamp(query.before);
+
+  if (after) {
+    builder.andWhere(`${column} < :afterCompletedAt`, {
+      afterCompletedAt: after,
+    });
+  }
+
+  if (before) {
+    builder.andWhere(`${column} > :beforeCompletedAt`, {
+      beforeCompletedAt: before,
+    });
+  }
+}
+
+function buildTimestampPagination(timestamps: Array<Date | null | undefined>): {
+  count: number;
+  next: number | null;
+  prev: number | null;
+} {
+  const normalized = timestamps.filter((date): date is Date => !!date);
+  const next = normalized.at(-1) ?? null;
+  const prev = normalized[0] ?? null;
+
+  return {
+    count: timestamps.length,
+    next: next ? Math.floor(next.getTime() / 1000) : null,
+    prev: prev ? Math.floor(prev.getTime() / 1000) : null,
+  };
+}
+
+function parseUnixTimestamp(value: string | undefined): Date | null {
+  if (!value) {
+    return null;
+  }
+
+  const timestamp = Number(value);
+
+  return Number.isFinite(timestamp) ? new Date(timestamp * 1000) : null;
+}
+
+function parseDate(value: unknown): Date | null {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  if (typeof value !== 'string' && typeof value !== 'number') {
+    return null;
+  }
+
+  const date = new Date(String(value));
+
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function getBaseName(filename: string): string {

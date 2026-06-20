@@ -59,6 +59,7 @@ export class StorageService implements OnModuleDestroy {
         recordId: input.recordId,
         blobId: blob.id,
         blob,
+        ...(input.uuid ? { uuid: input.uuid } : {}),
       }),
     );
 

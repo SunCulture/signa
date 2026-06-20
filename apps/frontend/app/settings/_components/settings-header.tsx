@@ -35,7 +35,7 @@ export function SettingsHeader() {
         <span className="text-[var(--auth-primary)]/70">|</span>
         <Link
           className="flex items-center gap-2 transition-colors hover:text-[var(--auth-primary)]"
-          href="/settings/profile"
+          href="/settings/account"
         >
           <SettingsIcon data-icon="inline-start" />
           Settings

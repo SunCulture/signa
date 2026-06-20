@@ -17,12 +17,16 @@ import {
   ApiSecurity,
   ApiTags,
 } from '@nestjs/swagger';
-import { AdminGuard } from '../auth/guards/admin/admin.guard';
 import { ApiTokenGuard } from '../auth/guards/api-token/api-token.guard';
 import { JwtGuard } from '../auth/guards/jwt/jwt.guard';
 import { UserHydrationGuard } from '../auth/guards/user-hydration/user-hydration.guard';
+import { AuthorizationAction } from '../authorization/authorization-actions';
+import { CheckPolicies } from '../authorization/check-policies.decorator';
+import { PoliciesGuard } from '../authorization/policies.guard';
 import { CurrentUser } from '../common/decorators/user.decorator';
 import { CreateUserDto } from './dto/create-user.dto';
+import { ImportUsersDto } from './dto/import-users.dto';
+import { ImportUsersResponseDto } from './dto/import-users-response.dto';
 import { UpdatePasswordDto } from './dto/update-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -91,7 +95,8 @@ export class UsersController {
   }
 
   @Get('users')
-  @UseGuards(JwtGuard, UserHydrationGuard, AdminGuard)
+  @UseGuards(JwtGuard, UserHydrationGuard, PoliciesGuard)
+  @CheckPolicies((ability) => ability.can(AuthorizationAction.Manage, 'User'))
   @ApiBearerAuth()
   @ApiQuery({ name: 'status', required: false, enum: ['active', 'archived'] })
   @ApiOkResponse({ type: UserResponseDto, isArray: true })
@@ -106,7 +111,8 @@ export class UsersController {
   }
 
   @Post('users')
-  @UseGuards(JwtGuard, UserHydrationGuard, AdminGuard)
+  @UseGuards(JwtGuard, UserHydrationGuard, PoliciesGuard)
+  @CheckPolicies((ability) => ability.can(AuthorizationAction.Manage, 'User'))
   @ApiBearerAuth()
   @ApiCreatedResponse({ type: UserResponseDto })
   createUser(
@@ -116,8 +122,21 @@ export class UsersController {
     return this.usersService.createUser(user.accountId, body);
   }
 
+  @Post('users/import')
+  @UseGuards(JwtGuard, UserHydrationGuard, PoliciesGuard)
+  @CheckPolicies((ability) => ability.can(AuthorizationAction.Manage, 'User'))
+  @ApiBearerAuth()
+  @ApiCreatedResponse({ type: ImportUsersResponseDto })
+  importUsers(
+    @CurrentUser() user: User,
+    @Body() body: ImportUsersDto,
+  ): Promise<ImportUsersResponseDto> {
+    return this.usersService.importUsers(user.accountId, body);
+  }
+
   @Patch('users/:id')
-  @UseGuards(JwtGuard, UserHydrationGuard, AdminGuard)
+  @UseGuards(JwtGuard, UserHydrationGuard, PoliciesGuard)
+  @CheckPolicies((ability) => ability.can(AuthorizationAction.Manage, 'User'))
   @ApiBearerAuth()
   @ApiOkResponse({ type: UserResponseDto })
   updateUser(
@@ -134,7 +153,8 @@ export class UsersController {
   }
 
   @Delete('users/:id')
-  @UseGuards(JwtGuard, UserHydrationGuard, AdminGuard)
+  @UseGuards(JwtGuard, UserHydrationGuard, PoliciesGuard)
+  @CheckPolicies((ability) => ability.can(AuthorizationAction.Manage, 'User'))
   @ApiBearerAuth()
   @ApiOkResponse({ type: UserResponseDto })
   archiveUser(

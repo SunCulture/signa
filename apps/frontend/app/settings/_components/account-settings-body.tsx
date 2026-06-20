@@ -60,11 +60,17 @@ type AccountFormState = {
 
 type PreferenceItem = {
   description?: string
-  key: keyof AccountPreferences
+  key: BooleanAccountPreferenceKey
   label: string
   mark?: string
   tooltip: string
 }
+
+type BooleanAccountPreferenceKey = {
+  [Key in keyof AccountPreferences]: AccountPreferences[Key] extends boolean
+    ? Key
+    : never
+}[keyof AccountPreferences]
 
 const timezones = [
   { label: "(GMT+03:00) Nairobi", value: "Africa/Nairobi" },

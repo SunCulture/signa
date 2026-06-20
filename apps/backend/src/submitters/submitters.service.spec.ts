@@ -1,5 +1,6 @@
 import { UnprocessableEntityException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
@@ -8,6 +9,8 @@ import { StorageBlob } from '../storage/entities/storage-blob.entity';
 import { StorageService } from '../storage/storage.service';
 import { SubmissionEvent } from '../submissions/entities/submission-event.entity';
 import { Submission } from '../submissions/entities/submission.entity';
+import { SubmissionDocumentsService } from '../submissions/submission-documents.service';
+import { SubmitterValueNormalizer } from '../submissions/submitter-value-normalizer.service';
 import { Template } from '../templates/entities/template.entity';
 import { User } from '../users/entities/user.entity';
 import { Submitter } from './entities/submitter.entity';
@@ -105,6 +108,19 @@ describe('SubmittersService', () => {
             get: jest.fn((_key: string, fallback: unknown) => fallback),
           },
         },
+        {
+          provide: EventEmitter2,
+          useValue: {
+            emit: jest.fn(),
+          },
+        },
+        {
+          provide: SubmissionDocumentsService,
+          useValue: {
+            processSubmitterCompletion: jest.fn(),
+          },
+        },
+        SubmitterValueNormalizer,
       ],
     }).compile();
 

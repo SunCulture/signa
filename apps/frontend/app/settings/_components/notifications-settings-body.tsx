@@ -1,0 +1,290 @@
+"use client"
+
+import type React from "react"
+import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
+import { InfoIcon } from "lucide-react"
+import { toast } from "sonner"
+
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
+  type AccountPreferences,
+  getAccountPreferences,
+  updateAccountPreferences,
+} from "@/lib/api/auth"
+import { ApiError } from "@/lib/api/http"
+import { SettingsSidebar } from "./settings-sidebar"
+
+type NotificationFormState = {
+  bccEmails: string
+  receiveCompletedEmail: boolean
+}
+
+type ReminderKey =
+  | "first_duration"
+  | "second_duration"
+  | "third_duration"
+
+const reminderDurations = [
+  { label: "None", value: "none" },
+  { label: "1 hour", value: "one_hour" },
+  { label: "2 hours", value: "two_hours" },
+  { label: "4 hours", value: "four_hours" },
+  { label: "8 hours", value: "eight_hours" },
+  { label: "12 hours", value: "twelve_hours" },
+  { label: "24 hours", value: "twenty_four_hours" },
+  { label: "2 days", value: "two_days" },
+  { label: "3 days", value: "three_days" },
+  { label: "4 days", value: "four_days" },
+  { label: "5 days", value: "five_days" },
+  { label: "6 days", value: "six_days" },
+  { label: "7 days", value: "seven_days" },
+  { label: "8 days", value: "eight_days" },
+  { label: "15 days", value: "fifteen_days" },
+  { label: "21 days", value: "twenty_one_days" },
+  { label: "30 days", value: "thirty_days" },
+]
+
+export function NotificationsSettingsBody() {
+  return (
+    <div className="flex flex-wrap gap-8 md:flex-nowrap">
+      <SettingsSidebar active="Notifications" />
+      <NotificationsPanel />
+      <div className="hidden w-52 shrink-0 md:block" />
+    </div>
+  )
+}
+
+function NotificationsPanel() {
+  const router = useRouter()
+  const [form, setForm] = useState<NotificationFormState>({
+    bccEmails: "",
+    receiveCompletedEmail: true,
+  })
+  const [reminders, setReminders] = useState({
+    first_duration: null as string | null,
+    second_duration: null as string | null,
+    third_duration: null as string | null,
+  })
+  const [isSavingNotifications, setIsSavingNotifications] = useState(false)
+  const [isSavingReminders, setIsSavingReminders] = useState(false)
+
+  useEffect(() => {
+    getAccountPreferences()
+      .then((preferences) => {
+        setForm(toNotificationForm(preferences))
+        setReminders(preferences.submitter_reminders)
+      })
+      .catch((error: unknown) => {
+        if (error instanceof ApiError && error.status === 401) {
+          router.push("/auth/login")
+          return
+        }
+
+        toast.error("Notification settings could not be loaded", {
+          description: getErrorMessage(error),
+          classNames: { icon: "text-destructive" },
+        })
+      })
+  }, [router])
+
+  async function saveNotifications(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setIsSavingNotifications(true)
+
+    try {
+      const preferences = await updateAccountPreferences({
+        bcc_emails: form.bccEmails,
+        receive_completed_email: form.receiveCompletedEmail,
+      })
+
+      setForm(toNotificationForm(preferences))
+      toast.success("Notification settings saved")
+    } catch (error) {
+      toast.error("Notification settings failed to save", {
+        description: getErrorMessage(error),
+        classNames: { icon: "text-destructive" },
+      })
+    } finally {
+      setIsSavingNotifications(false)
+    }
+  }
+
+  async function saveReminders(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setIsSavingReminders(true)
+
+    try {
+      const preferences = await updateAccountPreferences({
+        submitter_reminders: reminders,
+      })
+
+      setReminders(preferences.submitter_reminders)
+      toast.success("Email reminders saved")
+    } catch (error) {
+      toast.error("Email reminders failed to save", {
+        description: getErrorMessage(error),
+        classNames: { icon: "text-destructive" },
+      })
+    } finally {
+      setIsSavingReminders(false)
+    }
+  }
+
+  function setReminder(key: ReminderKey, value: string) {
+    setReminders((current) => ({
+      ...current,
+      [key]: value === "none" ? null : value,
+    }))
+  }
+
+  return (
+    <section className="w-full max-w-xl">
+      <h1 className="text-4xl font-bold tracking-normal">Email Notifications</h1>
+
+      <form className="mt-5 flex flex-col gap-7" onSubmit={saveNotifications}>
+        <label className="flex items-center justify-between gap-4 text-base">
+          <span>Receive notification emails on completed submission</span>
+          <Switch
+            checked={form.receiveCompletedEmail}
+            onCheckedChange={(value) =>
+              setForm((current) => ({
+                ...current,
+                receiveCompletedEmail: value,
+              }))
+            }
+          />
+        </label>
+
+        <div className="grid gap-2">
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="bcc-emails">
+              Completed documents notification BCC address
+            </Label>
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <InfoIcon className="size-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent>
+                  Send email copy with completed documents to specified BCC
+                  addresses.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+          <Input
+            className="h-12 rounded-full"
+            id="bcc-emails"
+            inputMode="email"
+            onChange={(event) =>
+              setForm((current) => ({
+                ...current,
+                bccEmails: event.target.value,
+              }))
+            }
+            placeholder="admin@example.com, legal@example.com"
+            value={form.bccEmails}
+          />
+        </div>
+
+        <Button
+          className="h-12 rounded-full"
+          disabled={isSavingNotifications}
+          type="submit"
+        >
+          {isSavingNotifications ? "SAVING..." : "SAVE"}
+        </Button>
+      </form>
+
+      <form className="mt-9 flex flex-col gap-6" onSubmit={saveReminders}>
+        <h2 className="text-3xl font-bold tracking-normal">
+          Sign Request Email Reminders
+        </h2>
+
+        <div className="grid gap-3 md:grid-cols-3">
+          <ReminderSelect
+            label="First reminder in"
+            onValueChange={(value) => setReminder("first_duration", value)}
+            value={reminders.first_duration}
+          />
+          <ReminderSelect
+            label="Second reminder in"
+            onValueChange={(value) => setReminder("second_duration", value)}
+            value={reminders.second_duration}
+          />
+          <ReminderSelect
+            label="Third reminder in"
+            onValueChange={(value) => setReminder("third_duration", value)}
+            value={reminders.third_duration}
+          />
+        </div>
+
+        <Button
+          className="h-12 rounded-full"
+          disabled={isSavingReminders}
+          type="submit"
+        >
+          {isSavingReminders ? "SAVING..." : "SAVE"}
+        </Button>
+      </form>
+    </section>
+  )
+}
+
+function ReminderSelect({
+  label,
+  onValueChange,
+  value,
+}: {
+  label: string
+  onValueChange: (value: string) => void
+  value: string | null
+}) {
+  return (
+    <div className="grid gap-2">
+      <Label>{label}</Label>
+      <Select onValueChange={onValueChange} value={value ?? "none"}>
+        <SelectTrigger className="h-12 rounded-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {reminderDurations.map((duration) => (
+            <SelectItem key={duration.value} value={duration.value}>
+              {duration.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
+}
+
+function toNotificationForm(
+  preferences: AccountPreferences
+): NotificationFormState {
+  return {
+    bccEmails: preferences.bcc_emails,
+    receiveCompletedEmail: preferences.receive_completed_email,
+  }
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Please try again."
+}

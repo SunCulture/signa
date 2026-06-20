@@ -1,6 +1,26 @@
 import { ApiProperty } from '@nestjs/swagger';
 
+export class SubmitterRemindersResponseDto {
+  @ApiProperty({ example: 'twenty_four_hours', nullable: true })
+  first_duration!: string | null;
+
+  @ApiProperty({ example: 'three_days', nullable: true })
+  second_duration!: string | null;
+
+  @ApiProperty({ example: 'seven_days', nullable: true })
+  third_duration!: string | null;
+}
+
 export class AccountPreferencesResponseDto {
+  @ApiProperty({ example: true })
+  receive_completed_email!: boolean;
+
+  @ApiProperty({ example: 'admin@example.com' })
+  bcc_emails!: string;
+
+  @ApiProperty({ type: SubmitterRemindersResponseDto })
+  submitter_reminders!: SubmitterRemindersResponseDto;
+
   @ApiProperty({ example: false })
   force_mfa!: boolean;
 

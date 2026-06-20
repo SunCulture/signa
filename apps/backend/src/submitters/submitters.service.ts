@@ -1,13 +1,21 @@
 import { Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { basename, extname } from 'node:path';
 import { Brackets, DataSource, Repository, SelectQueryBuilder } from 'typeorm';
 import { throwDatabaseErrors, throwIfNotFound } from '../common/utils/error';
+import { runtimeEvents } from '../runtime/runtime-events';
 import { StorageService } from '../storage/storage.service';
 import { SubmissionEvent } from '../submissions/entities/submission-event.entity';
 import { Submission } from '../submissions/entities/submission.entity';
+import { SubmissionDocumentsService } from '../submissions/submission-documents.service';
+import {
+  buildSubmissionEventData,
+  type SubmissionRequestMetadata,
+} from '../submissions/submission-event-data';
 import { TemplateField } from '../templates/types/template-json';
+import { SubmitterValueNormalizer } from '../submissions/submitter-value-normalizer.service';
 import { User } from '../users/entities/user.entity';
 import { ListSubmittersQueryDto } from './dto/list-submitters-query.dto';
 import {
@@ -30,6 +38,9 @@ export class SubmittersService {
     private readonly dataSource: DataSource,
     private readonly storageService: StorageService,
     private readonly config: ConfigService,
+    private readonly events: EventEmitter2,
+    private readonly submissionDocumentsService: SubmissionDocumentsService,
+    private readonly submitterValueNormalizer: SubmitterValueNormalizer,
   ) {}
 
   async listSubmitters(
@@ -81,6 +92,12 @@ export class SubmittersService {
   ): Promise<SubmitterResponseDto> {
     const submitter = await this.findAccountSubmitterOrFail(user, submitterId);
 
+    if (submitter.completedAt) {
+      await this.submissionDocumentsService.processSubmitterCompletion(
+        submitter,
+      );
+    }
+
     return this.toSubmitterResponse(submitter, {
       includeTemplate: true,
       includeEvents: true,
@@ -96,6 +113,7 @@ export class SubmittersService {
     submitterId: string,
     input: UpdateSubmitterDto,
     include?: string,
+    metadata?: SubmissionRequestMetadata,
   ): Promise<SubmitterResponseDto> {
     const submitter = await this.findAccountSubmitterOrFail(user, submitterId);
 
@@ -111,10 +129,15 @@ export class SubmittersService {
       });
     }
 
-    this.assignSubmissionFieldOverrides(submitter, input);
-    this.assignSubmitterAttributes(submitter, input);
+    const normalized = await this.submitterValueNormalizer.normalizeUpdateInput(
+      submitter,
+      input,
+    );
 
-    if (input.completed) {
+    this.assignSubmissionFieldOverrides(submitter, normalized.input);
+    this.assignSubmitterAttributes(submitter, normalized.input);
+
+    if (normalized.input.completed) {
       submitter.completedAt = new Date();
       submitter.values = this.mergeFieldDefaultValues(submitter);
     }
@@ -124,7 +147,7 @@ export class SubmittersService {
         await manager.getRepository(Submitter).save(submitter);
         await manager.getRepository(Submission).save(submitter.submission);
 
-        if (input.completed) {
+        if (normalized.input.completed) {
           await manager.getRepository(SubmissionEvent).save(
             manager.getRepository(SubmissionEvent).create({
               accountId: user.accountId,
@@ -132,13 +155,25 @@ export class SubmittersService {
               submitterId: submitter.id,
               eventType: 'api_complete_form',
               eventTimestamp: new Date(),
-              data: {},
+              data: buildSubmissionEventData(metadata),
             }),
           );
         }
       });
+
+      await this.submitterValueNormalizer.persistPendingAttachments(
+        submitter,
+        normalized.pendingAttachments,
+      );
     } catch (error) {
       throwDatabaseErrors(error);
+    }
+
+    if (normalized.input.send_email && submitter.email) {
+      this.events.emit(runtimeEvents.submitterInvitationRequested, {
+        submitterId: submitter.id,
+        accountId: submitter.accountId,
+      });
     }
 
     return this.toSubmitterResponse(submitter, {
@@ -285,7 +320,7 @@ export class SubmittersService {
 
     this.assignPreferences(submitter, input);
 
-    if (input.send_email || input.send_sms) {
+    if (input.send_sms && !input.send_email) {
       submitter.sentAt = new Date();
     }
   }
@@ -624,6 +659,21 @@ export class SubmittersService {
   private async serializeSubmitterDocuments(
     submitter: Submitter,
   ): Promise<SubmitterDocumentResponseDto[]> {
+    if (submitter.completedAt) {
+      const documents = await this.storageService.findRecordAttachments({
+        recordType: 'Submitter',
+        recordId: submitter.id,
+        name: 'documents',
+      });
+
+      if (documents.length > 0) {
+        return documents.map((attachment) => ({
+          name: getBaseName(attachment.blob.filename),
+          url: this.storageService.createBlobProxyUrl(attachment.blob),
+        }));
+      }
+    }
+
     const templateId =
       submitter.submission.templateId ?? submitter.submission.template?.id;
 

@@ -12,5 +12,6 @@ export type CreateAttachmentInput = {
   name: string;
   recordType: string;
   recordId: string;
+  uuid?: string;
   metadata?: Record<string, unknown>;
 };

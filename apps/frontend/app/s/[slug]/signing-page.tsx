@@ -41,9 +41,11 @@ type ActivePanelState = {
 export function SigningPage({
   focusFieldPrefix,
   slug,
+  trackingParam,
 }: {
   focusFieldPrefix?: string;
   slug: string;
+  trackingParam?: string;
 }) {
   const [form, setForm] = useState<SigningForm | null>(null);
   const [activePanel, setActivePanel] = useState<ActivePanelState | null>(null);
@@ -53,7 +55,7 @@ export function SigningPage({
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    getSigningForm(slug)
+    getSigningForm(slug, trackingParam)
       .then((loadedForm) => {
         setForm(loadedForm);
         setActivePanel(getInitialPanelState(loadedForm, focusFieldPrefix));
@@ -67,7 +69,7 @@ export function SigningPage({
         setError(message);
       })
       .finally(() => setIsLoading(false));
-  }, [focusFieldPrefix, slug]);
+  }, [focusFieldPrefix, slug, trackingParam]);
 
   const orderedFields = useMemo(() => {
     if (!form) {

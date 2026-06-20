@@ -81,6 +81,36 @@ Acceptance checks:
 - `src/database` contains connection/data-source files only, not feature entities.
 - A no-op migration command can discover the data source.
 
+### Phase 1.5: Runtime Utility Foundation
+
+Goal: add the operational foundation needed for DocuSeal-compatible async work before wiring side effects into business services.
+
+Implemented:
+
+1. Installed backend dependencies:
+   - `@nestjs/schedule`
+   - `@nestjs/event-emitter`
+   - `@nestjs/bullmq`
+   - `bullmq`
+   - `@bull-board/nestjs`
+   - `@bull-board/express`
+   - `express-basic-auth`
+   - `@nestjs-modules/mailer`
+   - `nodemailer`
+   - `handlebars`
+2. Added backend environment variables for queue Redis, Bull Board, SMTP, webhook retry defaults, and Twilio Verify placeholders.
+3. Added `RuntimeModule` with `ScheduleModule`, `EventEmitterModule`, `BullModule`, `BullBoardModule`, and `MailerModule`.
+4. Added queue, mailer, Bull Board, event-name, and job-name config files instead of expanding `AppModule`.
+5. Added runtime config unit tests.
+
+Pending after this phase:
+
+- Register remaining concrete queues with processors once the owning feature module exists. The first mail queue processor now exists in `MailModule`.
+- Implement webhook URL/event/attempt entities and processors.
+- Expand mail notification processors with delivery persistence, reminders, user/account emails, provider open/bounce tracking, and remaining tracked-link flows; implement SMS notification processors.
+- Implement scheduled submission expiry and cleanup processors.
+- Wire generated-document work into BullMQ instead of only lazy in-request generation.
+
 ### Phase 2: Core Tenant/Auth Schema
 
 Goal: establish account isolation before any public endpoint logic.
@@ -194,45 +224,45 @@ Notes:
 
 ### Tenant/Auth
 
-| DocuSeal table | Signa entity | Phase | Notes |
-| --- | --- | --- | --- |
-| `accounts` | `Account` | 2 | Tenant root. |
-| `users` | `User` | 2 | Belongs to account. |
-| `access_tokens` | `AccessToken` | 2 | Hash token for lookup. |
-| `account_configs` | `AccountConfig` | 2 | JSON value. |
-| `encrypted_configs` | `EncryptedConfig` | 2 | Secret JSON value. |
-| `account_linked_accounts` | `AccountLinkedAccount` | 2 | Testing/prod account links. |
-| `account_accesses` | Optional later | 4 | Cross-account user access; not needed for first public API pass. |
+| DocuSeal table            | Signa entity           | Phase | Notes                                                            |
+| ------------------------- | ---------------------- | ----- | ---------------------------------------------------------------- |
+| `accounts`                | `Account`              | 2     | Tenant root.                                                     |
+| `users`                   | `User`                 | 2     | Belongs to account.                                              |
+| `access_tokens`           | `AccessToken`          | 2     | Hash token for lookup.                                           |
+| `account_configs`         | `AccountConfig`        | 2     | JSON value.                                                      |
+| `encrypted_configs`       | `EncryptedConfig`      | 2     | Secret JSON value.                                               |
+| `account_linked_accounts` | `AccountLinkedAccount` | 2     | Testing/prod account links.                                      |
+| `account_accesses`        | Optional later         | 4     | Cross-account user access; not needed for first public API pass. |
 
 ### Public API Domain
 
-| DocuSeal table | Signa entity | Phase | Notes |
-| --- | --- | --- | --- |
-| `template_folders` | `TemplateFolder` | 3 | Hierarchical folders. |
-| `templates` | `Template` | 3 | Core reusable signing form. |
-| `submissions` | `Submission` | 3 | Signature request. |
-| `submitters` | `Submitter` | 3 | Signer/recipient. |
-| `submission_events` | `SubmissionEvent` | 3 | Audit/event trail. |
-| `active_storage_blobs` | `DocumentBlob` | 3 | Storage object metadata. |
-| `active_storage_attachments` | `DocumentAttachment` | 3 | Attachment relation. |
-| `document_metadata` | `DocumentMetadata` | 3 | Extracted text/geometry cache. |
-| `completed_documents` | `CompletedDocument` | 3 | Signed result checksum. |
-| `completed_submitters` | `CompletedSubmitter` | 3 | Completion summary/search helper. |
+| DocuSeal table               | Signa entity         | Phase | Notes                             |
+| ---------------------------- | -------------------- | ----- | --------------------------------- |
+| `template_folders`           | `TemplateFolder`     | 3     | Hierarchical folders.             |
+| `templates`                  | `Template`           | 3     | Core reusable signing form.       |
+| `submissions`                | `Submission`         | 3     | Signature request.                |
+| `submitters`                 | `Submitter`          | 3     | Signer/recipient.                 |
+| `submission_events`          | `SubmissionEvent`    | 3     | Audit/event trail.                |
+| `active_storage_blobs`       | `DocumentBlob`       | 3     | Storage object metadata.          |
+| `active_storage_attachments` | `DocumentAttachment` | 3     | Attachment relation.              |
+| `document_metadata`          | `DocumentMetadata`   | 3     | Extracted text/geometry cache.    |
+| `completed_documents`        | `CompletedDocument`  | 3     | Signed result checksum.           |
+| `completed_submitters`       | `CompletedSubmitter` | 3     | Completion summary/search helper. |
 
 ### Later Scope
 
-| DocuSeal table | Signa entity | Phase | Notes |
-| --- | --- | --- | --- |
-| `webhook_urls` | `WebhookUrl` | 4 | Event destination config. |
-| `webhook_events` | `WebhookEvent` | 4 | Event queue/delivery state. |
-| `webhook_attempts` | `WebhookAttempt` | 4 | Delivery attempts. |
-| `template_versions` | `TemplateVersion` | 4 | Version history. |
-| `submitter_versions` | `SubmitterVersion` | 4 | Submitter snapshots. |
-| `dynamic_documents` | `DynamicDocument` | 4 | HTML/DOCX dynamic templates. |
-| `dynamic_document_versions` | `DynamicDocumentVersion` | 4 | Dynamic document revisions. |
-| `search_entries` | `SearchEntry` | 4 | Full-text/ngram search. |
-| `email_messages` | `EmailMessage` | 4 | Custom email bodies. |
-| `email_events` | `EmailEvent` | 4 | Bounce/click/open tracking. |
+| DocuSeal table              | Signa entity             | Phase | Notes                        |
+| --------------------------- | ------------------------ | ----- | ---------------------------- |
+| `webhook_urls`              | `WebhookUrl`             | 4     | Event destination config.    |
+| `webhook_events`            | `WebhookEvent`           | 4     | Event queue/delivery state.  |
+| `webhook_attempts`          | `WebhookAttempt`         | 4     | Delivery attempts.           |
+| `template_versions`         | `TemplateVersion`        | 4     | Version history.             |
+| `submitter_versions`        | `SubmitterVersion`       | 4     | Submitter snapshots.         |
+| `dynamic_documents`         | `DynamicDocument`        | 4     | HTML/DOCX dynamic templates. |
+| `dynamic_document_versions` | `DynamicDocumentVersion` | 4     | Dynamic document revisions.  |
+| `search_entries`            | `SearchEntry`            | 4     | Full-text/ngram search.      |
+| `email_messages`            | `EmailMessage`           | 4     | Custom email bodies.         |
+| `email_events`              | `EmailEvent`             | 4     | Provider bounce/open/click metadata.  |
 
 ## Zod Contract Plan
 
@@ -335,18 +365,18 @@ For a TypeScript-first open-source build, option 2 is the default, but we should
 
 ### Recommended Open-Source Stack
 
-| Need | Recommended package/service | Reason |
-| --- | --- | --- |
-| PDF page rendering/previews | `@hyzyla/pdfium` + `sharp` | Maintained PDFium WASM wrapper, works in Node, pairs directly with sharp for PNG/JPEG output. |
-| Image processing | `sharp` | Maintained libvips-backed Node package; closest match to DocuSeal `ruby-vips`. |
-| PDF creation/editing/merge/forms | `pdf-lib` first pass | Good TypeScript API, but last npm modification is old; use for simple PDF manipulation only until parity tests prove enough. |
-| PDF signatures | `@signpdf/signpdf` + placeholder package | Maintained replacement for deprecated `node-signpdf`; still needs parity testing against HexaPDF signatures. |
-| PDF text/object extraction | Start with `@hyzyla/pdfium`; evaluate `pdfium-native` if WASM lacks APIs | DocuSeal relies on PDFium object/text geometry. Native bindings may expose lower-level APIs. |
-| MIME detection | `file-type` | Maintained byte-sniffing package. |
-| ZIP extraction | `yauzl` | Maintained and conservative; supports size-limited streaming patterns. |
-| DOCX to PDF | LibreOffice/soffice worker via `libreoffice-convert` or direct process wrapper | Most faithful open-source conversion path. Run outside request path. |
-| HTML to PDF | Playwright/Chromium | Maintained, deterministic enough for server-side HTML-to-PDF, and already broadly used. |
-| Browser PDF display/signing UI | `pdfjs-dist` or React PDF viewer using PDF.js | Client-side display/coordinate picking; backend rendering should still use PDFium for server parity. |
+| Need                             | Recommended package/service                                                    | Reason                                                                                                                       |
+| -------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| PDF page rendering/previews      | `@hyzyla/pdfium` + `sharp`                                                     | Maintained PDFium WASM wrapper, works in Node, pairs directly with sharp for PNG/JPEG output.                                |
+| Image processing                 | `sharp`                                                                        | Maintained libvips-backed Node package; closest match to DocuSeal `ruby-vips`.                                               |
+| PDF creation/editing/merge/forms | `pdf-lib` first pass                                                           | Good TypeScript API, but last npm modification is old; use for simple PDF manipulation only until parity tests prove enough. |
+| PDF signatures                   | `@signpdf/signpdf` + placeholder package                                       | Maintained replacement for deprecated `node-signpdf`; still needs parity testing against HexaPDF signatures.                 |
+| PDF text/object extraction       | Start with `@hyzyla/pdfium`; evaluate `pdfium-native` if WASM lacks APIs       | DocuSeal relies on PDFium object/text geometry. Native bindings may expose lower-level APIs.                                 |
+| MIME detection                   | `file-type`                                                                    | Maintained byte-sniffing package.                                                                                            |
+| ZIP extraction                   | `yauzl`                                                                        | Maintained and conservative; supports size-limited streaming patterns.                                                       |
+| DOCX to PDF                      | LibreOffice/soffice worker via `libreoffice-convert` or direct process wrapper | Most faithful open-source conversion path. Run outside request path.                                                         |
+| HTML to PDF                      | Playwright/Chromium                                                            | Maintained, deterministic enough for server-side HTML-to-PDF, and already broadly used.                                      |
+| Browser PDF display/signing UI   | `pdfjs-dist` or React PDF viewer using PDF.js                                  | Client-side display/coordinate picking; backend rendering should still use PDFium for server parity.                         |
 
 ### Package Health Snapshot
 

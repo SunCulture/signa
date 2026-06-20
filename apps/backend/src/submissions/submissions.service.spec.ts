@@ -1,10 +1,12 @@
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { StorageAttachment } from '../storage/entities/storage-attachment.entity';
 import { StorageBlob } from '../storage/entities/storage-blob.entity';
 import { StorageService } from '../storage/storage.service';
+import { runtimeEvents } from '../runtime/runtime-events';
 import { Submitter } from '../submitters/entities/submitter.entity';
 import { TemplateFolder } from '../templates/entities/template-folder.entity';
 import { Template } from '../templates/entities/template.entity';
@@ -12,6 +14,8 @@ import { TemplatesService } from '../templates/templates.service';
 import { User } from '../users/entities/user.entity';
 import { SubmissionEvent } from './entities/submission-event.entity';
 import { Submission } from './entities/submission.entity';
+import { SubmissionDocumentsService } from './submission-documents.service';
+import { SubmitterValueNormalizer } from './submitter-value-normalizer.service';
 import { SubmissionsService } from './submissions.service';
 
 type MockRepository<T extends object> = Partial<
@@ -40,9 +44,19 @@ describe('SubmissionsService', () => {
   let storage: jest.Mocked<
     Pick<StorageService, 'findRecordAttachments' | 'createBlobProxyUrl'>
   >;
+  let submissionDocuments: jest.Mocked<
+    Pick<
+      SubmissionDocumentsService,
+      | 'getAuditTrailUrl'
+      | 'getCombinedDocumentUrl'
+      | 'getSubmissionDocuments'
+      | 'processSubmitterCompletion'
+    >
+  >;
   let dataSource: {
     transaction: jest.Mock<Promise<unknown>, [TransactionCallback]>;
   };
+  let events: { emit: jest.Mock };
 
   beforeEach(async () => {
     submissions = createRepository<Submission>();
@@ -52,6 +66,12 @@ describe('SubmissionsService', () => {
     storage = {
       findRecordAttachments: jest.fn().mockResolvedValue([]),
       createBlobProxyUrl: jest.fn((blob: StorageBlob) => `/files/${blob.id}`),
+    };
+    submissionDocuments = {
+      getAuditTrailUrl: jest.fn().mockResolvedValue(null),
+      getCombinedDocumentUrl: jest.fn().mockResolvedValue(null),
+      getSubmissionDocuments: jest.fn().mockResolvedValue([]),
+      processSubmitterCompletion: jest.fn().mockResolvedValue(undefined),
     };
 
     const manager = {
@@ -76,6 +96,9 @@ describe('SubmissionsService', () => {
       transaction: jest.fn((callback: TransactionCallback) =>
         callback(manager),
       ),
+    };
+    events = {
+      emit: jest.fn(),
     };
 
     submissions.save?.mockImplementation((entity: Partial<Submission>) =>
@@ -141,6 +164,15 @@ describe('SubmissionsService', () => {
             get: jest.fn((_key: string, fallback: unknown) => fallback),
           },
         },
+        {
+          provide: SubmissionDocumentsService,
+          useValue: submissionDocuments,
+        },
+        {
+          provide: EventEmitter2,
+          useValue: events,
+        },
+        SubmitterValueNormalizer,
       ],
     }).compile();
 
@@ -170,12 +202,19 @@ describe('SubmissionsService', () => {
         uuid: 'submitter-role-1',
         email: 'john@example.com',
         name: 'John Doe',
-        status: 'sent',
+        status: 'awaiting',
         role: 'First Party',
         values: [{ field: 'Full Name', value: 'John Doe' }],
       },
     ]);
     expect(response[0]?.embed_src).toContain('http://localhost:3001/s/');
+    expect(events.emit).toHaveBeenCalledWith(
+      runtimeEvents.submitterInvitationRequested,
+      {
+        accountId: 'account-1',
+        submitterId: 'submitter-1',
+      },
+    );
 
     expect(dataSource.transaction).toHaveBeenCalledTimes(1);
     expect(submissions.save).toHaveBeenCalledWith(
@@ -299,14 +338,14 @@ describe('SubmissionsService', () => {
     expect(dataSource.transaction).not.toHaveBeenCalled();
   });
 
-  it('serializes template documents for a submission', async () => {
+  it('serializes generated documents for a submission', async () => {
     const submission = createSubmission({
       templateId: 'template-1',
       template: createTemplate(),
       submitters: [createSubmitter()],
     });
     submissions.findOneOrFail?.mockResolvedValue(submission);
-    storage.findRecordAttachments.mockResolvedValue([
+    submissionDocuments.getSubmissionDocuments.mockResolvedValue([
       createAttachment({
         uuid: 'attachment-uuid',
         blob: { id: 'blob-1', filename: 'contract.pdf' } as StorageBlob,
@@ -319,6 +358,10 @@ describe('SubmissionsService', () => {
       id: 'submission-1',
       documents: [{ name: 'contract', url: '/files/blob-1' }],
     });
+    expect(submissionDocuments.getSubmissionDocuments).toHaveBeenCalledWith(
+      submission,
+      {},
+    );
   });
 
   it('archives submissions by default', async () => {

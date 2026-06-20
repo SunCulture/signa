@@ -6,6 +6,7 @@ import {
   Post,
   Put,
   Query,
+  Req,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -17,6 +18,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import type { Request } from 'express';
 import type { UploadedBufferFile } from '../storage/storage.types';
 import {
   DeclineSigningDto,
@@ -28,6 +30,7 @@ import {
   SigningFieldValueResponseDto,
   SigningResponseDto,
 } from './dto/signing-response.dto';
+import { SigningRequestMetadata } from './signing-request-metadata';
 import { SigningService } from './signing.service';
 
 @Controller('signing')
@@ -38,8 +41,15 @@ export class SigningController {
   @Get(':slug')
   @ApiOperation({ summary: 'Get public signing form by submitter slug' })
   @ApiOkResponse({ type: SigningResponseDto })
-  getSigningForm(@Param('slug') slug: string): Promise<SigningResponseDto> {
-    return this.signingService.getSigningForm(slug);
+  getSigningForm(
+    @Param('slug') slug: string,
+    @Query('t') trackingParam: string | undefined,
+    @Req() request: Request,
+  ): Promise<SigningResponseDto> {
+    return this.signingService.getSigningForm(
+      slug,
+      getSigningRequestMetadata(request, trackingParam),
+    );
   }
 
   @Get(':slug/values')
@@ -82,8 +92,13 @@ export class SigningController {
   updateValues(
     @Param('slug') slug: string,
     @Body() body: UpdateSigningValuesDto,
+    @Req() request: Request,
   ): Promise<SigningResponseDto> {
-    return this.signingService.updateValues(slug, body);
+    return this.signingService.updateValues(
+      slug,
+      body,
+      getSigningRequestMetadata(request),
+    );
   }
 
   @Post(':slug/complete')
@@ -92,11 +107,16 @@ export class SigningController {
   complete(
     @Param('slug') slug: string,
     @Body() body: UpdateSigningValuesDto,
+    @Req() request: Request,
   ): Promise<SigningResponseDto> {
-    return this.signingService.updateValues(slug, {
-      ...body,
-      completed: true,
-    });
+    return this.signingService.updateValues(
+      slug,
+      {
+        ...body,
+        completed: true,
+      },
+      getSigningRequestMetadata(request),
+    );
   }
 
   @Post(':slug/decline')
@@ -105,8 +125,13 @@ export class SigningController {
   decline(
     @Param('slug') slug: string,
     @Body() body: DeclineSigningDto,
+    @Req() request: Request,
   ): Promise<SigningResponseDto> {
-    return this.signingService.decline(slug, body);
+    return this.signingService.decline(
+      slug,
+      body,
+      getSigningRequestMetadata(request),
+    );
   }
 
   @Get(':slug/download')
@@ -115,4 +140,15 @@ export class SigningController {
   download(@Param('slug') slug: string): Promise<SigningDownloadResponseDto> {
     return this.signingService.getDownload(slug);
   }
+}
+
+function getSigningRequestMetadata(
+  request: Request,
+  trackingParam?: string,
+): SigningRequestMetadata {
+  return {
+    ip: request.ip,
+    trackingParam,
+    ua: request.get('user-agent'),
+  };
 }

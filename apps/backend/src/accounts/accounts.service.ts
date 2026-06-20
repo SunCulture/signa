@@ -116,16 +116,30 @@ export class AccountsService {
       existingConfigs.map((config) => [config.key, config]),
     );
     const configsToSave: AccountConfig[] = [];
+    const configsToRemove: AccountConfig[] = [];
 
     for (const definition of accountPreferenceDefinitions) {
-      const value = input[definition.property];
+      const value = this.normalizePreferenceValue(
+        definition.property,
+        input[definition.property],
+      );
 
       if (typeof value === 'undefined') {
         continue;
       }
 
+      const existingConfig = existingByKey.get(definition.key);
+
+      if (this.isEmptyPreferenceValue(value)) {
+        if (existingConfig) {
+          configsToRemove.push(existingConfig);
+        }
+
+        continue;
+      }
+
       const config =
-        existingByKey.get(definition.key) ??
+        existingConfig ??
         this.accountConfigs.create({
           accountId,
           key: definition.key,
@@ -138,6 +152,10 @@ export class AccountsService {
     try {
       if (configsToSave.length > 0) {
         await this.accountConfigs.save(configsToSave);
+      }
+
+      if (configsToRemove.length > 0) {
+        await this.accountConfigs.remove(configsToRemove);
       }
 
       return this.getAccountPreferences(accountId);
@@ -203,7 +221,7 @@ export class AccountsService {
     return accountPreferenceDefinitions.reduce(
       (response, definition) => ({
         ...response,
-        [definition.property]: this.toBooleanPreferenceValue(
+        [definition.property]: this.toPreferenceValue(
           configByKey.get(definition.key)?.value,
           definition.defaultValue,
         ),
@@ -212,10 +230,67 @@ export class AccountsService {
     );
   }
 
-  private toBooleanPreferenceValue(
-    value: unknown,
-    defaultValue: boolean,
-  ): boolean {
-    return typeof value === 'boolean' ? value : defaultValue;
+  private toPreferenceValue(value: unknown, defaultValue: unknown): unknown {
+    if (typeof defaultValue === 'boolean') {
+      return typeof value === 'boolean' ? value : defaultValue;
+    }
+
+    if (typeof defaultValue === 'string') {
+      return typeof value === 'string' ? value : defaultValue;
+    }
+
+    if (this.isReminderValue(defaultValue)) {
+      return this.isReminderValue(value)
+        ? {
+            first_duration: value.first_duration ?? null,
+            second_duration: value.second_duration ?? null,
+            third_duration: value.third_duration ?? null,
+          }
+        : defaultValue;
+    }
+
+    return value ?? defaultValue;
+  }
+
+  private normalizePreferenceValue(property: string, value: unknown): unknown {
+    if (property === 'bcc_emails' && typeof value === 'string') {
+      return value
+        .split(',')
+        .map((email) => email.trim())
+        .filter(Boolean)
+        .join(', ');
+    }
+
+    if (property === 'submitter_reminders' && this.isReminderValue(value)) {
+      return {
+        first_duration: value.first_duration || null,
+        second_duration: value.second_duration || null,
+        third_duration: value.third_duration || null,
+      };
+    }
+
+    return value;
+  }
+
+  private isEmptyPreferenceValue(value: unknown): boolean {
+    if (typeof value === 'string') {
+      return value.trim().length === 0;
+    }
+
+    if (this.isReminderValue(value)) {
+      return (
+        !value.first_duration && !value.second_duration && !value.third_duration
+      );
+    }
+
+    return false;
+  }
+
+  private isReminderValue(value: unknown): value is {
+    first_duration?: string | null;
+    second_duration?: string | null;
+    third_duration?: string | null;
+  } {
+    return Boolean(value && typeof value === 'object' && !Array.isArray(value));
   }
 }

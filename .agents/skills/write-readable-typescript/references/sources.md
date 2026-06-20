@@ -1,0 +1,23 @@
+# Sources
+
+- Google TypeScript Style Guide: https://google.github.io/styleguide/tsguide.html
+  - Accessed: 2026-06-18
+  - Use: Informs source file structure, import/export guidance, module organization, `const`/`let`, minimizing public exports, and clear import/name collision practices.
+- Microsoft TypeScript Coding Guidelines: https://github.com/microsoft/TypeScript/wiki/Coding-guidelines
+  - Accessed: 2026-06-18
+  - Use: Informs PascalCase/camelCase defaults, avoiding `I` interface prefixes, using whole words, one logical component per file, and limiting exported API surface.
+- typescript-eslint naming-convention Rule: https://typescript-eslint.io/rules/naming-convention/
+  - Accessed: 2026-06-18
+  - Use: Confirms enforceable naming formats such as camelCase, PascalCase, UPPER_CASE, private member options, boolean naming examples, and performance tradeoffs for type-aware linting.
+- ESLint max-lines-per-function Rule: https://eslint.org/docs/latest/rules/max-lines-per-function
+  - Accessed: 2026-06-18
+  - Use: Supports treating large functions as a maintainability smell and using `max-lines-per-function` as a code-shape guardrail.
+- ESLint max-lines Rule: https://eslint.org/docs/latest/rules/max-lines
+  - Accessed: 2026-06-18
+  - Use: Supports treating large files as a code smell and notes common file-size recommendations in the 100-500 line range.
+- ESLint complexity Rule: https://eslint.org/docs/latest/rules/complexity
+  - Accessed: 2026-06-18
+  - Use: Supports cyclomatic complexity thresholds as a guardrail for branching-heavy functions.
+- Refactoring.Guru Long Method: https://refactoring.guru/smells/long-method
+  - Accessed: 2026-06-18
+  - Use: Supports extracting named methods when comments are needed, using Extract Method, Introduce Parameter Object, Decompose Conditional, and related refactorings.

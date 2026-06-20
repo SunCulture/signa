@@ -17,6 +17,9 @@ import { StorageModule } from './storage/storage.module';
 import { SubmissionsModule } from './submissions/submissions.module';
 import { SubmittersModule } from './submitters/submitters.module';
 import { SigningModule } from './signing/signing.module';
+import { RuntimeModule } from './runtime/runtime.module';
+import { MailModule } from './mail/mail.module';
+import { TeamsModule } from './teams/teams.module';
 
 @Module({
   imports: [
@@ -47,6 +50,7 @@ import { SigningModule } from './signing/signing.module';
         ],
       }),
     }),
+    RuntimeModule,
     DatabaseModule,
     HealthModule,
     AccountsModule,
@@ -57,6 +61,8 @@ import { SigningModule } from './signing/signing.module';
     SubmissionsModule,
     SubmittersModule,
     SigningModule,
+    MailModule,
+    TeamsModule,
   ],
   controllers: [AppController],
   providers: [

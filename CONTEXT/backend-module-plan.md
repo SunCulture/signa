@@ -12,6 +12,37 @@ Rules for implementation:
 - Keep request/response contracts in `@repo/shared` as Zod schemas, separate from TypeORM entities.
 - Preserve DocuSeal endpoint behavior from `CONTEXT/api-implementation-spec.md`.
 
+## Runtime Utility Module
+
+Purpose: shared infrastructure for DocuSeal-style background work without mixing operational setup into feature modules.
+
+Owns no database entities.
+
+Implemented:
+
+- `RuntimeModule` imports Nest Schedule, EventEmitter, BullMQ, Bull Board, and Mailer.
+- Queue config uses Redis URL settings and default retry/backoff/remove policies.
+- Queue names are reserved for:
+  - `document-generation`
+  - `mail`
+  - `webhooks`
+  - `sms`
+  - `maintenance`
+- Bull Board is disabled by default and protected with basic auth when enabled.
+- Mailer uses SMTP config plus Handlebars templates with inline CSS support.
+- Runtime event constants cover submission, submitter, form, and template lifecycle events.
+- Runtime job constants cover document generation, mail, webhook, SMS, and maintenance jobs.
+
+Pending:
+
+- Concrete BullMQ processors are still owned by the relevant feature modules and are not implemented yet.
+- Queue registration into Bull Board will happen when processors are added.
+- Mail/SMS delivery orchestration, webhook delivery attempts, and maintenance schedules still need feature-module implementations.
+
+Tests:
+
+- Runtime config factories are unit tested for queue defaults, disabled Bull Board behavior, mailer defaults, event names, and job names.
+
 ## Base Module Order
 
 ### 1. Accounts Module
@@ -183,7 +214,7 @@ Current Signa status:
 - Frontend `/templates` now reads real backend templates, preserves active/archived/search state in URL params, and supports upload, move, edit, archive, restore, and permanent delete.
 - Frontend `/templates/:id/edit` now supports backend-backed document list ordering, append, replace, remove, rename, and center-canvas preview rendering.
 - Frontend `/templates/:id/edit` now supports DocuSeal-style normalized field placement on preview pages, including click/draw create, page overlays, select, move, resize, delete, and persistence through `PUT /api/templates/:id`.
-- Pending for deeper parity: palette drag/drop, field settings/option editing, field ordering, party/role colors, template clone endpoint, folder picker modal, blank-template creation, embedded text-tag extraction/removal, PDF flattening, and XFA support.
+- Pending for deeper parity: folder picker modal, blank-template creation, embedded text-tag extraction/removal, DocuSeal-grade PDF flattening/signing, PDF/A/LTV/timestamp support, and XFA support.
 - Webhook event enqueue is deferred until the Webhooks module exists.
 
 Tests:
@@ -209,7 +240,7 @@ P0 endpoints:
 
 - `GET /api/submissions` - implemented
 - `GET /api/submissions/:id` - implemented
-- `GET /api/submissions/:id/documents` - implemented for current template/backing-template document URLs; generated preview/final PDFs pending
+- `GET /api/submissions/:id/documents` - implemented with lazy pending preview PDFs, completed result PDFs, and `merge=true` merged document generation
 - `POST /api/submissions` - implemented for single submission creation
 - `POST /api/submissions/pdf` - implemented through backing template creation
 - `DELETE /api/submissions/:id` - implemented
@@ -233,16 +264,16 @@ Responsibilities:
 - Later create submissions from DOCX and HTML.
 - List submissions with filters, search, archived state, and cursor pagination.
 - Return full submission details, submitters, documents, values, variables, and events.
-- Generate preview/final documents when endpoint behavior requires it. Pending for result/combined documents.
+- Generate preview/final/merged/audit documents when endpoint behavior requires it.
 - Archive or permanently delete submissions.
-- Emit `submission.created`, `submission.archived`, and `api_complete_form` events. `api_complete_form` persistence is implemented; webhook event delivery is pending.
+- Persist `api_complete_form` and public signing completion events; completion now creates generated result documents, completion records, generation events, and completed document checksum records. Webhook event delivery is pending.
 
 Tests:
 
 - Reject missing, archived, or fieldless templates.
 - Create submission assigns `account_id` from tenant context only.
 - List filters by template, status, slug, folder, archived state, and search.
-- `GET /documents` returns current template/backing-template document URLs now; generated previews and result documents are pending.
+- `GET /documents` returns generated preview PDFs while pending, generated result PDFs when completed, and merged PDFs for `merge=true`.
 - Delete supports soft archive and `permanently=true`.
 
 ### 8. Submitters Module
@@ -273,7 +304,7 @@ Responsibilities:
 - Complete a submitter through API when requested and persist `api_complete_form`.
 - Generate result documents when completed documents are missing. Pending until completed-document generation exists.
 - Dispatch email/SMS resend requests. Pending until notification module exists.
-- Track email clicks and form views later.
+- Track email clicks and form views; invitation `click_email` and public `view_form` are implemented through signed public signing links.
 
 Tests:
 
@@ -320,13 +351,19 @@ Current Signa status:
 
 - Email template preference editing is implemented in the template editor for signature request, documents copy, and completed notification emails.
 - Backend rendering helpers exist for DocuSeal-style `{variable}`/`{{variable}}` replacement and supported Markdown-to-sanitized-HTML conversion.
-- Provider adapters, queueing, delivery status, resend orchestration, and email/SMS event tracking are still pending.
+- Generated `MailModule` owns the first concrete BullMQ `mail` queue processor.
+- `MailService` is reusable and queue-friendly, with `MAIL_ENABLED` skip mode, template checks, formatted sender/recipient handling, and SMTP rejected-recipient detection.
+- `MailEventListener` maps submitter/form lifecycle events to queued jobs.
+- `MailProcessor` currently handles signature request, submitter verification, completed notification, documents copy, and declined emails, including result-document/audit attachments when generated artifacts are already available.
+- Remaining gaps: SMS processors, reminders, user/password/account email orchestration, provider-specific delivery/open/bounce events, `EmailMessage`/`EmailEvent` persistence, and Bull Board feature registration for concrete queues.
 
 Tests:
 
 - `send_email=false` suppresses email.
 - `send_sms=false` suppresses SMS.
 - Message subject/body overrides are preserved.
+- Mail service send/skip/rejected-recipient behavior is covered.
+- Mail event-to-queue mapping is covered.
 - Variable replacement and safe Markdown rendering are covered by focused unit tests.
 
 ### 11. Webhooks Module
@@ -431,11 +468,25 @@ Implemented JSON endpoints:
 - `DELETE /api/account`
 - `GET /api/users`
 - `POST /api/users`
+- `POST /api/users/import`
 - `PATCH /api/users/:id`
 - `DELETE /api/users/:id`
+- `GET/PATCH /api/account/preferences` includes DocuSeal notification settings: `receive_completed_email`, `bcc_emails`, and `submitter_reminders`.
+- `GET/POST /api/teams`
+- `GET/PATCH/DELETE /api/teams/:id`
+- `GET/POST /api/teams/:id/members`
+- `PATCH/DELETE /api/teams/:id/members/:memberId`
+- `GET/POST /api/teams/:id/invitations`
+- `DELETE /api/teams/:id/invitations/:invitationId`
+- `POST /api/team-invitations/:token/accept`
 - Existing public API-key endpoint remains: `GET /api/user`
 
 Notes:
+
+- Local DocuSeal OSS includes users settings routes but no standalone team model/controller. Signa now implements an account-local team model using common workspace best practices: account remains the tenant, team membership is many-to-many, and account role is separate from team role.
+- Local DocuSeal OSS only enables `admin` and displays editor/viewer as Pro-gated options. Signa intentionally unlocks `admin`, `editor`, `member`, `viewer`, and `agent`, backed by CASL policy guards and shared role constants.
+- `POST /api/users/import` supports CSV-backed bulk user creation/restoration with per-row results. XLS/XLSX parsing and import-time team membership assignment remain pending.
+- Team invitation email delivery is not yet queued; invitation creation stores a token hash and returns the raw accept token only in the create response.
 
 - Web-app routes use bearer JWT auth.
 - Public API compatibility routes continue to use `X-Auth-Token`.

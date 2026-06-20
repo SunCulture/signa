@@ -1,7 +1,69 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsOptional } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsIn,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
+
+const reminderDurations = [
+  'one_hour',
+  'two_hours',
+  'four_hours',
+  'eight_hours',
+  'twelve_hours',
+  'twenty_four_hours',
+  'two_days',
+  'three_days',
+  'four_days',
+  'five_days',
+  'six_days',
+  'seven_days',
+  'eight_days',
+  'fifteen_days',
+  'twenty_one_days',
+  'thirty_days',
+] as const;
+
+export class UpdateSubmitterRemindersDto {
+  @ApiPropertyOptional({ enum: reminderDurations, nullable: true })
+  @IsOptional()
+  @IsIn(reminderDurations)
+  first_duration?: string | null;
+
+  @ApiPropertyOptional({ enum: reminderDurations, nullable: true })
+  @IsOptional()
+  @IsIn(reminderDurations)
+  second_duration?: string | null;
+
+  @ApiPropertyOptional({ enum: reminderDurations, nullable: true })
+  @IsOptional()
+  @IsIn(reminderDurations)
+  third_duration?: string | null;
+}
 
 export class UpdateAccountPreferencesDto {
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  receive_completed_email?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Comma-separated BCC email addresses for completed documents.',
+    example: 'admin@example.com, legal@example.com',
+  })
+  @IsOptional()
+  @IsString()
+  bcc_emails?: string;
+
+  @ApiPropertyOptional({ type: UpdateSubmitterRemindersDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateSubmitterRemindersDto)
+  submitter_reminders?: UpdateSubmitterRemindersDto;
+
   @ApiPropertyOptional({ example: false })
   @IsOptional()
   @IsBoolean()

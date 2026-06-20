@@ -2,12 +2,13 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { UserHydrationGuard } from '../auth/guards/user-hydration/user-hydration.guard';
+import { AuthorizationModule } from '../authorization/authorization.module';
 import { User } from './entities/user.entity';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User]), AuthModule],
+  imports: [TypeOrmModule.forFeature([User]), AuthModule, AuthorizationModule],
   providers: [UsersService, UserHydrationGuard],
   exports: [UsersService, TypeOrmModule],
   controllers: [UsersController],

@@ -1,7 +1,9 @@
+import { signaRoles } from '@repo/shared';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,
   IsEmail,
+  IsIn,
   IsOptional,
   IsString,
   MinLength,
@@ -23,9 +25,9 @@ export class UpdateUserDto {
   @IsString()
   last_name?: string;
 
-  @ApiPropertyOptional({ example: 'admin' })
+  @ApiPropertyOptional({ enum: signaRoles, example: 'editor' })
   @IsOptional()
-  @IsString()
+  @IsIn(signaRoles)
   role?: string;
 
   @ApiPropertyOptional({ minLength: 8 })
