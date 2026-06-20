@@ -1,0 +1,21 @@
+{
+  "name": "@repo/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@repo/ts-config": "workspace:*",
+    "typescript": "^5.9.3"
+  }
+}

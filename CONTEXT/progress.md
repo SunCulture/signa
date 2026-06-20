@@ -1,0 +1,259 @@
+# Signa Progress
+
+## Done
+
+- Bootstrapped `signa` as a pnpm/Turbo monorepo.
+- Generated frontend with official Next.js `create-next-app`.
+- Generated backend with official Nest CLI.
+- Initialized shadcn/ui in the frontend.
+- Added `@repo/shared` and `@repo/ts-config`.
+- Added Nest Swagger and health endpoint.
+- Validated scaffold with typecheck, lint, build, and backend unit test.
+- Scanned hosted DocuSeal API reference.
+- Parsed local `docuseal/docs/openapi.json`.
+- Cross-checked local Rails routes/controllers for hidden API behavior.
+- Scanned DocuSeal account-based tenancy model.
+- Planned TypeORM/Postgres implementation phases.
+- Checked maintained PDF/DOCX/HTML package candidates.
+- Created initial API implementation scope in `CONTEXT/api-implementation-spec.md`.
+- Created implementation roadmap in `CONTEXT/implementation-roadmap.md`.
+- Created backend module implementation plan in `CONTEXT/backend-module-plan.md`.
+- Generated the initial Nest `DatabaseModule` with the Nest CLI.
+- Wired production-ready backend config with global `ConfigModule`, Joi env validation, throttling, cache, and TypeORM/Postgres.
+- Added TypeORM CLI migration commands without creating migration files.
+- Removed the premature centralized entity batch from `src/database`; entities will be added with their owning generated Nest feature modules.
+- Generated Accounts, Users, and Auth modules/services with the Nest CLI.
+- Added module-local TypeORM entities for accounts, account configs, encrypted configs, linked accounts, users, and access tokens.
+- Added foundational tenant/API-token services and `ApiTokenGuard`.
+- Added unit tests for account-scoped config lookup, user lookup, token resolution, and API-token guard behavior.
+- Cross-checked Accounts/Auth/Users against DocuSeal Rails models/controllers and patched schema parity gaps.
+- Added DocuSeal-compatible `GET /api/user` endpoint returning `id`, `first_name`, `last_name`, and `email`.
+- Updated API-token resolution to reject archived users and archived accounts.
+- Checked DocuSeal setup, sessions, profile, accounts, and users controllers before implementing web workflows.
+- Added JWT web authentication with `POST /api/auth/register` and `POST /api/auth/login`.
+- Added documented Swagger DTOs for auth, account, profile, password, and user-management requests/responses.
+- Added `GET/PATCH /api/profile` and `PATCH /api/profile/password`.
+- Added `GET/PATCH/DELETE /api/account`.
+- Added admin-scoped `GET/POST/PATCH/DELETE /api/users` with archive-only user removal.
+- Enabled global DTO validation and Swagger bearer/API-key auth schemes.
+- Strengthened backend health checks with live/ready/details endpoints, database/storage/memory/Redis checks, and runtime API performance observability.
+- Added standardized DB error helpers plus current account/current user decorators and request hydration guards.
+- Added account settings preference persistence through `GET/PATCH /api/account/preferences`, backed by account-scoped `account_configs` and DocuSeal-compatible preference defaults.
+- Generated the Templates module with the Nest CLI.
+- Added module-local TypeORM entities for templates, template folders, template accesses, template sharings, and template versions based on DocuSeal Rails schema.
+- Added `ApiOrJwtGuard` so DocuSeal-style API endpoints can accept either Bearer JWT or `X-Auth-Token`, matching DocuSeal's signed-in-or-token API behavior.
+- Implemented template metadata P0 endpoints:
+  - `GET /api/templates`
+  - `GET /api/templates/{id}`
+  - `PUT /api/templates/{id}`
+  - `DELETE /api/templates/{id}`
+- Added DocuSeal-compatible template list pagination/filtering for `q`, `slug`, `external_id`, `application_key`, `folder`, `archived`, `limit`, `after`, and `before`.
+- Added template service tests for account scoping, DocuSeal response shape, role updates, soft archive, and permanent delete.
+- Generated the Storage module with the Nest CLI.
+- Added ActiveStorage-compatible local metadata entities for `active_storage_blobs` and `active_storage_attachments`.
+- Implemented signed local blob proxy URLs at `/api/storage/blobs/:token/:filename`.
+- Implemented PDF template document processing with `@hyzyla/pdfium` and `sharp` preview generation.
+- Implemented template document P0 endpoints:
+  - `POST /api/templates/pdf`
+  - `PUT /api/templates/{id}/documents`
+- Added DocuSeal-compatible JSON PDF input support with base64/URL files and provided coordinate fields, plus multipart upload support for Signa.
+- Implemented standard AcroForm positional field extraction for uploaded template PDFs using `pdf-lib`; extracted fields are normalized into DocuSeal-style areas and assigned to the first submitter when explicit fields are not supplied.
+- Added DocuSeal-style pending imported-field review for uploaded PDFs with AcroForm fields:
+  - backend marks schema items with `pending_fields: true` only when fields were extracted from the PDF instead of explicitly provided by API input;
+  - template editor shows the "Uploaded PDF contains form fields. Keep or remove them?" banner;
+  - `KEEP` clears the pending flag and preserves extracted fields;
+  - `REMOVE` clears the pending flag and removes extracted fields belonging to the pending document.
+- Generated the Submissions module/controller/service with the Nest CLI.
+- Added module-local TypeORM entities for submissions and submission events based on DocuSeal Rails schema.
+- Implemented submission P0 endpoints:
+  - `GET /api/submissions`
+  - `GET /api/submissions/{id}`
+  - `GET /api/submissions/{id}/documents`
+  - `POST /api/submissions`
+  - `POST /api/submissions/pdf`
+  - `DELETE /api/submissions/{id}`
+- Added DocuSeal-compatible submission list filters for `template_id`, `status`, `q`, `slug`, `template_folder`, `archived`, `limit`, `after`, and `before`.
+- Implemented single-submission creation from existing templates and PDF backing templates with role matching, multi-role submitter merge, submitter values, metadata, preferences, field override snapshots, completion timestamps, and `api_complete_form` event persistence.
+- Added submissions service tests for create, multi-role merge, archived-template rejection, document serialization, and archive behavior.
+- Generated the Submitters module/controller/service with the Nest CLI.
+- Moved the `Submitter` entity into the owning Submitters module while keeping Submissions registered against it through TypeORM feature registration.
+- Implemented submitter P0 endpoints:
+  - `GET /api/submitters`
+  - `GET /api/submitters/{id}`
+  - `PUT /api/submitters/{id}`
+- Added DocuSeal-compatible submitter filters for `submission_id`, `q`, `slug`, `completed_after`, `completed_before`, `external_id`, `application_key`, `template_id`, `limit`, `after`, and `before`.
+- Implemented submitter update behavior for profile fields, email/phone normalization, metadata, values, `application_key`/`external_id`, preferences, readonly/field override snapshots, API completion timestamps, and `api_complete_form` event persistence.
+- Added submitters service tests for tenant-scoped listing, DocuSeal response shape, update/completion behavior, and completed/declined update rejection.
+- Added `/settings/account` frontend page with DocuSeal-style account form, preference toggles, compliance cards, and live backend persistence.
+- Wired frontend document upload from the templates dashboard to `POST /api/templates/pdf` with ReUI/Sonner upload progress and redirect to `/templates/:id/edit`.
+- Replaced the placeholder `/templates` sample cards with a backend-backed DocuSeal-style templates dashboard:
+  - reads real templates from `GET /api/templates`;
+  - supports grid/list views;
+  - persists active/archived/search state in URL params via `nuqs`;
+  - supports upload, move-to-folder, edit, archive, restore, and permanent delete actions with confirmation/toasts;
+  - supports DocuSeal-compatible clone action through `POST /api/templates/{id}/clone`.
+- Implemented `POST /api/templates/{id}/clone`:
+  - clones template metadata, shared link preference, folder placement, variables schema, preferences, submitters, fields, and schema;
+  - rewrites submitter UUIDs, field UUIDs, field conditions, formula references, schema attachment UUIDs, and submitter invite references;
+  - creates new storage attachment rows that reuse existing blobs/previews, matching DocuSeal ActiveStorage clone behavior;
+  - accepts `name`, `folder_name`, `external_id`, and `application_key`.
+- Fixed archived template listing parity for TypeORM soft deletes by using `withDeleted()` when `archived=true`; restore and permanent delete also use soft-deleted lookup when needed.
+- Added the first DocuSeal-style template editor shell at `/templates/[id]/edit`, backed by `GET /api/templates/:id`, rendering uploaded document preview, left document rail, top actions, and right field palette.
+- Expanded the template editor document rail:
+  - renders all template documents from backend schema order;
+  - keeps the add-document control fixed at the bottom while thumbnails scroll;
+  - supports inline document name editing persisted through `PUT /api/templates/:id`;
+  - supports append document, replace document, remove document, and up/down document reorder through existing template/document APIs;
+  - matches DocuSeal thumbnail hover controls for replace, menu, and reorder arrows;
+  - renders all documents in the center canvas and scrolls to the selected document.
+- Implemented the first DocuSeal-compatible template editor field placement pass:
+  - field palette uses DocuSeal field type keys (`text`, `signature`, `initials`, `date`, `number`, `image`, `checkbox`, `multiple`, `file`, `radio`, `select`, `cells`, `stamp`, `payment`);
+  - clicking or drawing on a preview page creates normalized field areas with `x`, `y`, `w`, `h`, zero-based `page`, and `attachment_uuid`;
+  - placed fields render as page overlays, can be selected, moved, resized, deleted, and persisted through `PUT /api/templates/:id`;
+  - select/multiple/radio fields get DocuSeal-style empty option placeholders, date fields get a default date format preference, stamp fields are readonly.
+- Expanded template editor field UX toward DocuSeal parity:
+  - native browser palette-to-page drag/drop now creates fields on the dropped page and clears active placement state;
+  - existing fields can be dragged from the right sidebar to duplicate/place another area on the document;
+  - text-like fields support inline value editing with persisted `default_value`;
+  - checkbox fields can be toggled directly on the document and persist `default_value`;
+  - field labels can be renamed inline and update the right-sidebar field list reactively;
+  - field delete works from the selected field label and keyboard delete/backspace;
+  - field resizing keeps the title chip stable while resizing the field body, supports very small text fields, and scales text relative to field/document size;
+  - the selected field type icon opens a DocuSeal-style dropdown for changing the field type while preserving sensible type defaults.
+- Added first template editor role/settings parity pass:
+  - right sidebar role manager can add, rename, and remove submitter roles;
+  - role removal is guarded when assigned fields exist, allowing the user to remove the role and reassign fields to the next available role or remove the role and its fields together;
+  - field labels and right-sidebar rows use DocuSeal-style stable role colors by submitter order;
+  - right-sidebar field rows now provide DocuSeal-style management controls for rename, role reassignment through the party color dot, field type changes through the field icon, required toggling, description/display-title editing, page jump, draw-another-area guidance, copy-to-all-pages, and delete;
+  - field description modal persists DocuSeal-compatible `description` and optional `title` metadata on the field JSON;
+  - field settings modal now persists DocuSeal-compatible JSON settings for required/read-only/prefillable flags, default values, checkbox default state, date/number formats, number min/max validation, and select/radio/multiple options;
+  - field settings modal now also supports DocuSeal-style text/cells validation presets, length validation, custom regexp/message validation, and file/image accepted-type plus max-size constraints persisted under field JSON preferences/validation;
+  - field conditions modal now persists DocuSeal-compatible `conditions[]`, supports DocuSeal condition actions by source field type, prevents direct/cyclic field dependencies, and displays condition count badges in the sidebar/canvas;
+  - right sidebar field ordering supports up/down controls and drag-to-reorder, persisting reordered `fields[]`;
+  - selected fields support keyboard delete/backspace, arrow-key nudging with Shift for larger movement, ctrl/meta-click multi-select, localStorage-backed copy/paste, and grouped copy/paste/delete/nudge basics;
+  - multi-area fields can be managed from field settings with per-area page jump and per-area removal while preserving at least one area;
+  - document thumbnail menu now keeps conditions and field ordering visible as explicit tracked parity gaps instead of silent placeholders.
+- Added the first DocuSeal-style public self-signing flow:
+  - generated the Nest `SigningModule`, controller, and service with the Nest CLI;
+  - added public signing endpoints for loading a submitter signing form, uploading signature attachments, saving signer values, completing, declining, and downloading current documents;
+  - signing form reads submission/template documents, preview images, and submitter attachments from the existing storage/template stack and records `view_form`, `complete_form`, and `decline_form` events;
+  - signature uploads are stored as submitter attachments and validated server-side with `sharp` so empty/error images are rejected;
+  - the template editor `SIGN YOURSELF` action now creates a submission from the active template and routes to `/s/:slug`;
+  - added `/s/:slug` frontend signing page with DocuSeal-like header actions, rendered document preview pages, field overlays, bottom signing panel, draw/type/upload signature modes, signer completion, decline confirmation, and document download;
+  - typed signatures use the local `@fontsource/dancing-script` font and drawn signatures use `react-signature-canvas`, a React wrapper around `signature_pad`;
+  - signature fields now include DocuSeal-style "sign on phone" QR mode using the same `qr-creator` package, mobile focused-field links, and desktop polling for the mobile-created attachment;
+  - signature panel QR mode now mirrors DocuSeal's visual structure more closely with a muted QR overlay, separate QR instruction text, a minimize control, and clear/redraw button text reveal;
+  - signer field widgets now mirror DocuSeal step behavior for image/stamp upload preview with reupload/remove, multi-file attachment values, date format-aware `date`/`month`/`datetime-local` input selection, "set today" date action, text multiline toggle, cells max-length, checkbox toggles, select/radio/multiple option rendering, blank option fallback labels, and country-code phone value entry backed by DocuSeal's full `phone_data` list;
+  - backend phone verification setup now has a Twilio Verify + `libphonenumber-js` service boundary and env placeholders, ready for wiring into the phone field OTP endpoints.
+- Added DocuSeal-style template preference email editing:
+  - signature request email, documents copy email, and completed notification email bodies now use a Tiptap Markdown editor with DocuSeal-style inline formatting, link editing, undo/redo, variable insertion, and variable highlighting;
+  - editor state is persisted as Markdown in template preferences, matching DocuSeal's preference storage shape instead of storing editor HTML;
+  - backend email template rendering helpers now replace DocuSeal-style `{variable}`/`{{variable}}` placeholders and convert the supported Markdown subset to sanitized email HTML;
+  - backend unit tests cover variable replacement, link rendering/autolinking, and raw HTML escaping.
+
+## In Progress
+
+- API compatibility planning.
+- Final data model validation against DocuSeal Rails schema.
+- Backend module-by-module implementation.
+- Embedded text-tag extraction/removal parity for PDF template creation.
+- Template editor advanced builder parity implementation.
+
+## Known Not Done
+
+- Submission generated documents are not complete:
+  - pending submission prefilled preview PDFs are not generated yet.
+  - completed submission signed result PDFs are not generated yet.
+  - merged submission documents are not generated or cached yet.
+  - audit trail PDFs are not generated yet.
+  - combined document URLs remain `null` until result/audit/merge generation exists.
+- Submission side effects are not wired yet:
+  - `submission.created` and `submission.archived` webhook enqueue/delivery is pending.
+  - real signature request email/SMS dispatch is pending; email subject/body preferences and template rendering exist, but the notification queue/provider integration is not wired yet.
+  - submitter completion processing is pending beyond timestamp/event persistence.
+- Submitter side effects are not wired yet:
+  - `PUT /api/submitters/{id}` records send preferences and sent timestamp, but real email/SMS dispatch is pending.
+  - completed submitter result generation is pending; update/show returns current template-backed documents until final signed PDFs exist.
+- Public signing gaps:
+  - completed signing currently stores values/signature attachments and completion events, but does not stamp/flatten values onto a final PDF yet.
+  - signer download currently returns current source document URLs until final signed-result generation exists.
+  - phone fields still need the public SMS one-time-code send/check endpoints wired into the signer panel state.
+  - payment fields are intentionally not treated as numeric inputs; completing them is blocked until a DocuSeal-compatible payment provider step is implemented.
+  - signing order enforcement, reasons, submitter auth, delegation, resubmission, and audit trail display remain pending.
+- Submission API compatibility still has gaps:
+  - multiple submissions in one `POST /api/submissions` request are not implemented yet.
+  - `POST /api/submissions/pdf` does not support `template_ids` merge-in behavior yet.
+  - `POST /api/submissions/pdf` uses a backing template; true one-off hidden-template semantics are still pending.
+- PDF template/signing gaps:
+  - embedded `{{...}}` text-tag extraction/removal is not implemented yet.
+  - PDF flattening is not implemented yet.
+  - XFA form support is not implemented; `pdf-lib` does not support XFA.
+  - AcroForm extraction is standard-form only; DocuSeal's HexaPDF edge-case coverage is broader than our current `pdf-lib` extractor.
+- Infrastructure gaps:
+  - Webhook module and delivery attempts are not implemented yet.
+  - Email/SMS notification module is not implemented yet. Template email preferences and rendering helpers exist, but SMTP/provider adapters, queueing, delivery status, click/open tracking, and resend orchestration remain pending.
+  - Final document/audit/combined-document generation module is not implemented yet.
+- Template editor gaps:
+  - Multi-page PDF canvas virtualization is not implemented yet.
+  - Advanced per-type field settings are still partial: formula fields, font settings, payment settings, signature-specific settings, and richer DocuSeal locale-aware format lists are not fully wired yet.
+  - Field conditions are implemented for field-level conditions; schema/document conditions remain pending.
+  - Save-as-custom-field is UI-discoverable but not wired because the saved-field library model is not implemented yet.
+  - Multi-select alignment/distribution controls are not implemented yet.
+  - Autodetect fields button is UI-only until the separate DocuSeal-style `/templates/{id}/detect_fields` visual/AI detection flow is wired.
+- Template dashboard gaps:
+  - Move-to-folder currently uses a prompt; DocuSeal uses a modal/folder UI.
+  - Blank template creation is not implemented yet.
+
+## Todo
+
+- Add Shared API primitives for DocuSeal pagination, errors, and Zod validation.
+- Map OpenAPI request/response schemas into Zod contracts in `@repo/shared`.
+- Decide a text-geometry/removal engine for embedded `{{...}}` text tags; current stack does not provide safe full removal parity.
+- Implement embedded text-tag removal/extraction for PDF templates.
+- Spike PDF editing/signing with `pdf-lib` and `@signpdf/signpdf`.
+- Spike DOCX conversion with LibreOffice worker.
+- Spike HTML-to-PDF with Playwright worker.
+- Implement public API P1 endpoints:
+  - `POST /api/submissions/emails`
+  - `POST /api/submissions/docx`
+  - `POST /api/submissions/html`
+  - `POST /api/templates/docx`
+  - `POST /api/templates/html`
+  - `POST /api/templates/{id}/clone`
+  - `POST /api/templates/merge`
+- Implement template dashboard parity polish:
+  - folder picker/move modal instead of `window.prompt`;
+  - blank-template create flow;
+  - optional archived count/link metadata once dashboard counts are available.
+- Implement template editor field placement parity:
+  - advanced field context-menu and option parity beyond the first row-level management pass;
+  - field ordering and re-order workflow;
+  - copy/paste, keyboard nudging, multi-select alignment;
+  - canvas virtualization for very large templates.
+- Implement the next template editor parity batch:
+  1. Conditions modal:
+     - edit `conditions` arrays on fields/schema items;
+     - support DocuSeal actions for checkbox, select/radio, multiple, number, and generic fields;
+     - prevent circular dependencies.
+  2. Field ordering workflow:
+     - document-scoped field ordering UI matching DocuSeal behavior;
+     - persist reordered `fields` array and keep sidebar/canvas order stable.
+  3. Advanced field settings:
+     - validation rules, number ranges/formats, select/radio/multiple options, prefillable flags, font settings, formulas, saved custom fields, and payment-specific settings.
+  4. Builder productivity:
+     - copy/paste, keyboard nudging, multi-select alignment, and larger-template canvas virtualization.
+  5. Dashboard polish:
+     - folder picker/move modal instead of `window.prompt`;
+     - blank-template create flow.
+- Implement secondary/internal Rails API candidates:
+  - `POST /api/attachments`
+  - `POST /api/submitter_email_clicks`
+  - `POST /api/submitter_form_views`
+  - `POST /api/submissions/init`
+  - `GET /api/templates/{id}/submissions`
+  - `POST /api/templates/{id}/submissions`
+  - `POST /api/tools/merge`
+  - `POST /api/tools/verify`
+  - `GET /api/events/form/{type}`
+  - `GET /api/events/submission/{type}`
+- Plan webhook delivery and event storage.

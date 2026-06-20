@@ -1,0 +1,1564 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  CheckIcon,
+  CalendarCheckIcon,
+  Maximize2Icon,
+  ImageUpIcon,
+  Minimize2Icon,
+  PaperclipIcon,
+  PenLineIcon,
+  QrCodeIcon,
+  RotateCcwIcon,
+  TypeIcon,
+  Trash2Icon,
+  XIcon,
+} from "lucide-react";
+import SignatureCanvas from "react-signature-canvas";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  getSigningFieldValue,
+  type SigningAttachment,
+  type SigningField,
+  type SigningForm,
+} from "@/lib/api/signing";
+import phoneData from "@/lib/phone-data";
+import { cn } from "@/lib/utils";
+
+type SignatureMode = "draw" | "phone" | "type" | "upload";
+
+export function SignaturePanel({
+  activeField,
+  fields,
+  form,
+  onComplete,
+  onSaveField,
+  onSelectField,
+  onUploadAttachment,
+}: {
+  activeField?: SigningField | null;
+  fields: SigningField[];
+  form: SigningForm;
+  onComplete: (field: SigningField, value: unknown) => Promise<void>;
+  onSaveField: (field: SigningField, value: unknown) => Promise<void>;
+  onSelectField: (field: SigningField) => void;
+  onUploadAttachment: (file: File, type: string) => Promise<string>;
+}) {
+  const [mode, setMode] = useState<SignatureMode>("draw");
+  const [typedSignature, setTypedSignature] = useState(
+    form.submitter.name ?? "",
+  );
+  const [fieldValue, setFieldValue] = useState("");
+  const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
+  const [attachmentValueUuids, setAttachmentValueUuids] = useState<string[]>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
+  const [remoteSignatureAttachment, setRemoteSignatureAttachment] =
+    useState<SigningAttachment | null>(null);
+  const signaturePadRef = useRef<SignatureCanvas | null>(null);
+  const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const incompleteFields = useMemo(
+    () => fields.filter((field) => !field.readonly && !hasFieldValue(form, field)),
+    [fields, form],
+  );
+  const activeFieldKey = activeField ? getFieldKey(activeField) : "";
+  const isSignatureField =
+    activeField?.type === "signature" || activeField?.type === "initials";
+  const attachmentsIndex = useMemo(
+    () =>
+      Object.fromEntries(
+        form.attachments.map((attachment) => [attachment.uuid, attachment]),
+      ),
+    [form.attachments],
+  );
+
+  useEffect(() => {
+    if (!activeField) {
+      return;
+    }
+
+    const value = form.values[activeFieldKey] ?? activeField.default_value;
+
+    queueMicrotask(() => {
+      setFieldValue(getStringFieldValue(value));
+      setSelectedOptions(getStringArrayFieldValue(value));
+      setAttachmentValueUuids(getStringArrayFieldValue(value));
+      setUploadedFiles([]);
+      setRemoteSignatureAttachment(null);
+      setIsMinimized(false);
+    });
+  }, [activeField, activeFieldKey, form.values]);
+
+  useEffect(() => {
+    if (!activeField || mode !== "phone" || !isSignatureField) {
+      return;
+    }
+
+    const fieldUuid = activeField.uuid;
+
+    if (!fieldUuid) {
+      return;
+    }
+
+    const after = new Date().toISOString();
+    const mobileUrl = getMobileSignatureUrl(form.submitter.slug, fieldUuid);
+
+    void renderQrCode(qrCanvasRef.current, mobileUrl);
+
+    const interval = window.setInterval(() => {
+      getSigningFieldValue(form.submitter.slug, fieldUuid, after)
+        .then((response) => {
+          if (response.attachment?.uuid) {
+            setRemoteSignatureAttachment(response.attachment);
+            setMode("draw");
+            window.clearInterval(interval);
+          }
+        })
+        .catch((pollError: unknown) => {
+          if (process.env.NODE_ENV === "development") {
+            console.error(pollError);
+          }
+        });
+    }, 2000);
+
+    return () => window.clearInterval(interval);
+  }, [activeField, form.submitter.slug, isSignatureField, mode]);
+
+  if (!activeField) {
+    return null;
+  }
+
+  const selectedField = activeField;
+  const title =
+    selectedField.name ||
+    selectedField.title ||
+    getDefaultFieldTitle(selectedField);
+
+  if (isMinimized) {
+    const minimizedLabel =
+      selectedField.type === "signature" || selectedField.type === "initials"
+        ? "SIGN NOW"
+        : "CONTINUE";
+
+    return (
+      <div className="fixed inset-x-0 bottom-3 z-30 flex justify-center px-[2%] sm:bottom-4 sm:px-4">
+        <Button
+          className="relative h-12 w-full rounded-full bg-[var(--auth-primary)] text-sm font-bold text-[var(--auth-primary-foreground)] shadow-2xl hover:bg-[var(--auth-primary-hover)] sm:max-w-3xl"
+          onClick={() => setIsMinimized(false)}
+          type="button"
+        >
+          {(selectedField.type === "signature" ||
+            selectedField.type === "initials") ? (
+            <PenLineIcon data-icon="inline-start" />
+          ) : null}
+          {minimizedLabel}
+          <Maximize2Icon
+            className="absolute right-5"
+            data-icon="inline-end"
+          />
+        </Button>
+      </div>
+    );
+  }
+
+  async function saveActiveField() {
+    setIsSaving(true);
+
+    try {
+      const value = await collectActiveFieldValue(selectedField);
+
+      const isLastRequiredField = incompleteFields.length <= 1;
+
+      if (isLastRequiredField) {
+        await onComplete(selectedField, value);
+      } else {
+        await onSaveField(selectedField, value);
+        toast.success("Field saved");
+      }
+    } catch (saveError) {
+      const message =
+        saveError instanceof Error ? saveError.message : "Field could not be saved.";
+
+      toast.error("Signing failed", { description: message });
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function collectSignatureValue(): Promise<string> {
+    if (remoteSignatureAttachment?.uuid) {
+      return remoteSignatureAttachment.uuid;
+    }
+
+    if (mode === "draw") {
+      const pad = signaturePadRef.current;
+
+      if (!pad || pad.isEmpty()) {
+        throw new Error("Draw your signature before completing.");
+      }
+
+      const dataUrl = pad.getTrimmedCanvas().toDataURL("image/png");
+      const file = dataUrlToFile(dataUrl, "signature.png");
+
+      return onUploadAttachment(file, "signature");
+    }
+
+    if (mode === "upload") {
+      const uploadedFile = uploadedFiles[0];
+
+      if (!uploadedFile) {
+        throw new Error("Upload a signature image before completing.");
+      }
+
+      return onUploadAttachment(uploadedFile, "signature");
+    }
+
+    if (mode === "phone") {
+      throw new Error("Scan the QR code and complete the signature on your phone.");
+    }
+
+    if (!typedSignature.trim()) {
+      throw new Error("Type your signature before completing.");
+    }
+
+    const file = await typedSignatureToFile(typedSignature.trim());
+
+    return onUploadAttachment(file, "signature");
+  }
+
+  async function collectActiveFieldValue(field: SigningField): Promise<unknown> {
+    if (field.type === "signature" || field.type === "initials") {
+      return collectSignatureValue();
+    }
+
+    if (field.type === "image" || field.type === "stamp") {
+      const uploadedFile = uploadedFiles[0];
+
+      if (!uploadedFile) {
+        if (fieldValue) {
+          return fieldValue;
+        }
+
+        throw new Error("Upload an image before continuing.");
+      }
+
+      return onUploadAttachment(uploadedFile, field.type);
+    }
+
+    if (field.type === "file") {
+      if (!uploadedFiles.length && !attachmentValueUuids.length) {
+        throw new Error("Upload a file before continuing.");
+      }
+
+      const newAttachmentUuids = await Promise.all(
+        uploadedFiles.map((file) => onUploadAttachment(file, "file")),
+      );
+
+      return [...attachmentValueUuids, ...newAttachmentUuids];
+    }
+
+    if (field.type === "multiple") {
+      return selectedOptions;
+    }
+
+    return collectSimpleFieldValue(field, fieldValue);
+  }
+
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-30 flex justify-center px-0 sm:bottom-4 sm:px-4">
+      <section className="max-h-[min(86svh,640px)] w-full overflow-y-auto rounded-t-xl border border-[var(--auth-input-border)] bg-card p-4 shadow-2xl sm:max-w-3xl sm:rounded-xl sm:p-5">
+        <div className="mb-3.5 flex items-end justify-between gap-3 md:mb-4">
+          <h2 className="min-w-0 flex-1 truncate text-xl font-medium sm:text-2xl">{title}</h2>
+          <div className="flex flex-none items-center justify-end gap-2">
+            {isSignatureField ? (
+              <>
+                <ModeButton
+                  active={mode === "draw"}
+                  icon={<PenLineIcon data-icon="inline-start" />}
+                  label="Draw"
+                  onClick={() => setMode("draw")}
+                />
+                <ModeButton
+                  active={mode === "type"}
+                  icon={<TypeIcon data-icon="inline-start" />}
+                  label="Type"
+                  onClick={() => setMode("type")}
+                />
+                <ModeButton
+                  active={mode === "upload"}
+                  icon={<ImageUpIcon data-icon="inline-start" />}
+                  label="Upload"
+                  onClick={() => setMode("upload")}
+                />
+                <ModeButton
+                  active={mode === "phone"}
+                  className="hidden md:inline-flex"
+                  icon={<QrCodeIcon data-icon="inline-start" />}
+                  label="Phone"
+                  onClick={() => setMode("phone")}
+                />
+              </>
+            ) : null}
+            <Button
+              aria-label="Minimize"
+              className="size-9 rounded-full text-[var(--auth-primary)] hover:bg-[var(--auth-muted)]"
+              onClick={() => setIsMinimized(true)}
+              type="button"
+              variant="ghost"
+            >
+              <Minimize2Icon data-icon="icon-only" />
+            </Button>
+          </div>
+        </div>
+
+        {incompleteFields.length > 1 ? (
+          <div className="mb-3 flex gap-2 overflow-x-auto pb-1 sm:mb-4">
+            {incompleteFields.map((field) => (
+              <Button
+                className={cn(
+                  "h-9 shrink-0 rounded-full px-4 text-xs font-bold",
+                  field === selectedField
+                    ? "bg-[var(--auth-primary)] text-[var(--auth-primary-foreground)]"
+                    : "border-[var(--auth-input-border)] text-[var(--auth-primary)]",
+                )}
+                key={getFieldKey(field)}
+                onClick={() => onSelectField(field)}
+                type="button"
+                variant={field === selectedField ? "default" : "outline"}
+              >
+                {field.name || field.title || getDefaultFieldTitle(field)}
+              </Button>
+            ))}
+          </div>
+        ) : null}
+
+        {isSignatureField ? (
+          <SignatureInput
+            mode={mode}
+            mobileUrl={
+              selectedField.uuid
+                ? getMobileSignatureUrl(form.submitter.slug, selectedField.uuid)
+                : ""
+            }
+            onClear={() => signaturePadRef.current?.clear()}
+            onHideQr={() => setMode("draw")}
+            onFileChange={(file) => setUploadedFiles(file ? [file] : [])}
+            padRef={signaturePadRef}
+            qrCanvasRef={qrCanvasRef}
+            remoteAttachment={remoteSignatureAttachment}
+            typedSignature={typedSignature}
+            uploadedFile={uploadedFiles[0] ?? null}
+            onTypedSignatureChange={setTypedSignature}
+          />
+        ) : (
+          <SignerFieldInput
+            field={selectedField}
+            attachmentsIndex={attachmentsIndex}
+            attachmentValueUuids={attachmentValueUuids}
+            selectedOptions={selectedOptions}
+            uploadedFiles={uploadedFiles}
+            value={fieldValue}
+            onAttachmentValueUuidsChange={setAttachmentValueUuids}
+            onFilesChange={setUploadedFiles}
+            onChange={setFieldValue}
+            onSelectedOptionsChange={setSelectedOptions}
+          />
+        )}
+
+        <p className="mt-2 text-center text-xs text-[var(--auth-muted-foreground)] sm:mt-2.5">
+          By clicking &quot;Sign and Complete&quot;, you agree to the{" "}
+          <span className="sm:hidden">eSignature Disclosure</span>
+          <span className="hidden sm:inline">Electronic Signature Disclosure</span>.
+        </p>
+        <Button
+          className="mt-3 h-12 w-full rounded-full bg-[var(--auth-primary)] text-sm font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
+          disabled={isSaving}
+          onClick={() => void saveActiveField()}
+          type="button"
+        >
+          {isSaving ? <Spinner className="size-4" /> : <CheckIcon data-icon="inline-start" />}
+          {incompleteFields.length <= 1 ? "SIGN AND COMPLETE" : "SAVE AND NEXT"}
+        </Button>
+      </section>
+    </div>
+  );
+}
+
+function SignatureInput({
+  mobileUrl,
+  mode,
+  onClear,
+  onFileChange,
+  onHideQr,
+  onTypedSignatureChange,
+  padRef,
+  qrCanvasRef,
+  remoteAttachment,
+  typedSignature,
+  uploadedFile,
+}: {
+  mobileUrl: string;
+  mode: SignatureMode;
+  onClear: () => void;
+  onFileChange: (file: File | null) => void;
+  onHideQr: () => void;
+  onTypedSignatureChange: (value: string) => void;
+  padRef: React.MutableRefObject<SignatureCanvas | null>;
+  qrCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
+  remoteAttachment: SigningAttachment | null;
+  typedSignature: string;
+  uploadedFile: File | null;
+}) {
+  if (mode === "type") {
+    return (
+      <Input
+        className="h-24 rounded-2xl border-[var(--auth-input-border)] px-5 text-4xl shadow-none focus-visible:ring-0 sm:h-28 sm:px-6 sm:text-5xl"
+        onChange={(event) => onTypedSignatureChange(event.target.value)}
+        style={{ fontFamily: '"Dancing Script", cursive' }}
+        value={typedSignature}
+      />
+    );
+  }
+
+  if (mode === "upload") {
+    return (
+      <label className="flex h-44 cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[var(--auth-input-border)] bg-[var(--auth-muted)] text-center sm:h-48">
+        <ImageUpIcon className="size-8 text-[var(--auth-primary)]" />
+        <span className="text-sm font-semibold">
+          {uploadedFile?.name ?? "Upload a signature image"}
+        </span>
+        <input
+          accept="image/png,image/jpeg,image/webp"
+          className="sr-only"
+          onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
+          type="file"
+        />
+      </label>
+    );
+  }
+
+  if (mode === "phone") {
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="relative h-44 overflow-hidden rounded-2xl border border-[var(--auth-input-border)] bg-white p-0.5 sm:h-48">
+          <div className="absolute inset-0 rounded-2xl bg-white" />
+          <div className="absolute inset-0 rounded-2xl bg-[var(--auth-muted)]" />
+          <Button
+            aria-label="Close phone signing"
+            className="absolute right-3 top-3 size-9 rounded-full bg-white/90 text-[var(--auth-primary)] shadow-sm hover:bg-white"
+            onClick={onHideQr}
+            type="button"
+            variant="ghost"
+          >
+            <XIcon data-icon="icon-only" />
+          </Button>
+          <div className="relative flex h-full items-center justify-center p-4">
+            <div className="flex h-full max-h-40 items-center justify-center rounded-xl bg-white p-4 shadow-sm">
+              <canvas
+                aria-label="QR code to sign on phone"
+                className="h-full w-auto"
+                height={132}
+                ref={qrCanvasRef}
+                width={132}
+              />
+            </div>
+          </div>
+        </div>
+        <p className="text-center text-xs text-[var(--auth-muted-foreground)]">
+          Scan the QR code with the camera app to open the form on mobile and
+          draw your signature.
+        </p>
+        <a
+          className="text-center text-xs font-semibold text-[var(--auth-primary)] underline underline-offset-4 md:hidden"
+          href={mobileUrl}
+        >
+          Open on this device
+        </a>
+      </div>
+    );
+  }
+
+  if (remoteAttachment) {
+    return (
+      <div className="flex h-44 items-center justify-center rounded-2xl border border-[var(--auth-input-border)] bg-white p-4 sm:h-48">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          alt={remoteAttachment.filename}
+          className="max-h-full max-w-full object-contain"
+          src={remoteAttachment.url}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative h-44 overflow-hidden rounded-2xl border border-[var(--auth-input-border)] bg-white sm:h-48">
+      <SignatureCanvas
+        canvasProps={{ className: "h-full w-full touch-none" }}
+        penColor="#16304f"
+        ref={padRef}
+        throttle={8}
+      />
+      <Button
+        aria-label="Clear signature"
+        className="absolute right-3 top-3 h-8 rounded-full bg-white/90 px-3 text-xs font-bold text-[var(--auth-primary)] shadow-sm hover:bg-[var(--auth-muted)] md:h-9"
+        onClick={onClear}
+        type="button"
+        variant="ghost"
+      >
+        <RotateCcwIcon data-icon="inline-start" />
+        REDRAW
+      </Button>
+    </div>
+  );
+}
+
+function SignerFieldInput({
+  attachmentValueUuids,
+  attachmentsIndex,
+  field,
+  onAttachmentValueUuidsChange,
+  onChange,
+  onFilesChange,
+  onSelectedOptionsChange,
+  selectedOptions,
+  uploadedFiles,
+  value,
+}: {
+  attachmentValueUuids: string[];
+  attachmentsIndex: Record<string, { filename: string; url: string }>;
+  field: SigningField;
+  onAttachmentValueUuidsChange: (value: string[]) => void;
+  onChange: (value: string) => void;
+  onFilesChange: (files: File[]) => void;
+  onSelectedOptionsChange: (value: string[]) => void;
+  selectedOptions: string[];
+  uploadedFiles: File[];
+  value: string;
+}) {
+  if (field.type === "checkbox") {
+    return (
+      <FieldGroup>
+        <Field orientation="horizontal">
+          <Checkbox
+            checked={value === "true"}
+            onCheckedChange={(checked) => onChange(checked ? "true" : "")}
+          />
+          <FieldLabel className="cursor-pointer">
+            {field.description || "Check this box"}
+          </FieldLabel>
+        </Field>
+      </FieldGroup>
+    );
+  }
+
+  if (field.type === "image" || field.type === "file" || field.type === "stamp") {
+    return (
+      <AttachmentFieldInput
+        attachmentValueUuids={attachmentValueUuids}
+        attachmentsIndex={attachmentsIndex}
+        field={field}
+        files={uploadedFiles}
+        value={value}
+        onAttachmentValueUuidsChange={onAttachmentValueUuidsChange}
+        onChange={onChange}
+        onFilesChange={onFilesChange}
+      />
+    );
+  }
+
+  if (field.type === "select") {
+    return (
+      <OptionSelectInput
+        field={field}
+        value={value}
+        onChange={onChange}
+      />
+    );
+  }
+
+  if (field.type === "radio") {
+    return (
+      <OptionToggleInput
+        field={field}
+        type="single"
+        value={value}
+        onChange={onChange}
+      />
+    );
+  }
+
+  if (field.type === "multiple") {
+    return (
+      <OptionToggleInput
+        field={field}
+        selectedOptions={selectedOptions}
+        type="multiple"
+        onSelectedOptionsChange={onSelectedOptionsChange}
+      />
+    );
+  }
+
+  return (
+    <TextLikeFieldInput field={field} value={value} onChange={onChange} />
+  );
+}
+
+function AttachmentFieldInput({
+  attachmentValueUuids,
+  attachmentsIndex,
+  field,
+  files,
+  onAttachmentValueUuidsChange,
+  onChange,
+  onFilesChange,
+  value,
+}: {
+  attachmentValueUuids: string[];
+  attachmentsIndex: Record<string, { filename: string; url: string }>;
+  field: SigningField;
+  files: File[];
+  onAttachmentValueUuidsChange: (value: string[]) => void;
+  onChange: (value: string) => void;
+  onFilesChange: (files: File[]) => void;
+  value: string;
+}) {
+  const isImage = field.type === "image" || field.type === "stamp";
+  const existingImage = isImage && value ? attachmentsIndex[value] : null;
+  const localImageFile = isImage ? files[0] : null;
+
+  return (
+    <FieldGroup>
+      <Field>
+        {isImage && (existingImage || localImageFile) ? (
+          <UploadedImagePreview
+            attachment={existingImage}
+            file={localImageFile}
+            label={field.name || getDefaultFieldTitle(field)}
+            onRemove={() => {
+              onChange("");
+              onFilesChange([]);
+            }}
+          />
+        ) : null}
+        {!isImage && (attachmentValueUuids.length || files.length) ? (
+          <UploadedFileList
+            attachmentsIndex={attachmentsIndex}
+            files={files}
+            valueUuids={attachmentValueUuids}
+            onFilesChange={onFilesChange}
+            onValueUuidsChange={onAttachmentValueUuidsChange}
+          />
+        ) : null}
+        <label className="flex h-40 cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[var(--auth-input-border)] bg-[var(--auth-muted)] px-4 text-center transition hover:border-[var(--auth-primary)] hover:bg-[var(--auth-primary)]/5">
+          {isImage ? (
+            <ImageUpIcon className="size-8 text-[var(--auth-primary)]" />
+          ) : (
+            <PaperclipIcon className="size-8 text-[var(--auth-primary)]" />
+          )}
+          <span className="text-sm font-semibold">
+            {isImage && (existingImage || localImageFile)
+              ? "Reupload"
+              : getUploadMessage(field)}
+          </span>
+          <span className="text-xs text-[var(--auth-muted-foreground)]">
+            Click to upload or drag and drop files
+          </span>
+          <input
+            accept={getAttachmentAccept(field)}
+            className="sr-only"
+            multiple={field.type === "file"}
+            onChange={(event) =>
+              onFilesChange(Array.from(event.target.files ?? []))
+            }
+            type="file"
+          />
+        </label>
+        {field.description ? (
+          <FieldDescription>{field.description}</FieldDescription>
+        ) : null}
+      </Field>
+    </FieldGroup>
+  );
+}
+
+function UploadedImagePreview({
+  attachment,
+  file,
+  label,
+  onRemove,
+}: {
+  attachment: { filename: string; url: string } | null;
+  file: File | null;
+  label: string;
+  onRemove: () => void;
+}) {
+  const localPreviewUrl = useMemo(
+    () => (file ? URL.createObjectURL(file) : null),
+    [file],
+  );
+
+  useEffect(
+    () => () => {
+      if (localPreviewUrl) {
+        URL.revokeObjectURL(localPreviewUrl);
+      }
+    },
+    [localPreviewUrl],
+  );
+
+  const previewUrl = localPreviewUrl ?? attachment?.url;
+
+  if (!previewUrl) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-end justify-between gap-3">
+        <FieldLabel>{label}</FieldLabel>
+        <Button
+          className="h-8 rounded-full px-3 text-xs font-bold"
+          onClick={onRemove}
+          type="button"
+          variant="outline"
+        >
+          <RotateCcwIcon data-icon="inline-start" />
+          Reupload
+        </Button>
+      </div>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        alt={file?.name ?? attachment?.filename ?? label}
+        className="mx-auto h-52 max-w-full rounded-lg border border-[var(--auth-input-border)] bg-white object-contain"
+        src={previewUrl}
+      />
+    </div>
+  );
+}
+
+function UploadedFileList({
+  attachmentsIndex,
+  files,
+  onFilesChange,
+  onValueUuidsChange,
+  valueUuids,
+}: {
+  attachmentsIndex: Record<string, { filename: string; url: string }>;
+  files: File[];
+  onFilesChange: (files: File[]) => void;
+  onValueUuidsChange: (value: string[]) => void;
+  valueUuids: string[];
+}) {
+  const existingAttachments = valueUuids
+    .map((uuid) => ({ attachment: attachmentsIndex[uuid], uuid }))
+    .filter(
+      (item): item is { attachment: { filename: string; url: string }; uuid: string } =>
+        Boolean(item.attachment),
+    );
+
+  return (
+    <div className="flex flex-col gap-2">
+      {[...existingAttachments].map(({ attachment, uuid }) => (
+        <div
+          className="flex items-center justify-between gap-3 rounded-lg border border-[var(--auth-input-border)] bg-white px-3 py-2 text-sm"
+          key={uuid}
+        >
+          <a
+            className="min-w-0 truncate font-semibold text-[var(--auth-primary)] underline-offset-4 hover:underline"
+            href={attachment.url}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <PaperclipIcon data-icon="inline-start" />
+            {attachment.filename}
+          </a>
+          <Button
+            aria-label={`Remove ${attachment.filename}`}
+            className="size-8 shrink-0 rounded-full"
+            onClick={() =>
+              onValueUuidsChange(valueUuids.filter((item) => item !== uuid))
+            }
+            type="button"
+            variant="ghost"
+          >
+            <Trash2Icon data-icon="icon-only" />
+          </Button>
+        </div>
+      ))}
+      {files.map((file, index) => (
+        <div
+          className="flex items-center justify-between gap-3 rounded-lg border border-[var(--auth-input-border)] bg-white px-3 py-2 text-sm"
+          key={`${file.name}-${file.lastModified}-${index}`}
+        >
+          <span className="min-w-0 truncate font-semibold">
+            <PaperclipIcon data-icon="inline-start" />
+            {file.name}
+          </span>
+          <Button
+            aria-label={`Remove ${file.name}`}
+            className="size-8 shrink-0 rounded-full"
+            onClick={() =>
+              onFilesChange(files.filter((_, fileIndex) => fileIndex !== index))
+            }
+            type="button"
+            variant="ghost"
+          >
+            <Trash2Icon data-icon="icon-only" />
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TextLikeFieldInput({
+  field,
+  onChange,
+  value,
+}: {
+  field: SigningField;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const [isMultiline, setIsMultiline] = useState(false);
+
+  if (field.type === "date") {
+    return <DateFieldInput field={field} value={value} onChange={onChange} />;
+  }
+
+  if (field.type === "payment") {
+    return (
+      <FieldGroup>
+        <Field className="rounded-2xl border border-[var(--auth-input-border)] bg-[var(--auth-muted)] p-4">
+          <FieldLabel>Payment step</FieldLabel>
+          <FieldDescription>
+            Payment collection needs the DocuSeal-compatible payment provider flow
+            before this field can be completed.
+          </FieldDescription>
+        </Field>
+      </FieldGroup>
+    );
+  }
+
+  if (field.type === "phone") {
+    return <PhoneFieldInput field={field} value={value} onChange={onChange} />;
+  }
+
+  const canToggleMultiline =
+    field.type === "text" && !field.validation?.pattern;
+  const maxLength = getCellsMaxLength(field);
+
+  return (
+    <FieldGroup>
+      <Field>
+        {field.description ? (
+          <FieldDescription>{field.description}</FieldDescription>
+        ) : null}
+        {isMultiline ? (
+          <Textarea
+            className="min-h-32 rounded-2xl border-[var(--auth-input-border)] px-5 py-4 text-xl shadow-none focus-visible:ring-0"
+            maxLength={maxLength}
+            onChange={(event) => onChange(event.target.value)}
+            placeholder={field.name || getDefaultFieldTitle(field)}
+            value={value}
+          />
+        ) : (
+          <Input
+            className="h-14 rounded-full border-[var(--auth-input-border)] px-5 text-xl shadow-none focus-visible:ring-0"
+            inputMode={getInputMode(field)}
+            max={getValidationNumber(field, "max")}
+            maxLength={maxLength}
+            min={getValidationNumber(field, "min")}
+            onChange={(event) => onChange(event.target.value)}
+            pattern={getValidationPattern(field)}
+            placeholder={field.name || getDefaultFieldTitle(field)}
+            step={getValidationNumber(field, "step")}
+            type={getInputType(field)}
+            value={value}
+          />
+        )}
+        {canToggleMultiline ? (
+          <Button
+            className="mx-auto h-9 rounded-full px-4 text-xs font-bold"
+            onClick={() => setIsMultiline((current) => !current)}
+            type="button"
+            variant="outline"
+          >
+            {isMultiline ? "Use single line" : "Add multiple lines"}
+          </Button>
+        ) : null}
+      </Field>
+    </FieldGroup>
+  );
+}
+
+function PhoneFieldInput({
+  field,
+  onChange,
+  value,
+}: {
+  field: SigningField;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const detectedCountry = getPhoneCountry(value);
+  const [countryDialCode, setCountryDialCode] = useState(
+    detectedCountry?.dial ?? getDefaultPhoneCountry().dial,
+  );
+  const selectedCountry =
+    phoneCountries.find((country) => country.dial === countryDialCode) ??
+    phoneCountries[0];
+  const nationalValue = value.startsWith(`+${selectedCountry.dial}`)
+    ? value.replace(`+${selectedCountry.dial}`, "")
+    : value;
+
+  function updatePhone(nextCountryDialCode: string, nextNationalValue: string) {
+    const cleanedNationalValue = nextNationalValue.replace(/^\+/, "");
+
+    onChange(
+      cleanedNationalValue
+        ? `+${nextCountryDialCode}${cleanedNationalValue}`
+        : "",
+    );
+  }
+
+  return (
+    <FieldGroup>
+      <Field>
+        {field.description ? (
+          <FieldDescription>{field.description}</FieldDescription>
+        ) : null}
+        <div className="flex rounded-full border border-[var(--auth-input-border)] bg-white focus-within:ring-2 focus-within:ring-[var(--auth-ring)]">
+          <Select
+            value={countryDialCode}
+            onValueChange={(nextDialCode) => {
+              setCountryDialCode(nextDialCode);
+              updatePhone(nextDialCode, nationalValue);
+            }}
+          >
+            <SelectTrigger className="h-14 w-32 rounded-l-full rounded-r-none border-0 border-r border-[var(--auth-input-border)] bg-[var(--auth-muted)] px-4 text-lg shadow-none focus:ring-0">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {phoneCountries.map((country) => (
+                  <SelectItem key={country.iso} value={country.dial}>
+                    {country.flag} +{country.dial} {country.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Input
+            className="h-14 rounded-l-none rounded-r-full border-0 px-5 text-xl shadow-none focus-visible:ring-0"
+            inputMode="tel"
+            onChange={(event) =>
+              updatePhone(countryDialCode, event.target.value)
+            }
+            placeholder="234 567-8900"
+            type="tel"
+            value={nationalValue}
+          />
+        </div>
+        <FieldDescription>
+          SMS verification is pending backend support; values are stored in
+          international format.
+        </FieldDescription>
+      </Field>
+    </FieldGroup>
+  );
+}
+
+function DateFieldInput({
+  field,
+  onChange,
+  value,
+}: {
+  field: SigningField;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const inputType = getDateInputType(field);
+  const inputValue = getDateInputValue(value, inputType);
+  const todayValue = getTodayInputValue(inputType);
+
+  return (
+    <FieldGroup>
+      <Field>
+        <div className="flex items-end justify-between gap-3">
+          <FieldLabel className="sr-only">
+            {field.name || getDefaultFieldTitle(field)}
+          </FieldLabel>
+          <span className="text-sm font-semibold">
+            {field.description || field.name || getDefaultFieldTitle(field)}
+          </span>
+          {canSetToday(field, inputType) ? (
+            <Button
+              className="h-8 rounded-full px-3 text-xs font-bold"
+              onClick={() => onChange(todayValue)}
+              type="button"
+              variant="outline"
+            >
+              <CalendarCheckIcon data-icon="inline-start" />
+              Set today
+            </Button>
+          ) : null}
+        </div>
+        <Input
+          className="h-14 rounded-full border-[var(--auth-input-border)] px-5 text-xl shadow-none focus-visible:ring-0"
+          max={getDateValidationValue(field, "max", inputType)}
+          min={getDateValidationValue(field, "min", inputType)}
+          onChange={(event) => {
+            const nextValue = event.target.value;
+
+            if (inputType === "datetime-local" && nextValue) {
+              const date = new Date(nextValue);
+              onChange(Number.isNaN(date.valueOf()) ? nextValue : date.toISOString());
+              return;
+            }
+
+            onChange(nextValue);
+          }}
+          type={inputType}
+          value={inputValue}
+        />
+      </Field>
+    </FieldGroup>
+  );
+}
+
+function OptionSelectInput({
+  field,
+  onChange,
+  value,
+}: {
+  field: SigningField;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const options = getFieldOptions(field);
+
+  return (
+    <FieldGroup>
+      <Field>
+        <FieldLabel className="sr-only">
+          {field.name || "Select option"}
+        </FieldLabel>
+        <Select value={value} onValueChange={onChange}>
+          <SelectTrigger className="h-14 w-full rounded-full border-[var(--auth-input-border)] px-5 shadow-none">
+            <SelectValue placeholder="Select an option" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {options.map((option) => (
+                <SelectItem key={option.uuid} value={option.value}>
+                  {option.value}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </Field>
+    </FieldGroup>
+  );
+}
+
+function OptionToggleInput({
+  field,
+  onChange,
+  onSelectedOptionsChange,
+  selectedOptions,
+  type,
+  value,
+}: {
+  field: SigningField;
+  onChange?: (value: string) => void;
+  onSelectedOptionsChange?: (value: string[]) => void;
+  selectedOptions?: string[];
+  type: "multiple" | "single";
+  value?: string;
+}) {
+  const options = getFieldOptions(field);
+
+  if (type === "single") {
+    return (
+      <FieldGroup>
+        <Field>
+          <FieldLabel className="sr-only">
+            {field.name || "Choose option"}
+          </FieldLabel>
+          <RadioGroup
+            className="mx-auto max-h-44 w-fit overflow-y-auto"
+            value={value}
+            onValueChange={(nextValue: string) => onChange?.(nextValue)}
+          >
+            {options.map((option) => (
+              <Field
+                className="flex-row items-center gap-3"
+                key={option.uuid}
+              >
+                <RadioGroupItem className="size-7" value={option.value} />
+                <FieldLabel className="text-xl font-normal">
+                  {option.value}
+                </FieldLabel>
+              </Field>
+            ))}
+          </RadioGroup>
+        </Field>
+      </FieldGroup>
+    );
+  }
+
+  return (
+    <FieldGroup>
+      <Field>
+        <FieldLabel className="sr-only">
+          {field.name || "Select options"}
+        </FieldLabel>
+        <div className="mx-auto flex max-h-44 w-fit flex-col gap-3.5 overflow-y-auto">
+          {options.map((option) => (
+            <Field
+              className="flex-row items-center gap-3"
+              key={option.uuid}
+            >
+              <Checkbox
+                checked={(selectedOptions ?? []).includes(option.value)}
+                className="size-7"
+                onCheckedChange={(checked) => {
+                  const current = selectedOptions ?? [];
+                  onSelectedOptionsChange?.(
+                    checked
+                      ? [...current, option.value]
+                      : current.filter((item) => item !== option.value),
+                  );
+                }}
+              />
+              <FieldLabel className="text-xl font-normal">
+                {option.value}
+              </FieldLabel>
+            </Field>
+          ))}
+        </div>
+      </Field>
+    </FieldGroup>
+  );
+}
+
+function ModeButton({
+  active,
+  className,
+  icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  className?: string;
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      className={cn(
+        "size-9 min-w-9 justify-center rounded-full p-0 text-xs font-bold sm:h-9 sm:w-auto sm:px-4",
+        active
+          ? "bg-[var(--auth-primary)] text-[var(--auth-primary-foreground)]"
+          : "border-[var(--auth-primary)] text-[var(--auth-primary)]",
+        className,
+      )}
+      onClick={onClick}
+      type="button"
+      variant={active ? "default" : "outline"}
+    >
+      {icon}
+      <span className="hidden sm:inline">{label}</span>
+    </Button>
+  );
+}
+
+async function typedSignatureToFile(signature: string): Promise<File> {
+  await document.fonts.ready;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 900;
+  canvas.height = 240;
+
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("Signature canvas could not be created.");
+  }
+
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#16304f";
+  context.font = '112px "Dancing Script", cursive';
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(signature, canvas.width / 2, canvas.height / 2);
+
+  return dataUrlToFile(canvas.toDataURL("image/png"), "typed-signature.png");
+}
+
+function dataUrlToFile(dataUrl: string, filename: string): File {
+  const [metadata, base64] = dataUrl.split(",");
+  const mimeMatch = metadata.match(/data:(.*);base64/);
+  const mimeType = mimeMatch?.[1] ?? "image/png";
+  const bytes = window.atob(base64);
+  const buffer = new Uint8Array(bytes.length);
+
+  for (let index = 0; index < bytes.length; index += 1) {
+    buffer[index] = bytes.charCodeAt(index);
+  }
+
+  return new File([buffer], filename, { type: mimeType });
+}
+
+function collectSimpleFieldValue(field: SigningField, value: string): unknown {
+  if (field.type === "checkbox") {
+    return value === "true";
+  }
+
+  if (field.type === "payment") {
+    throw new Error("Payment collection is not configured yet.");
+  }
+
+  return value;
+}
+
+function hasFieldValue(form: SigningForm, field: SigningField): boolean {
+  const value = form.values[getFieldKey(field)];
+
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+
+  return value !== null && value !== undefined && value !== "";
+}
+
+function getFieldKey(field: SigningField): string {
+  return field.uuid ?? field.name ?? "field";
+}
+
+function getDefaultFieldTitle(field: SigningField): string {
+  switch (field.type) {
+    case "date":
+      return "Date";
+    case "file":
+      return "File";
+    case "image":
+      return "Image";
+    case "initials":
+      return "Initials";
+    case "multiple":
+      return "Multiple choice";
+    case "number":
+      return "Number";
+    case "payment":
+      return "Payment";
+    case "phone":
+      return "Phone";
+    case "radio":
+      return "Radio";
+    case "select":
+      return "Select";
+    case "signature":
+      return "Signature";
+    case "stamp":
+      return "Stamp";
+    case "text":
+      return "Text";
+    default:
+      return "Field";
+  }
+}
+
+function getFieldOptions(field: SigningField): Array<{
+  uuid: string;
+  value: string;
+}> {
+  if (!Array.isArray(field.options)) {
+    return [];
+  }
+
+  return field.options.map((option, index) => ({
+    uuid: option.uuid ?? `${field.uuid ?? field.name ?? "field"}-${index}`,
+    value: option.value?.trim() || `Option ${index + 1}`,
+  }));
+}
+
+function getStringFieldValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  return "";
+}
+
+function getStringArrayFieldValue(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function getInputType(field: SigningField): string {
+  if (field.type === "number") {
+    return "number";
+  }
+
+  if (field.type === "phone") {
+    return "tel";
+  }
+
+  return "text";
+}
+
+function getInputMode(field: SigningField): React.HTMLAttributes<HTMLInputElement>["inputMode"] {
+  if (field.type === "number") {
+    return "decimal";
+  }
+
+  if (field.type === "phone") {
+    return "tel";
+  }
+
+  return undefined;
+}
+
+function getAttachmentAccept(field: SigningField): string {
+  if (field.type === "image" || field.type === "stamp") {
+    return "image/png,image/jpeg,image/webp";
+  }
+
+  return "application/pdf,image/*,.doc,.docx,.txt";
+}
+
+function getMobileSignatureUrl(submitterSlug: string, fieldUuid: string): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  const configuredBaseUrl = process.env.NEXT_PUBLIC_SIGNING_BASE_URL?.replace(
+    /\/$/,
+    "",
+  );
+  const fieldPrefix = fieldUuid.split("-")[0];
+  const baseUrl = configuredBaseUrl || window.location.origin;
+
+  return `${baseUrl}/s/${submitterSlug}?f=${fieldPrefix}`;
+}
+
+async function renderQrCode(
+  canvas: HTMLCanvasElement | null,
+  text: string,
+): Promise<void> {
+  if (!canvas || !text) {
+    return;
+  }
+
+  const { default: Qr } = await import("qr-creator");
+
+  Qr.render(
+    {
+      background: null,
+      ecLevel: "H",
+      radius: 0,
+      size: 132,
+      text,
+    },
+    canvas,
+  );
+}
+
+function getUploadMessage(field: SigningField): string {
+  if (field.type === "image" || field.type === "stamp") {
+    return "Upload an image";
+  }
+
+  return "Upload files";
+}
+
+const phoneCountries = phoneData.map(([iso, name, dial, flag, timezones]) => ({
+  dial,
+  flag,
+  iso,
+  name,
+  timezones,
+}));
+
+function getPhoneCountry(value: string) {
+  const digits = value.replace(/[^\d+]/g, "");
+  const dialCodes = [...phoneCountries].sort(
+    (firstCountry, secondCountry) =>
+      secondCountry.dial.length - firstCountry.dial.length,
+  );
+
+  return dialCodes.find((country) => digits.startsWith(`+${country.dial}`));
+}
+
+function getDefaultPhoneCountry() {
+  const timeZone =
+    typeof Intl === "undefined"
+      ? ""
+      : Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const browserZone = timeZone.split("/")[1];
+
+  return (
+    phoneCountries.find((country) =>
+      browserZone ? country.timezones.includes(browserZone) : false,
+    ) ?? phoneCountries[0]
+  );
+}
+
+function getCellsMaxLength(field: SigningField): number | undefined {
+  if (field.type !== "cells") {
+    return undefined;
+  }
+
+  const area = field.areas?.[0];
+
+  if (!area?.cell_w || !area.w) {
+    return undefined;
+  }
+
+  const cells = area.w / area.cell_w;
+
+  return cells % 1 > 0.2 ? Math.trunc(cells) + 1 : Math.trunc(cells);
+}
+
+function getValidationPattern(field: SigningField): string | undefined {
+  const pattern = field.validation?.pattern;
+
+  return typeof pattern === "string" ? pattern : undefined;
+}
+
+function getValidationNumber(
+  field: SigningField,
+  key: "max" | "min" | "step",
+): number | string | undefined {
+  const value = field.validation?.[key];
+
+  return typeof value === "number" || typeof value === "string"
+    ? value
+    : undefined;
+}
+
+function getDateInputType(
+  field: SigningField,
+): "date" | "datetime-local" | "month" {
+  const format = field.preferences?.format;
+
+  if (typeof format !== "string") {
+    return "date";
+  }
+
+  if (/[HhAasz]/.test(format)) {
+    return "datetime-local";
+  }
+
+  if (format && !/[Dd]/.test(format)) {
+    return "month";
+  }
+
+  return "date";
+}
+
+function getDateInputValue(
+  value: string,
+  inputType: "date" | "datetime-local" | "month",
+): string {
+  if (!value || inputType !== "datetime-local") {
+    return value;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.valueOf())) {
+    return value;
+  }
+
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+
+  return localDate.toISOString().slice(0, 16);
+}
+
+function getTodayInputValue(inputType: "date" | "datetime-local" | "month") {
+  const date = new Date();
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  const localIso = localDate.toISOString();
+
+  if (inputType === "month") {
+    return localIso.slice(0, 7);
+  }
+
+  if (inputType === "datetime-local") {
+    return localIso.slice(0, 16);
+  }
+
+  return localIso.slice(0, 10);
+}
+
+function getDateValidationValue(
+  field: SigningField,
+  key: "max" | "min",
+  inputType: "date" | "datetime-local" | "month",
+): string | undefined {
+  const value = field.validation?.[key];
+
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  if (value === "{{date}}" || value === "{date}") {
+    return getTodayInputValue(inputType);
+  }
+
+  if (inputType === "datetime-local") {
+    return getDateInputValue(value, inputType);
+  }
+
+  return value;
+}
+
+function canSetToday(
+  field: SigningField,
+  inputType: "date" | "datetime-local" | "month",
+): boolean {
+  if (inputType === "datetime-local") {
+    return false;
+  }
+
+  const today = getTodayInputValue(inputType);
+  const min = getDateValidationValue(field, "min", inputType);
+  const max = getDateValidationValue(field, "max", inputType);
+
+  return (!min || min <= today) && (!max || today <= max);
+}

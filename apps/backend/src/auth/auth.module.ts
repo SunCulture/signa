@@ -1,0 +1,38 @@
+import { Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuthController } from './auth.controller';
+import { AuthService } from './auth.service';
+import { AccessToken } from './entities/access-token.entity';
+import { AdminGuard } from './guards/admin/admin.guard';
+import { ApiOrJwtGuard } from './guards/api-or-jwt/api-or-jwt.guard';
+import { ApiTokenGuard } from './guards/api-token/api-token.guard';
+import { JwtGuard } from './guards/jwt/jwt.guard';
+
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([AccessToken]),
+    JwtModule.registerAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        global: true,
+        secret: config.get<string>('JWT_SECRET'),
+        signOptions: {
+          expiresIn: config.get<string>('JWT_EXPIRES_IN', '7d') as '7d',
+        },
+      }),
+    }),
+  ],
+  providers: [AuthService, ApiTokenGuard, ApiOrJwtGuard, JwtGuard, AdminGuard],
+  exports: [
+    AuthService,
+    ApiTokenGuard,
+    ApiOrJwtGuard,
+    JwtGuard,
+    AdminGuard,
+    JwtModule,
+  ],
+  controllers: [AuthController],
+})
+export class AuthModule {}

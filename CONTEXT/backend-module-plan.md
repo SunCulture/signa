@@ -1,0 +1,444 @@
+# Signa Backend Module Plan
+
+This plan organizes the DocuSeal-compatible backend into Nest feature modules. It is a planning document, not generated code.
+
+Rules for implementation:
+
+- Generate each Nest module with the Nest CLI before edits.
+- Keep entities inside the owning feature module.
+- Register feature entities with `TypeOrmModule.forFeature([...])` in that module.
+- Keep `DatabaseModule` connection-only.
+- Add tests per module before moving to the next module.
+- Keep request/response contracts in `@repo/shared` as Zod schemas, separate from TypeORM entities.
+- Preserve DocuSeal endpoint behavior from `CONTEXT/api-implementation-spec.md`.
+
+## Base Module Order
+
+### 1. Accounts Module
+
+Purpose: tenant root and account-scoped configuration.
+
+Owns:
+
+- `Account`
+- `AccountConfig`
+- `EncryptedConfig`
+- `AccountLinkedAccount`
+
+Responsibilities:
+
+- Account tenant model.
+- Account-scoped config lookup.
+- Linked testing/production accounts.
+- Self-hosted fallback decisions only where explicitly planned.
+
+Tests:
+
+- Account config is always scoped by account.
+- Linked account lookup does not leak unrelated accounts.
+
+### 2. Auth Module
+
+Purpose: API-key authentication and tenant context.
+
+Owns:
+
+- `User`
+- `AccessToken`
+
+Responsibilities:
+
+- Resolve `X-Auth-Token`.
+- Hash and compare API tokens.
+- Attach `{ userId, accountId }` tenant context to requests.
+- Return DocuSeal-compatible auth errors.
+- Register a first-class web account and owner user through JSON API.
+- Login with email/password and issue a bearer JWT for web-app routes.
+- Reject archived users and archived accounts for both API-token and JWT workflows.
+
+Tests:
+
+- Missing token returns 401 `{ "error": "Not authenticated" }`.
+- Invalid token returns 401.
+- Valid token resolves user and account.
+- Archived users and archived accounts are rejected.
+- Tenant-owned services cannot run without tenant context.
+- Login rejects invalid credentials.
+- Register rejects duplicate email addresses.
+
+### 3. Shared API Module
+
+Purpose: reusable backend API primitives, not business ownership.
+
+Owns no entities.
+
+Responsibilities:
+
+- Pagination parsing.
+- DocuSeal error response helpers.
+- Request validation pipe using Zod contracts.
+- `application_key` to `external_id` alias normalization.
+- Cursor behavior: descending `id`, `after` means lower IDs, `before` means greater IDs.
+
+Tests:
+
+- Pagination defaults to limit 10 and caps at 100.
+- Validation errors return 422 `{ "error": "<message>" }`.
+- Alias normalization preserves `external_id`.
+
+### 4. Storage Module
+
+Purpose: file/blob metadata and signed/proxy URL behavior.
+
+Owns:
+
+- `DocumentBlob`
+- `DocumentAttachment`
+
+Responsibilities:
+
+- Store uploaded files.
+- Track content type, byte size, checksum, object key, filename.
+- Attach blobs to templates, submissions, submitters, and completed documents.
+- Generate signed/proxy URLs at the API boundary.
+
+Tests:
+
+- Reject unsupported file types.
+- Persist attachment ownership without cross-tenant access.
+- URL generation does not expose raw storage internals.
+
+### 5. Document Processing Module
+
+Purpose: PDF/DOCX/HTML processing pipelines.
+
+Owns:
+
+- `DocumentMetadata`
+
+Responsibilities:
+
+- PDF rendering and preview generation with `@hyzyla/pdfium` plus `sharp`.
+- PDF field/tag extraction and metadata caching.
+- PDF editing/merge spike with `pdf-lib`.
+- PDF signing spike with `@signpdf/signpdf`.
+- DOCX conversion through LibreOffice worker.
+- HTML-to-PDF through Playwright worker.
+
+Tests:
+
+- PDF upload produces preview metadata.
+- Unsupported or corrupt documents fail with 422.
+- Processing functions are deterministic against fixtures.
+
+### 6. Templates Module
+
+Purpose: reusable signing form endpoints.
+
+Owns:
+
+- `Template`
+- `TemplateFolder`
+- `TemplateAccess`
+- `TemplateSharing`
+- `TemplateVersion`
+- Storage-owned `StorageBlob`
+- Storage-owned `StorageAttachment`
+- later `DynamicDocument`
+- later `DynamicDocumentVersion`
+
+P0 endpoints:
+
+- `GET /api/templates`
+- `GET /api/templates/:id`
+- `PUT /api/templates/:id`
+- `DELETE /api/templates/:id`
+- `POST /api/templates/pdf`
+- `PUT /api/templates/:id/documents`
+
+P1 endpoints:
+
+- `POST /api/templates/docx`
+- `POST /api/templates/html`
+- `POST /api/templates/:id/clone`
+- `POST /api/templates/merge`
+
+Responsibilities:
+
+- List templates with DocuSeal pagination and filters.
+- Create templates from PDF uploads.
+- Update template metadata, roles, submitters, fields, folder, archive state.
+- Replace or append template documents.
+- Archive or permanently delete templates.
+- Emit template webhook events through Webhooks Module when available.
+
+Current Signa status:
+
+- Metadata endpoints are implemented.
+- `documents` serialization uses signed local proxy URLs backed by Storage module blob metadata.
+- Archived template listing, restore, and permanent delete account for TypeORM soft-delete behavior by using `withDeleted()` where DocuSeal expects archived records to remain queryable.
+- PDF template creation/replacement supports DocuSeal JSON documents with base64/URL files and provided coordinate fields.
+- PDF previews are generated with `@hyzyla/pdfium` and `sharp`.
+- Standard AcroForm positional extraction is implemented with `pdf-lib`.
+- Frontend `/templates` now reads real backend templates, preserves active/archived/search state in URL params, and supports upload, move, edit, archive, restore, and permanent delete.
+- Frontend `/templates/:id/edit` now supports backend-backed document list ordering, append, replace, remove, rename, and center-canvas preview rendering.
+- Frontend `/templates/:id/edit` now supports DocuSeal-style normalized field placement on preview pages, including click/draw create, page overlays, select, move, resize, delete, and persistence through `PUT /api/templates/:id`.
+- Pending for deeper parity: palette drag/drop, field settings/option editing, field ordering, party/role colors, template clone endpoint, folder picker modal, blank-template creation, embedded text-tag extraction/removal, PDF flattening, and XFA support.
+- Webhook event enqueue is deferred until the Webhooks module exists.
+
+Tests:
+
+- Every query is scoped by `account_id`.
+- `folder_name` creates or reuses an account-scoped folder.
+- `application_key` maps to `external_id`.
+- Soft delete sets `archived_at`; permanent delete removes the row.
+
+### 7. Submissions Module
+
+Purpose: signature request endpoints. This is the module shown in the screenshot.
+
+Owns:
+
+- `Submission`
+- `SubmissionEvent`
+- later `EmailMessage`
+- later `DocumentGenerationEvent`
+- later `LockEvent`
+
+P0 endpoints:
+
+- `GET /api/submissions` - implemented
+- `GET /api/submissions/:id` - implemented
+- `GET /api/submissions/:id/documents` - implemented for current template/backing-template document URLs; generated preview/final PDFs pending
+- `POST /api/submissions` - implemented for single submission creation
+- `POST /api/submissions/pdf` - implemented through backing template creation
+- `DELETE /api/submissions/:id` - implemented
+
+P1 endpoints:
+
+- `POST /api/submissions/emails`
+- `POST /api/submissions/docx`
+- `POST /api/submissions/html`
+
+Secondary compatibility endpoints:
+
+- `POST /api/submissions/init`
+- `GET /api/templates/:id/submissions`
+- `POST /api/templates/:id/submissions`
+
+Responsibilities:
+
+- Create submissions from existing templates.
+- Create submissions from PDF uploads by creating backing template data.
+- Later create submissions from DOCX and HTML.
+- List submissions with filters, search, archived state, and cursor pagination.
+- Return full submission details, submitters, documents, values, variables, and events.
+- Generate preview/final documents when endpoint behavior requires it. Pending for result/combined documents.
+- Archive or permanently delete submissions.
+- Emit `submission.created`, `submission.archived`, and `api_complete_form` events. `api_complete_form` persistence is implemented; webhook event delivery is pending.
+
+Tests:
+
+- Reject missing, archived, or fieldless templates.
+- Create submission assigns `account_id` from tenant context only.
+- List filters by template, status, slug, folder, archived state, and search.
+- `GET /documents` returns current template/backing-template document URLs now; generated previews and result documents are pending.
+- Delete supports soft archive and `permanently=true`.
+
+### 8. Submitters Module
+
+Purpose: signer/recipient endpoints.
+
+Owns:
+
+- `Submitter`
+- `CompletedSubmitter`
+- later `SubmitterVersion`
+
+P0 endpoints:
+
+- `GET /api/submitters` - implemented
+- `GET /api/submitters/:id` - implemented
+- `PUT /api/submitters/:id` - implemented for metadata/values/preferences/API completion; side effects/result generation pending
+
+Secondary compatibility endpoints:
+
+- `POST /api/submitter_email_clicks`
+- `POST /api/submitter_form_views`
+
+Responsibilities:
+
+- List and retrieve submitters with DocuSeal filters and cursor pagination.
+- Update signer details, values, metadata, and delivery preferences.
+- Complete a submitter through API when requested and persist `api_complete_form`.
+- Generate result documents when completed documents are missing. Pending until completed-document generation exists.
+- Dispatch email/SMS resend requests. Pending until notification module exists.
+- Track email clicks and form views later.
+
+Tests:
+
+- Reject updates after completion or decline.
+- `completed=true` records `api_complete_form` behavior.
+- `application_key` maps to `external_id`.
+- Queries are account-scoped through submission/account ownership.
+
+### 9. Completed Documents Module
+
+Purpose: completed output files and checksum state.
+
+Owns:
+
+- `CompletedDocument`
+
+Responsibilities:
+
+- Store signed document outputs.
+- Store combined output files.
+- Store audit trail output references.
+- Support checksum and verification flows.
+
+Tests:
+
+- Completed document lookup is tenant-scoped through submission/submitter ownership.
+- Regeneration does not create duplicate active outputs.
+
+### 10. Notifications Module
+
+Purpose: outgoing email/SMS orchestration.
+
+Owns no base entities initially.
+
+Responsibilities:
+
+- Send signature request emails/SMS when enabled.
+- Send completion notifications.
+- Render DocuSeal-compatible Markdown email templates after replacing template, submitter, submission, document, account, and sender variables.
+- Later store `EmailMessage` and `EmailEvent`.
+- Keep provider-specific code behind adapters.
+
+Current Signa status:
+
+- Email template preference editing is implemented in the template editor for signature request, documents copy, and completed notification emails.
+- Backend rendering helpers exist for DocuSeal-style `{variable}`/`{{variable}}` replacement and supported Markdown-to-sanitized-HTML conversion.
+- Provider adapters, queueing, delivery status, resend orchestration, and email/SMS event tracking are still pending.
+
+Tests:
+
+- `send_email=false` suppresses email.
+- `send_sms=false` suppresses SMS.
+- Message subject/body overrides are preserved.
+- Variable replacement and safe Markdown rendering are covered by focused unit tests.
+
+### 11. Webhooks Module
+
+Purpose: webhook configuration and delivery.
+
+Owns:
+
+- `WebhookUrl`
+- later `WebhookEvent`
+- later `WebhookAttempt`
+
+Responsibilities:
+
+- Store webhook destinations.
+- Queue delivery events.
+- Track attempts and response status.
+- Support form/submission/template webhook types.
+
+Tests:
+
+- Event enqueue is account-scoped.
+- Failed attempts are recorded without blocking API requests.
+
+### 12. Tools Module
+
+Purpose: secondary utility endpoints after public API stability.
+
+Owns no base entities.
+
+Secondary endpoints:
+
+- `POST /api/tools/merge`
+- `POST /api/tools/verify`
+- `POST /api/attachments`
+- `GET /api/events/form/:type`
+- `GET /api/events/submission/:type`
+- `GET /api/user`
+
+Responsibilities:
+
+- Merge base64 PDFs.
+- Verify PDF signatures/checksums.
+- Upload ad hoc attachments.
+- List event types for compatibility.
+- Return current API user.
+
+Tests:
+
+- Reject invalid base64/PDF payloads.
+- Verification responses match DocuSeal-compatible shape.
+
+## Implementation Cadence
+
+For each module:
+
+1. Generate module with Nest CLI.
+2. Generate controller/service with Nest CLI only when the module needs them.
+3. Add module-local entities.
+4. Register entities with `TypeOrmModule.forFeature`.
+5. Add Zod contracts in `@repo/shared`.
+6. Add unit tests for service policies and API-shape tests for controllers.
+7. Run `pnpm --filter backend typecheck`.
+8. Run `pnpm --filter backend lint`.
+9. Run `pnpm --filter backend test`.
+10. Run `pnpm --filter backend build`.
+
+## First Implementation Slice
+
+Start with:
+
+1. Accounts Module.
+2. Auth Module.
+3. Shared API Module.
+
+Reason:
+
+- Submissions and templates cannot be implemented correctly until tenant context, token auth, pagination, validation, and DocuSeal error shapes are stable.
+- This prevents retrofitting account isolation into every endpoint later.
+
+## Implemented Web-App Foundation
+
+DocuSeal sources checked:
+
+- `docuseal/app/controllers/setup_controller.rb`
+- `docuseal/app/controllers/sessions_controller.rb`
+- `docuseal/app/controllers/profile_controller.rb`
+- `docuseal/app/controllers/accounts_controller.rb`
+- `docuseal/app/controllers/users_controller.rb`
+- `docuseal/app/models/user.rb`
+- `docuseal/app/models/account.rb`
+
+Implemented JSON endpoints:
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/profile`
+- `PATCH /api/profile`
+- `PATCH /api/profile/password`
+- `GET /api/account`
+- `PATCH /api/account`
+- `DELETE /api/account`
+- `GET /api/users`
+- `POST /api/users`
+- `PATCH /api/users/:id`
+- `DELETE /api/users/:id`
+- Existing public API-key endpoint remains: `GET /api/user`
+
+Notes:
+
+- Web-app routes use bearer JWT auth.
+- Public API compatibility routes continue to use `X-Auth-Token`.
+- User deletion is archive-only, matching DocuSeal's web user removal behavior.
+- Account deletion archives the account and locks/releases the current user's email, matching DocuSeal's controller behavior.
+- Swagger DTOs are documented with `@ApiProperty` and auth schemes.
