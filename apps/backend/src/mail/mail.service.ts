@@ -6,9 +6,16 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { createHash } from 'node:crypto';
+import { Repository } from 'typeorm';
+import { EncryptedConfig } from '../accounts/entities/encrypted-config.entity';
+import { EmailEvent } from './entities/email-event.entity';
+import { EmailMessage } from './entities/email-message.entity';
 import { MailTemplateResolver } from './mail-template-resolver.service';
 import type {
   MailAddress,
+  MailAttachment,
   MailDeliveryResult,
   SendTemplateMailInput,
 } from './mail.types';
@@ -20,12 +27,29 @@ type SentMessageInfo = {
   response?: string;
 };
 
+type EmailIntegrationProvider = 'gmail' | 'microsoft';
+
+type EmailIntegrationConfig = {
+  provider?: EmailIntegrationProvider;
+  email?: string | null;
+  access_token?: string;
+  refresh_token?: string | null;
+  expires_at?: string | null;
+  token_type?: string;
+};
+
 @Injectable()
 export class MailService implements OnModuleInit {
   private readonly logger = new Logger(MailService.name);
 
   constructor(
     private readonly config: ConfigService,
+    @InjectRepository(EncryptedConfig)
+    private readonly encryptedConfigs: Repository<EncryptedConfig>,
+    @InjectRepository(EmailMessage)
+    private readonly emailMessages: Repository<EmailMessage>,
+    @InjectRepository(EmailEvent)
+    private readonly emailEvents: Repository<EmailEvent>,
     private readonly mailer: MailerService,
     private readonly templates: MailTemplateResolver,
   ) {}
@@ -81,6 +105,12 @@ export class MailService implements OnModuleInit {
         `Mail disabled. Skipping template="${input.template}" to=${formatRecipientLog(input.to)}`,
       );
 
+      await this.recordDelivery(input, {
+        status: 'skipped',
+        accepted: [],
+        rejected: [],
+      });
+
       return {
         status: 'skipped',
         accepted: [],
@@ -97,17 +127,27 @@ export class MailService implements OnModuleInit {
       });
     }
 
-    return {
+    const result = {
       status: 'sent',
       accepted: normalizeStringArray(info.accepted),
       rejected,
       messageId: info.messageId,
       response: info.response,
-    };
+    } satisfies MailDeliveryResult;
+
+    await this.recordDelivery(input, result);
+
+    return result;
   }
 
   private async send(input: SendTemplateMailInput): Promise<SentMessageInfo> {
     try {
+      const integrationInfo = await this.sendWithConnectedProvider(input);
+
+      if (integrationInfo) {
+        return integrationInfo;
+      }
+
       const info = (await this.mailer.sendMail({
         to: formatRecipients(input.to),
         from: formatAddress(input.from) ?? this.formatDefaultFrom(),
@@ -128,6 +168,243 @@ export class MailService implements OnModuleInit {
     }
   }
 
+  private async sendWithConnectedProvider(
+    input: SendTemplateMailInput,
+  ): Promise<SentMessageInfo | null> {
+    if (!input.accountId) {
+      return null;
+    }
+
+    const integration = await this.findConnectedEmailIntegration(
+      input.accountId,
+    );
+
+    if (!integration) {
+      return null;
+    }
+
+    const value = parseEmailIntegrationConfig(integration.value);
+    const accessToken = await this.getUsableAccessToken(integration, value);
+
+    if (!accessToken) {
+      this.logger.warn(
+        `Connected ${value.provider} integration for account ${input.accountId} has no usable access token. Falling back to SMTP.`,
+      );
+      return null;
+    }
+
+    const html = renderProviderHtml(input);
+    const from = value.email
+      ? {
+          email: value.email,
+          name: this.config.get<string>('MAIL_FROM_NAME', 'Signa'),
+        }
+      : undefined;
+
+    if (value.provider === 'gmail') {
+      await this.sendWithGmail(input, html, accessToken, from);
+
+      return {
+        accepted: formatRecipients(input.to),
+        rejected: [],
+        response: 'sent-via-gmail',
+      };
+    }
+
+    if (value.provider === 'microsoft') {
+      await this.sendWithMicrosoft(input, html, accessToken);
+
+      return {
+        accepted: formatRecipients(input.to),
+        rejected: [],
+        response: 'sent-via-microsoft',
+      };
+    }
+
+    return null;
+  }
+
+  private async findConnectedEmailIntegration(
+    accountId: string,
+  ): Promise<EncryptedConfig | null> {
+    return this.encryptedConfigs.findOne({
+      where: [
+        { accountId, key: 'email_integration:gmail' },
+        { accountId, key: 'email_integration:microsoft' },
+      ],
+      order: { key: 'ASC' },
+    });
+  }
+
+  private async getUsableAccessToken(
+    config: EncryptedConfig,
+    value: EmailIntegrationConfig,
+  ): Promise<string | null> {
+    if (!value.access_token || !value.provider) {
+      return null;
+    }
+
+    if (!isExpired(value.expires_at)) {
+      return value.access_token;
+    }
+
+    if (!value.refresh_token) {
+      return null;
+    }
+
+    const refreshed = await this.refreshAccessToken(value);
+
+    if (!refreshed?.access_token) {
+      return null;
+    }
+
+    const nextValue = {
+      ...value,
+      access_token: refreshed.access_token,
+      expires_at: refreshed.expires_in
+        ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString()
+        : value.expires_at,
+      refresh_token: refreshed.refresh_token ?? value.refresh_token,
+      token_type: refreshed.token_type ?? value.token_type,
+    };
+
+    config.value = JSON.stringify(nextValue);
+    await this.encryptedConfigs.save(config);
+
+    return refreshed.access_token;
+  }
+
+  private async refreshAccessToken(value: EmailIntegrationConfig): Promise<{
+    access_token?: string;
+    expires_in?: number;
+    refresh_token?: string;
+    token_type?: string;
+  } | null> {
+    if (!value.provider || !value.refresh_token) {
+      return null;
+    }
+
+    const settings = this.getProviderSettings(value.provider);
+    const response = await fetch(settings.tokenUrl, {
+      body: new URLSearchParams({
+        client_id: settings.clientId,
+        client_secret: settings.clientSecret,
+        grant_type: 'refresh_token',
+        refresh_token: value.refresh_token,
+      }),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      method: 'POST',
+    });
+    const payload = (await response.json().catch(() => null)) as unknown;
+
+    if (!response.ok || !isRecord(payload)) {
+      return null;
+    }
+
+    return {
+      access_token:
+        typeof payload.access_token === 'string'
+          ? payload.access_token
+          : undefined,
+      expires_in:
+        typeof payload.expires_in === 'number' ? payload.expires_in : undefined,
+      refresh_token:
+        typeof payload.refresh_token === 'string'
+          ? payload.refresh_token
+          : undefined,
+      token_type:
+        typeof payload.token_type === 'string' ? payload.token_type : undefined,
+    };
+  }
+
+  private async sendWithGmail(
+    input: SendTemplateMailInput,
+    html: string,
+    accessToken: string,
+    from?: MailAddress,
+  ): Promise<void> {
+    const response = await fetch(
+      'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
+      {
+        body: JSON.stringify({
+          raw: toBase64Url(buildMimeMessage(input, html, from)),
+        }),
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      },
+    );
+
+    if (!response.ok) {
+      throw new InternalServerErrorException({
+        error: `Gmail rejected message: ${await response.text()}`,
+      });
+    }
+  }
+
+  private async sendWithMicrosoft(
+    input: SendTemplateMailInput,
+    html: string,
+    accessToken: string,
+  ): Promise<void> {
+    const response = await fetch(
+      'https://graph.microsoft.com/v1.0/me/sendMail',
+      {
+        body: JSON.stringify({
+          message: {
+            subject: input.subject,
+            body: {
+              contentType: 'HTML',
+              content: html,
+            },
+            toRecipients: toMicrosoftRecipients(input.to),
+            replyTo: input.replyTo ? toMicrosoftRecipients(input.replyTo) : [],
+            attachments: (input.attachments ?? []).map(toMicrosoftAttachment),
+          },
+          saveToSentItems: true,
+        }),
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      },
+    );
+
+    if (!response.ok) {
+      throw new InternalServerErrorException({
+        error: `Microsoft rejected message: ${await response.text()}`,
+      });
+    }
+  }
+
+  private getProviderSettings(provider: EmailIntegrationProvider): {
+    clientId: string;
+    clientSecret: string;
+    tokenUrl: string;
+  } {
+    return provider === 'gmail'
+      ? {
+          clientId: this.config.get<string>('GMAIL_OAUTH_CLIENT_ID', ''),
+          clientSecret: this.config.get<string>(
+            'GMAIL_OAUTH_CLIENT_SECRET',
+            '',
+          ),
+          tokenUrl: 'https://oauth2.googleapis.com/token',
+        }
+      : {
+          clientId: this.config.get<string>('MICROSOFT_OAUTH_CLIENT_ID', ''),
+          clientSecret: this.config.get<string>(
+            'MICROSOFT_OAUTH_CLIENT_SECRET',
+            '',
+          ),
+          tokenUrl:
+            'https://login.microsoftonline.com/common/oauth2/v2.0/token',
+        };
+  }
+
   private formatDefaultFrom(): string {
     return (
       formatAddress({
@@ -138,6 +415,64 @@ export class MailService implements OnModuleInit {
         ),
       }) ?? 'no-reply@signa.local'
     );
+  }
+
+  private async recordDelivery(
+    input: SendTemplateMailInput,
+    result: MailDeliveryResult,
+  ): Promise<void> {
+    try {
+      const recipients = formatRecipients(input.to);
+      const message = await this.emailMessages.save(
+        this.emailMessages.create({
+          accountId: input.accountId ?? null,
+          messageId: result.messageId ?? null,
+          template: input.template,
+          subject: input.subject,
+          recipients: recipients.join(', '),
+          sender: formatAddress(input.from) ?? this.formatDefaultFrom(),
+          sha1: createHash('sha1')
+            .update(
+              JSON.stringify({
+                template: input.template,
+                subject: input.subject,
+                recipients,
+                messageId: result.messageId ?? null,
+              }),
+            )
+            .digest('hex'),
+          status: result.status,
+          data: {
+            accepted: result.accepted,
+            rejected: result.rejected,
+            response: result.response ?? null,
+          },
+        }),
+      );
+
+      await this.emailEvents.save(
+        recipients.map((email) =>
+          this.emailEvents.create({
+            accountId: input.accountId ?? null,
+            emailMessageId: message.id,
+            email,
+            eventType: result.status,
+            eventDatetime: new Date(),
+            messageId: result.messageId ?? null,
+            emailableType: input.context?.submitterId ? 'Submitter' : null,
+            emailableId: stringOrNull(input.context?.submitterId),
+            data: {
+              template: input.template,
+              response: result.response ?? null,
+            },
+          }),
+        ),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Failed to persist email delivery event: ${(error as Error).message}`,
+      );
+    }
   }
 }
 
@@ -169,4 +504,204 @@ function normalizeStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string')
     : [];
+}
+
+function renderProviderHtml(input: SendTemplateMailInput): string {
+  const context = input.context ?? {};
+  const headline =
+    stringValue(context.headline) ?? stringValue(context.subject);
+  const contentHtml = stringValue(context.contentHtml);
+  const actionUrl = stringValue(context.actionUrl);
+  const actionLabel = stringValue(context.actionLabel) ?? 'Open';
+  const logoUrl = stringValue(context.logoUrl);
+
+  return `<!doctype html>
+<html>
+<body style="margin:0;padding:0;background:#eef4f8;color:#173457;font-family:Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#eef4f8;">
+    <tr>
+      <td align="center" style="padding:32px 12px;">
+        <table role="presentation" width="640" cellspacing="0" cellpadding="0" border="0" style="width:640px;max-width:100%;background:#ffffff;border-radius:22px;overflow:hidden;">
+          ${
+            logoUrl
+              ? `<tr><td align="center" style="padding:34px 24px 12px;"><img src="${escapeHtml(logoUrl)}" width="142" alt="Signa" style="display:block;width:142px;max-width:142px;height:auto;border:0;"></td></tr>`
+              : ''
+          }
+          <tr>
+            <td style="padding:28px 40px 42px;">
+              ${
+                headline
+                  ? `<h1 style="margin:0 0 22px;color:#0d1f36;font-size:40px;line-height:48px;font-weight:800;">${escapeHtml(headline)}</h1>`
+                  : ''
+              }
+              <div style="color:#50657b;font-size:18px;line-height:30px;">${contentHtml ?? ''}</div>
+              ${
+                actionUrl
+                  ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:28px 0;"><tr><td align="center" bgcolor="#173457" style="border-radius:999px;"><a href="${escapeHtml(actionUrl)}" style="display:block;padding:17px 28px;color:#ffffff;font-size:17px;line-height:22px;font-weight:700;text-decoration:none;border-radius:999px;">${escapeHtml(actionLabel)}</a></td></tr></table>`
+                  : ''
+              }
+            </td>
+          </tr>
+        </table>
+        <p style="margin:22px 0 0;color:#8b9caf;font-size:13px;line-height:20px;">Sent securely with Signa</p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+function buildMimeMessage(
+  input: SendTemplateMailInput,
+  html: string,
+  from?: MailAddress,
+): string {
+  const boundary = `signa-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const headers = [
+    `To: ${formatRecipients(input.to).join(', ')}`,
+    `From: ${formatAddress(from) ?? formatAddress(input.from) ?? 'Signa <no-reply@signa.local>'}`,
+    ...(input.replyTo ? [`Reply-To: ${formatAddress(input.replyTo)}`] : []),
+    `Subject: ${encodeMimeHeader(input.subject)}`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+  ];
+  const parts = [
+    `--${boundary}`,
+    'Content-Type: text/html; charset="UTF-8"',
+    'Content-Transfer-Encoding: quoted-printable',
+    '',
+    toQuotedPrintable(html),
+    ...(input.attachments ?? []).flatMap((attachment) => [
+      `--${boundary}`,
+      `Content-Type: ${attachment.contentType ?? 'application/octet-stream'}; name="${escapeMimeParameter(attachment.filename ?? 'attachment')}"`,
+      'Content-Transfer-Encoding: base64',
+      `Content-Disposition: attachment; filename="${escapeMimeParameter(attachment.filename ?? 'attachment')}"`,
+      '',
+      attachmentToBase64(attachment),
+    ]),
+    `--${boundary}--`,
+  ];
+
+  return [...headers, '', ...parts].join('\r\n');
+}
+
+function toMicrosoftRecipients(input: MailAddress | MailAddress[] | string) {
+  const recipients = Array.isArray(input) ? input : [input];
+
+  return recipients.map((recipient) => {
+    const address =
+      typeof recipient === 'string'
+        ? { email: recipient }
+        : { email: recipient.email, name: recipient.name ?? undefined };
+
+    return {
+      emailAddress: {
+        address: address.email,
+        ...(address.name ? { name: address.name } : {}),
+      },
+    };
+  });
+}
+
+function toMicrosoftAttachment(attachment: MailAttachment) {
+  return {
+    '@odata.type': '#microsoft.graph.fileAttachment',
+    name: attachment.filename ?? 'attachment',
+    contentType: attachment.contentType ?? 'application/octet-stream',
+    contentBytes: attachmentToBase64(attachment),
+  };
+}
+
+function parseEmailIntegrationConfig(value: string): EmailIntegrationConfig {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+
+    if (!isRecord(parsed)) {
+      return {};
+    }
+
+    return {
+      provider:
+        parsed.provider === 'gmail' || parsed.provider === 'microsoft'
+          ? parsed.provider
+          : undefined,
+      email: typeof parsed.email === 'string' ? parsed.email : null,
+      access_token:
+        typeof parsed.access_token === 'string'
+          ? parsed.access_token
+          : undefined,
+      refresh_token:
+        typeof parsed.refresh_token === 'string' ? parsed.refresh_token : null,
+      expires_at:
+        typeof parsed.expires_at === 'string' ? parsed.expires_at : null,
+      token_type:
+        typeof parsed.token_type === 'string' ? parsed.token_type : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function isExpired(value: string | null | undefined): boolean {
+  if (!value) {
+    return true;
+  }
+
+  return new Date(value).getTime() - 60_000 <= Date.now();
+}
+
+function attachmentToBase64(attachment: MailAttachment): string {
+  if (Buffer.isBuffer(attachment.content)) {
+    return attachment.content.toString('base64');
+  }
+
+  if (typeof attachment.content === 'string') {
+    return Buffer.from(attachment.content).toString('base64');
+  }
+
+  return '';
+}
+
+function toBase64Url(value: string): string {
+  return Buffer.from(value)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function toQuotedPrintable(value: string): string {
+  return value.replace(/[^\t\n\r -~]/g, (char) =>
+    Buffer.from(char).toString('hex').toUpperCase().replace(/(..)/g, '=$1'),
+  );
+}
+
+function encodeMimeHeader(value: string): string {
+  return [...value].every((char) => char.charCodeAt(0) <= 127)
+    ? value
+    : `=?UTF-8?B?${Buffer.from(value).toString('base64')}?=`;
+}
+
+function escapeMimeParameter(value: string): string {
+  return value.replace(/"/g, '\\"');
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value ? value : null;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
 }

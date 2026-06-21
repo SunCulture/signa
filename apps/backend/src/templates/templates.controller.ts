@@ -25,6 +25,8 @@ import { CurrentUser } from '../common/decorators/user.decorator';
 import { User } from '../users/entities/user.entity';
 import { UploadedBufferFile } from '../storage/storage.types';
 import { CloneTemplateDto } from './dto/clone-template.dto';
+import { CreateTemplateFromDocxDto } from './dto/create-template-from-docx.dto';
+import { CreateTemplateFromHtmlDto } from './dto/create-template-from-html.dto';
 import { CreateTemplateFromPdfDto } from './dto/create-template-from-pdf.dto';
 import { DeleteTemplateQueryDto } from './dto/delete-template-query.dto';
 import { ListTemplatesQueryDto } from './dto/list-templates-query.dto';
@@ -88,6 +90,24 @@ export class TemplatesController {
     files?: Record<string, UploadedBufferFile[]>,
   ): Promise<TemplateResponseDto> {
     return this.templatesService.createTemplateFromPdf(user, body, files);
+  }
+
+  @Post('html')
+  @ApiOkResponse({ type: TemplateResponseDto })
+  createTemplateFromHtml(
+    @CurrentUser() user: User,
+    @Body() body: CreateTemplateFromHtmlDto,
+  ): Promise<TemplateResponseDto> {
+    return this.templatesService.createTemplateFromHtml(user, body);
+  }
+
+  @Post('docx')
+  @ApiOkResponse({ type: TemplateResponseDto })
+  createTemplateFromDocx(
+    @CurrentUser() user: User,
+    @Body() body: CreateTemplateFromDocxDto,
+  ): Promise<TemplateResponseDto> {
+    return this.templatesService.createTemplateFromDocx(user, body);
   }
 
   @Post(':id/clone')

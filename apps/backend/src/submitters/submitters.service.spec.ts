@@ -15,6 +15,7 @@ import { Template } from '../templates/entities/template.entity';
 import { User } from '../users/entities/user.entity';
 import { Submitter } from './entities/submitter.entity';
 import { SubmittersService } from './submitters.service';
+import { runtimeEvents } from '../runtime/runtime-events';
 
 type MockRepository<T extends object> = Partial<
   Record<keyof Repository<T>, jest.Mock>
@@ -42,6 +43,7 @@ describe('SubmittersService', () => {
   let dataSource: {
     transaction: jest.Mock<Promise<unknown>, [TransactionCallback]>;
   };
+  let events: { emit: jest.Mock };
 
   beforeEach(async () => {
     submitters = createRepository<Submitter>();
@@ -74,6 +76,9 @@ describe('SubmittersService', () => {
       transaction: jest.fn((callback: TransactionCallback) =>
         callback(manager),
       ),
+    };
+    events = {
+      emit: jest.fn(),
     };
 
     submitters.save?.mockImplementation((entity: Submitter) =>
@@ -110,9 +115,7 @@ describe('SubmittersService', () => {
         },
         {
           provide: EventEmitter2,
-          useValue: {
-            emit: jest.fn(),
-          },
+          useValue: events,
         },
         {
           provide: SubmissionDocumentsService,
@@ -266,6 +269,40 @@ describe('SubmittersService', () => {
     ).rejects.toThrow(UnprocessableEntityException);
 
     expect(dataSource.transaction).not.toHaveBeenCalled();
+  });
+
+  it('queues SMS invitations and persists custom request message preferences on update', async () => {
+    const submitter = createSubmitter({
+      email: null,
+      phone: '+15550100',
+      sentAt: null,
+      submission: createSubmission(),
+    });
+    submitters.findOneOrFail?.mockResolvedValue(submitter);
+
+    await service.updateSubmitter(createUser(), 'submitter-1', {
+      message: {
+        body: 'Please sign {template.name}',
+        subject: 'Signature request',
+      },
+      send_email: false,
+      send_sms: true,
+    });
+
+    expect(submitter.sentAt).toBeNull();
+    expect(submitter.preferences).toMatchObject({
+      send_email: false,
+      send_sms: true,
+      request_email_body: 'Please sign {template.name}',
+      request_email_subject: 'Signature request',
+    });
+    expect(events.emit).toHaveBeenCalledWith(
+      runtimeEvents.submitterInvitationRequested,
+      {
+        accountId: 'account-1',
+        submitterId: 'submitter-1',
+      },
+    );
   });
 });
 

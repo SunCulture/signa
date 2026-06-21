@@ -25,6 +25,15 @@ export class AccessToken {
   @Column({ type: 'text' })
   token!: string;
 
+  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
+  permissions!: string[];
+
+  @Column({ name: 'last_used_at', type: 'timestamptz', nullable: true })
+  lastUsedAt!: Date | null;
+
+  @Column({ name: 'revoked_at', type: 'timestamptz', nullable: true })
+  revokedAt!: Date | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

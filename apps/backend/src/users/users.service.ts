@@ -95,8 +95,8 @@ export class UsersService {
     this.users.merge(user, {
       accountId,
       email,
-      firstName: input.first_name,
-      lastName: input.last_name,
+      firstName: this.normalizeOptionalName(input.first_name),
+      lastName: this.normalizeOptionalName(input.last_name),
       role: this.normalizeRole(input.role),
       encryptedPassword: await hashPassword(password),
       archivedAt: null,
@@ -126,8 +126,14 @@ export class UsersService {
       user.email = input.email.toLowerCase();
     }
 
-    user.firstName = input.first_name ?? user.firstName;
-    user.lastName = input.last_name ?? user.lastName;
+    user.firstName =
+      input.first_name === undefined
+        ? user.firstName
+        : this.normalizeOptionalName(input.first_name);
+    user.lastName =
+      input.last_name === undefined
+        ? user.lastName
+        : this.normalizeOptionalName(input.last_name);
 
     if (options.currentUserId !== user.id) {
       if (input.role && input.role !== user.role) {
@@ -161,8 +167,14 @@ export class UsersService {
       user.email = input.email.toLowerCase();
     }
 
-    user.firstName = input.first_name ?? user.firstName;
-    user.lastName = input.last_name ?? user.lastName;
+    user.firstName =
+      input.first_name === undefined
+        ? user.firstName
+        : this.normalizeOptionalName(input.first_name);
+    user.lastName =
+      input.last_name === undefined
+        ? user.lastName
+        : this.normalizeOptionalName(input.last_name);
 
     try {
       return this.toUserResponse(await this.users.save(user));
@@ -365,6 +377,10 @@ export class UsersService {
 
   private normalizeRole(role: string | undefined): SignaRole {
     return isSignaRole(role) ? role : 'member';
+  }
+
+  private normalizeOptionalName(name: string | undefined): string | null {
+    return name?.trim() || null;
   }
 
   private toImportUsersResponse(

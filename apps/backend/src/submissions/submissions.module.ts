@@ -12,6 +12,7 @@ import { DocumentGenerationEvent } from './entities/document-generation-event.en
 import { SubmissionEvent } from './entities/submission-event.entity';
 import { Submission } from './entities/submission.entity';
 import { SubmissionDocumentsService } from './submission-documents.service';
+import { SubmissionExportService } from './submission-export.service';
 import { SubmissionPdfGeneratorService } from './submission-pdf-generator.service';
 import { SubmitterValueNormalizer } from './submitter-value-normalizer.service';
 import {
@@ -46,6 +47,7 @@ import { SubmissionsService } from './submissions.service';
   providers: [
     SubmissionsService,
     SubmissionDocumentsService,
+    SubmissionExportService,
     SubmissionPdfGeneratorService,
     SubmitterValueNormalizer,
     UserHydrationGuard,

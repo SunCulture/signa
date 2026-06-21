@@ -1,23 +1,40 @@
-"use client"
-
 import Link from "next/link"
 import { ArrowLeftIcon, BotIcon, CircleHelpIcon, InfoIcon } from "lucide-react"
 
-const settingsLinks = [
+type SettingsSidebarItem = {
+  href?: string
+  label: string
+  badge?: string
+  disabled?: boolean
+}
+
+const settingsLinks: readonly SettingsSidebarItem[] = [
   { href: "/settings/profile", label: "Profile" },
   { href: "/settings/account", label: "Account" },
   { href: "/settings/notifications", label: "Notifications" },
-  { href: "#", label: "E-Signature" },
-  { href: "#", label: "Personalization" },
+  { href: "/settings/e-signature", label: "E-Signature" },
+  { href: "/settings/personalization", label: "Personalization" },
   { href: "/settings/users", label: "Users" },
   { href: "/settings/teams", label: "Teams" },
-  { href: "#", label: "Integrations" },
-  { href: "#", label: "Plans", badge: "Pro" },
-  { href: "#", label: "API" },
-  { href: "#", label: "Embedding" },
+  { href: "/settings/integrations", label: "Integrations" },
+  { href: "/settings/webhooks", label: "Webhooks" },
+  { badge: "License", href: "/settings/plans", label: "Plans" },
+  { href: "/settings/api", label: "API" },
+  { disabled: true, label: "Embedding" },
 ]
 
-type SettingsSection = "Account" | "Notifications" | "Profile" | "Teams" | "Users"
+type SettingsSection =
+  | "Account"
+  | "API"
+  | "E-Signature"
+  | "Integrations"
+  | "Notifications"
+  | "Personalization"
+  | "Plans"
+  | "Profile"
+  | "Teams"
+  | "Users"
+  | "Webhooks"
 
 export function SettingsSidebar({ active }: { active: SettingsSection }) {
   return (
@@ -33,26 +50,42 @@ export function SettingsSidebar({ active }: { active: SettingsSection }) {
         Settings
       </p>
       <nav className="flex flex-col gap-1">
-        {settingsLinks.map((item) => (
-          <Link
-            className={
-              item.label === active
-                ? "rounded-full bg-[var(--auth-muted)] px-4 py-2 text-base"
-                : "rounded-full px-4 py-2 text-base hover:bg-[var(--auth-muted)]"
-            }
-            href={item.href}
-            key={item.label}
-          >
-            <span className="flex items-center justify-between gap-3">
-              {item.label}
-              {item.badge ? (
-                <span className="rounded-full bg-[var(--auth-upgrade)] px-2 py-0.5 text-xs font-bold text-[var(--auth-primary)]">
-                  {item.badge}
-                </span>
-              ) : null}
+        {settingsLinks.map((item) =>
+          item.disabled ? (
+            <span
+              className="rounded-full px-4 py-2 text-base text-muted-foreground"
+              key={`${item.label}:disabled`}
+            >
+              <span className="flex cursor-default items-center justify-between gap-3">
+                {item.label}
+                {item.badge ? (
+                  <span className="rounded-full bg-[var(--auth-upgrade)] px-2 py-0.5 text-xs font-bold text-[var(--auth-primary)]">
+                    {item.badge}
+                  </span>
+                ) : null}
+              </span>
             </span>
-          </Link>
-        ))}
+          ) : (
+            <Link
+              className={
+                item.label === active
+                  ? "rounded-full bg-[var(--auth-muted)] px-4 py-2 text-base"
+                  : "rounded-full px-4 py-2 text-base hover:bg-[var(--auth-muted)]"
+              }
+              href={item.href ?? "#"}
+              key={`${item.label}:${item.href}`}
+            >
+              <span className="flex items-center justify-between gap-3">
+                {item.label}
+                {item.badge ? (
+                  <span className="rounded-full bg-[var(--auth-upgrade)] px-2 py-0.5 text-xs font-bold text-[var(--auth-primary)]">
+                    {item.badge}
+                  </span>
+                ) : null}
+              </span>
+            </Link>
+          )
+        )}
         <label className="mt-1 flex cursor-pointer items-center justify-between rounded-full px-4 py-2 text-base hover:bg-[var(--auth-muted)]">
           <span>Test mode</span>
           <input className="accent-[var(--auth-primary)]" type="checkbox" />

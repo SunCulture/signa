@@ -3,7 +3,13 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { createHash } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+} from 'node:crypto';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -13,6 +19,16 @@ import { TeamMember } from '../teams/entities/team-member.entity';
 import { Team } from '../teams/entities/team.entity';
 import { createTeamSlug } from '../teams/team-slug';
 import { User } from '../users/entities/user.entity';
+import {
+  defaultApiTokenPermissions,
+  normalizeApiTokenPermissions,
+} from './api-token-permissions';
+import {
+  ApiTokenResponseDto,
+  ApiTokenRevealResponseDto,
+  RotateApiTokenDto,
+  UpdateApiTokenPermissionsDto,
+} from './dto/api-token-response.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -26,6 +42,7 @@ export class AuthService {
   constructor(
     @InjectRepository(AccessToken)
     private readonly accessTokens: Repository<AccessToken>,
+    private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
     private readonly jwtService: JwtService,
   ) {}
@@ -48,17 +65,82 @@ export class AuthService {
 
     if (
       !accessToken?.user ||
+      accessToken.revokedAt ||
       accessToken.user.archivedAt ||
       accessToken.user.account.archivedAt
     ) {
       return null;
     }
 
+    await this.accessTokens.update(accessToken.id, { lastUsedAt: new Date() });
+
     return {
       accountId: accessToken.user.accountId,
       userId: accessToken.userId,
       accessTokenId: accessToken.id,
+      role: accessToken.user.role,
+      apiTokenPermissions: normalizeApiTokenPermissions(
+        accessToken.permissions,
+      ),
     };
+  }
+
+  async getUserApiToken(userId: string): Promise<ApiTokenResponseDto> {
+    return this.toApiTokenResponse(
+      await this.findOrCreateUserApiToken(userId),
+      await this.getUserRole(userId),
+    );
+  }
+
+  async revealUserApiToken(
+    userId: string,
+    password: string,
+  ): Promise<ApiTokenRevealResponseDto> {
+    await this.assertUserPassword(userId, password);
+    const accessToken = await this.findOrCreateUserApiToken(userId);
+
+    return {
+      ...this.toApiTokenResponse(accessToken, await this.getUserRole(userId)),
+      revealed_token: this.decryptApiToken(accessToken.token),
+    };
+  }
+
+  async rotateUserApiToken(
+    userId: string,
+    input: RotateApiTokenDto,
+  ): Promise<ApiTokenRevealResponseDto> {
+    await this.assertUserPassword(userId, input.password);
+    const accessToken = await this.findOrCreateUserApiToken(userId);
+    const token = this.generateApiToken();
+
+    accessToken.token = this.encryptApiToken(token);
+    accessToken.sha256 = this.hashApiToken(token);
+    accessToken.permissions = normalizeApiTokenPermissions(
+      input.permissions ?? accessToken.permissions,
+    );
+    accessToken.revokedAt = null;
+    accessToken.lastUsedAt = null;
+
+    const saved = await this.accessTokens.save(accessToken);
+
+    return {
+      ...this.toApiTokenResponse(saved, await this.getUserRole(userId)),
+      revealed_token: token,
+    };
+  }
+
+  async updateUserApiTokenPermissions(
+    userId: string,
+    input: UpdateApiTokenPermissionsDto,
+  ): Promise<ApiTokenResponseDto> {
+    const accessToken = await this.findOrCreateUserApiToken(userId);
+
+    accessToken.permissions = normalizeApiTokenPermissions(input.permissions);
+
+    return this.toApiTokenResponse(
+      await this.accessTokens.save(accessToken),
+      await this.getUserRole(userId),
+    );
   }
 
   async register(input: RegisterDto): Promise<AuthResponseDto> {
@@ -166,4 +248,119 @@ export class AuthService {
       },
     };
   }
+
+  private async findOrCreateUserApiToken(userId: string): Promise<AccessToken> {
+    const existing = await this.accessTokens.findOne({
+      where: { userId },
+      order: { id: 'ASC' },
+    });
+
+    if (existing) {
+      if (!Array.isArray(existing.permissions)) {
+        existing.permissions = [...defaultApiTokenPermissions];
+        return this.accessTokens.save(existing);
+      }
+
+      return existing;
+    }
+
+    const token = this.generateApiToken();
+
+    return this.accessTokens.save(
+      this.accessTokens.create({
+        userId,
+        sha256: this.hashApiToken(token),
+        token: this.encryptApiToken(token),
+        permissions: [...defaultApiTokenPermissions],
+      }),
+    );
+  }
+
+  private async assertUserPassword(
+    userId: string,
+    password: string,
+  ): Promise<void> {
+    const user = await this.dataSource.getRepository(User).findOne({
+      where: { id: userId },
+    });
+
+    if (!user || !(await verifyPassword(password, user.encryptedPassword))) {
+      throw new UnauthorizedException({ error: 'Invalid password' });
+    }
+  }
+
+  private async getUserRole(userId: string): Promise<string> {
+    const user = await this.dataSource.getRepository(User).findOne({
+      where: { id: userId },
+    });
+
+    return user?.role ?? 'unknown';
+  }
+
+  private toApiTokenResponse(
+    accessToken: AccessToken,
+    role: string,
+  ): ApiTokenResponseDto {
+    return {
+      id: accessToken.id,
+      token: maskApiToken(this.decryptApiToken(accessToken.token)),
+      role,
+      permissions: normalizeApiTokenPermissions(accessToken.permissions),
+      permissions_note:
+        'API token belongs to this user and can be constrained below the user role.',
+      created_at: accessToken.createdAt,
+      updated_at: accessToken.updatedAt,
+      last_used_at: accessToken.lastUsedAt,
+    };
+  }
+
+  private generateApiToken(): string {
+    return `sgna_${randomBytes(24).toString('base64url')}`;
+  }
+
+  private encryptApiToken(token: string): string {
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', this.getTokenCipherKey(), iv);
+    const encrypted = Buffer.concat([
+      cipher.update(token, 'utf8'),
+      cipher.final(),
+    ]);
+    const tag = cipher.getAuthTag();
+
+    return `v1:${iv.toString('base64url')}:${tag.toString('base64url')}:${encrypted.toString('base64url')}`;
+  }
+
+  private decryptApiToken(value: string): string {
+    if (!value.startsWith('v1:')) {
+      return value;
+    }
+
+    const [, ivValue, tagValue, encryptedValue] = value.split(':');
+    const decipher = createDecipheriv(
+      'aes-256-gcm',
+      this.getTokenCipherKey(),
+      Buffer.from(ivValue, 'base64url'),
+    );
+
+    decipher.setAuthTag(Buffer.from(tagValue, 'base64url'));
+
+    return Buffer.concat([
+      decipher.update(Buffer.from(encryptedValue, 'base64url')),
+      decipher.final(),
+    ]).toString('utf8');
+  }
+
+  private getTokenCipherKey(): Buffer {
+    return createHash('sha256')
+      .update(this.configService.get<string>('JWT_SECRET', 'signa-secret'))
+      .digest();
+  }
+}
+
+function maskApiToken(token: string): string {
+  if (token.length <= 10) {
+    return '*'.repeat(token.length);
+  }
+
+  return `${token.slice(0, 8)}${'*'.repeat(Math.max(token.length - 12, 8))}${token.slice(-4)}`;
 }

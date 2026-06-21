@@ -108,6 +108,91 @@ export const accountPreferenceDefinitions = [
     key: 'knowledge_based_authentication',
     defaultValue: false,
   },
+  {
+    property: 'esigning_preference',
+    key: 'esigning_preference',
+    defaultValue: 'single',
+  },
+  {
+    property: 'flatten_result_pdf',
+    key: 'flatten_result_pdf',
+    defaultValue: true,
+  },
+  {
+    property: 'document_filename_format',
+    key: 'document_filename_format',
+    defaultValue: '{document.name}',
+  },
+  {
+    property: 'submitter_invitation_email',
+    key: 'submitter_invitation_email',
+    defaultValue: {
+      subject: 'You are invited to sign a document',
+      body: `Hi there,
+
+You have been invited to sign the "{template.name}".
+
+[Review and Sign]({submitter.link})
+
+Please contact us by replying to this email if you have any questions.
+
+Thanks,
+{account.name}`,
+    },
+  },
+  {
+    property: 'submitter_documents_copy_email',
+    key: 'submitter_documents_copy_email',
+    defaultValue: {
+      subject: 'Your document copy',
+      body: `Hi there,
+
+Please check the copy of your "{template.name}" in the email attachments.
+Alternatively, you can review and download your copy using the link below:
+
+[{template.name}]({documents.link})
+
+Thanks,
+{account.name}`,
+      attach_audit_log: true,
+      attach_documents: true,
+      enabled: true,
+    },
+  },
+  {
+    property: 'submitter_completed_email',
+    key: 'submitter_completed_email',
+    defaultValue: {
+      subject: '{template.name} has been completed by {submission.submitters}',
+      body: `Hi,
+
+"{template.name}" has been completed by {submission.submitters}
+
+{submission.link}`,
+      attach_audit_log: true,
+      attach_documents: true,
+    },
+  },
+  {
+    property: 'form_completed_message',
+    key: 'form_completed_message',
+    defaultValue: {},
+  },
+  {
+    property: 'form_completed_button',
+    key: 'form_completed_button',
+    defaultValue: {},
+  },
+  {
+    property: 'form_with_confetti',
+    key: 'form_with_confetti',
+    defaultValue: false,
+  },
+  {
+    property: 'policy_links',
+    key: 'policy_links',
+    defaultValue: '',
+  },
 ] as const satisfies readonly AccountPreferenceDefinition[];
 
 export const accountPreferenceKeys = accountPreferenceDefinitions.map(

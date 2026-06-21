@@ -74,6 +74,36 @@ export class SigningAttachmentDto {
   url!: string;
 }
 
+export class SigningFormCompletedMessageDto {
+  @ApiPropertyOptional({ example: 'Thank you' })
+  title?: string;
+
+  @ApiPropertyOptional({ example: 'Your document has been completed.' })
+  body?: string;
+}
+
+export class SigningFormCompletedButtonDto {
+  @ApiPropertyOptional({ example: 'Back to website' })
+  title?: string;
+
+  @ApiPropertyOptional({ example: 'https://example.com' })
+  url?: string;
+}
+
+export class SigningFormConfigDto {
+  @ApiProperty({ example: false })
+  with_confetti!: boolean;
+
+  @ApiProperty({ type: SigningFormCompletedMessageDto })
+  completed_message!: SigningFormCompletedMessageDto;
+
+  @ApiProperty({ type: SigningFormCompletedButtonDto })
+  completed_button!: SigningFormCompletedButtonDto;
+
+  @ApiPropertyOptional({ example: '[Privacy Policy](https://example.com)' })
+  policy_links?: string;
+}
+
 export class SigningResponseDto {
   @ApiProperty({ example: '1' })
   submission_id!: string;
@@ -98,6 +128,9 @@ export class SigningResponseDto {
 
   @ApiProperty({ type: [SigningAttachmentDto] })
   attachments!: SigningAttachmentDto[];
+
+  @ApiProperty({ type: SigningFormConfigDto })
+  configs!: SigningFormConfigDto;
 }
 
 export class SigningDownloadResponseDto {

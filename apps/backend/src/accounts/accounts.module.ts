@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { AccountHydrationGuard } from '../auth/guards/account-hydration/account-hydration.guard';
+import { StorageModule } from '../storage/storage.module';
 import { User } from '../users/entities/user.entity';
 import { AccountsController } from './accounts.controller';
 import { AccountsService } from './accounts.service';
@@ -13,6 +14,7 @@ import { EncryptedConfig } from './entities/encrypted-config.entity';
 @Module({
   imports: [
     AuthModule,
+    StorageModule,
     TypeOrmModule.forFeature([
       Account,
       AccountConfig,

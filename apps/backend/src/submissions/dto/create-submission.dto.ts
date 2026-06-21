@@ -3,11 +3,31 @@ import {
   IsArray,
   IsBoolean,
   IsIn,
+  IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import type { TemplateField } from '../../templates/types/template-json';
+
+export class CreateSubmissionMessageDto {
+  @ApiPropertyOptional({ example: 'You are invited to sign a document' })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  subject?: string;
+
+  @ApiPropertyOptional({
+    example:
+      'Hi there,\n\nYou have been invited to sign the "{template.name}".',
+  })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  body?: string;
+}
 
 export class CreateSubmissionSubmitterDto {
   @ApiPropertyOptional({ example: '884d545b-3396-49f1-8c07-05b8b2a78755' })
@@ -107,6 +127,12 @@ export class CreateSubmissionSubmitterDto {
   @IsOptional()
   @IsString()
   reply_to?: string;
+
+  @ApiPropertyOptional({ type: CreateSubmissionMessageDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CreateSubmissionMessageDto)
+  message?: CreateSubmissionMessageDto;
 }
 
 export class CreateSubmissionDto {
@@ -167,6 +193,12 @@ export class CreateSubmissionDto {
   @IsOptional()
   @IsString()
   reply_to?: string;
+
+  @ApiPropertyOptional({ type: CreateSubmissionMessageDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CreateSubmissionMessageDto)
+  message?: CreateSubmissionMessageDto;
 
   @ApiPropertyOptional({ example: 'fields' })
   @IsOptional()
@@ -243,8 +275,20 @@ export class CreateSubmissionAliasDto {
   @IsString()
   reply_to?: string;
 
+  @ApiPropertyOptional({ type: CreateSubmissionMessageDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CreateSubmissionMessageDto)
+  message?: CreateSubmissionMessageDto;
+
   @ApiPropertyOptional({ example: 'fields' })
   @IsOptional()
   @IsString()
   include?: string;
+}
+
+export class CreateSubmissionBatchDto {
+  @ApiProperty({ type: [CreateSubmissionDto] })
+  @IsArray()
+  submissions!: CreateSubmissionDto[];
 }

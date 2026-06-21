@@ -3,22 +3,35 @@
 import type React from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
+import { UserPlusIcon, UsersIcon } from "lucide-react"
 import { toast } from "sonner"
 
+import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import { type AuthUser, listUsers } from "@/lib/api/auth"
 import { ApiError } from "@/lib/api/http"
 import {
   addTeamMember,
   archiveTeam,
   createTeam,
-  createTeamInvitation,
-  listTeamInvitations,
   listTeamMembers,
   listTeams,
   removeTeamMember,
-  revokeTeamInvitation,
   type Team,
-  type TeamInvitation,
   type TeamMember,
   type TeamRole,
   updateTeam,
@@ -51,7 +64,6 @@ function TeamsPanel() {
   const [activeUsers, setActiveUsers] = useState<AuthUser[]>([])
   const [editingTeam, setEditingTeam] = useState<Team | null>(null)
   const [form, setForm] = useState<TeamFormState>(emptyTeamForm)
-  const [invitations, setInvitations] = useState<TeamInvitation[]>([])
   const [isSavingTeam, setIsSavingTeam] = useState(false)
   const [isTeamDialogOpen, setIsTeamDialogOpen] = useState(false)
   const [members, setMembers] = useState<TeamMember[]>([])
@@ -88,13 +100,9 @@ function TeamsPanel() {
       return
     }
 
-    Promise.all([
-      listTeamMembers(selectedTeam.id),
-      listTeamInvitations(selectedTeam.id),
-    ])
-      .then(([loadedMembers, loadedInvitations]) => {
+    listTeamMembers(selectedTeam.id)
+      .then((loadedMembers) => {
         setMembers(loadedMembers)
-        setInvitations(loadedInvitations)
       })
       .catch((error) =>
         toast.error("Team details could not be loaded", {
@@ -147,7 +155,6 @@ function TeamsPanel() {
     try {
       await archiveTeam(team.id)
       setTeams((current) => current.filter((item) => item.id !== team.id))
-      setInvitations([])
       setMembers([])
       setSelectedTeamId(null)
       toast.success("Team archived")
@@ -208,46 +215,6 @@ function TeamsPanel() {
     }
   }
 
-  async function inviteMember(email: string, role: TeamRole) {
-    if (!selectedTeam) return
-
-    try {
-      const invitation = await createTeamInvitation(selectedTeam.id, {
-        email,
-        role,
-      })
-      setInvitations((current) => [invitation, ...current])
-      toast.success("Invitation created")
-    } catch (error) {
-      toast.error("Invitation could not be created", {
-        description: getErrorMessage(error),
-        classNames: { icon: "text-destructive" },
-      })
-    }
-  }
-
-  async function revokeInvitation(invitation: TeamInvitation) {
-    if (!selectedTeam) return
-
-    try {
-      const revokedInvitation = await revokeTeamInvitation(
-        selectedTeam.id,
-        invitation.id
-      )
-      setInvitations((current) =>
-        current.map((item) =>
-          item.id === revokedInvitation.id ? revokedInvitation : item
-        )
-      )
-      toast.success("Invitation revoked")
-    } catch (error) {
-      toast.error("Invitation could not be revoked", {
-        description: getErrorMessage(error),
-        classNames: { icon: "text-destructive" },
-      })
-    }
-  }
-
   return (
     <section className="min-w-0 flex-1">
       <TeamsHeader
@@ -264,36 +231,85 @@ function TeamsPanel() {
         />
       </TeamsHeader>
 
-      <div className="mt-5 grid gap-5">
-        <TeamList
-          onArchiveTeam={archiveSelectedTeam}
-          onOpenEditDialog={openEditDialog}
-          selectedTeamId={selectedTeam?.id ?? null}
-          status={status}
-          teams={teams}
-          onSelectTeam={setSelectedTeamId}
-        />
-        {selectedTeam ? (
-          <TeamDetails
-            activeUsers={activeUsers}
-            invitations={invitations}
-            members={members}
-            team={selectedTeam}
-            onAddMember={addMember}
-            onArchiveTeam={archiveSelectedTeam}
-            onChangeMemberRole={changeMemberRole}
-            onInviteMember={inviteMember}
-            onOpenEditDialog={openEditDialog}
-            onRemoveMember={removeMember}
-            onRevokeInvitation={revokeInvitation}
+      {teams.length ? (
+        <div className="mt-5 grid gap-5">
+          <TeamList
+            selectedTeamId={selectedTeam?.id ?? null}
+            status={status}
+            teams={teams}
+            onSelectTeam={setSelectedTeamId}
           />
-        ) : (
-          <div className="rounded-2xl border border-border bg-card p-6 text-muted-foreground">
-            No {status} teams yet.
-          </div>
-        )}
-      </div>
+          {selectedTeam ? (
+            <TeamDetails
+              activeUsers={activeUsers}
+              members={members}
+              team={selectedTeam}
+              onAddMember={addMember}
+              onArchiveTeam={archiveSelectedTeam}
+              onChangeMemberRole={changeMemberRole}
+              onOpenEditDialog={openEditDialog}
+              onRemoveMember={removeMember}
+            />
+          ) : null}
+        </div>
+      ) : (
+        <TeamsEmptyState
+          status={status}
+          onCreate={openCreateDialog}
+          onViewActive={() => router.push("/settings/teams")}
+        />
+      )}
     </section>
+  )
+}
+
+function TeamsEmptyState({
+  onCreate,
+  onViewActive,
+  status,
+}: {
+  onCreate: () => void
+  onViewActive: () => void
+  status: "active" | "archived"
+}) {
+  const isArchived = status === "archived"
+
+  return (
+    <Card className="mt-5 w-full">
+      <CardHeader>
+        <CardTitle>Teams</CardTitle>
+        <CardDescription>
+          Organize users by workspace, department, or signing workflow.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Empty className="min-h-80">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <UsersIcon />
+            </EmptyMedia>
+            <EmptyTitle>
+              {isArchived ? "No archived teams" : "No teams yet"}
+            </EmptyTitle>
+            <EmptyDescription>
+              {isArchived
+                ? "Archived teams will appear here when you remove them from active use."
+                : "Create your first team to group members and manage collaboration cleanly."}
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button
+              onClick={isArchived ? onViewActive : onCreate}
+              size="sm"
+              type="button"
+            >
+              <UserPlusIcon data-icon="inline-start" />
+              {isArchived ? "View active teams" : "Create team"}
+            </Button>
+          </EmptyContent>
+        </Empty>
+      </CardContent>
+    </Card>
   )
 }
 

@@ -5,6 +5,7 @@ import {
   IsIn,
   IsOptional,
   IsString,
+  IsUrl,
   ValidateNested,
 } from 'class-validator';
 
@@ -42,6 +43,76 @@ export class UpdateSubmitterRemindersDto {
   @IsOptional()
   @IsIn(reminderDurations)
   third_duration?: string | null;
+}
+
+export class UpdateAccountEmailTemplateDto {
+  @ApiPropertyOptional({ example: 'You are invited to sign a document' })
+  @IsOptional()
+  @IsString()
+  subject?: string;
+
+  @ApiPropertyOptional({ example: 'Hi there,\n\nPlease sign {template.name}.' })
+  @IsOptional()
+  @IsString()
+  body?: string;
+
+  @ApiPropertyOptional({ example: 'reply@example.com', nullable: true })
+  @IsOptional()
+  @IsString()
+  reply_to?: string | null;
+}
+
+export class UpdateDocumentsCopyEmailDto extends UpdateAccountEmailTemplateDto {
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  attach_audit_log?: boolean;
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  attach_documents?: boolean;
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+}
+
+export class UpdateCompletedEmailDto extends UpdateAccountEmailTemplateDto {
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  attach_audit_log?: boolean;
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  attach_documents?: boolean;
+}
+
+export class UpdateCompletedMessageDto {
+  @ApiPropertyOptional({ example: 'Thank you' })
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @ApiPropertyOptional({ example: 'Your document has been completed.' })
+  @IsOptional()
+  @IsString()
+  body?: string;
+}
+
+export class UpdateCompletedButtonDto {
+  @ApiPropertyOptional({ example: 'Back to website' })
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @ApiPropertyOptional({ example: 'https://example.com' })
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  url?: string;
 }
 
 export class UpdateAccountPreferencesDto {
@@ -143,4 +214,73 @@ export class UpdateAccountPreferencesDto {
   @IsOptional()
   @IsBoolean()
   knowledge_based_authentication?: boolean;
+
+  @ApiPropertyOptional({ enum: ['single', 'multiple'] })
+  @IsOptional()
+  @IsIn(['single', 'multiple'])
+  esigning_preference?: 'single' | 'multiple';
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  flatten_result_pdf?: boolean;
+
+  @ApiPropertyOptional({
+    enum: [
+      '{document.name}',
+      '{document.name} - {submission.status}',
+      '{document.name} - {submission.submitters}',
+      '{document.name} - {submission.submitters} - {submission.completed_at}',
+    ],
+  })
+  @IsOptional()
+  @IsIn([
+    '{document.name}',
+    '{document.name} - {submission.status}',
+    '{document.name} - {submission.submitters}',
+    '{document.name} - {submission.submitters} - {submission.completed_at}',
+  ])
+  document_filename_format?: string;
+
+  @ApiPropertyOptional({ type: UpdateAccountEmailTemplateDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateAccountEmailTemplateDto)
+  submitter_invitation_email?: UpdateAccountEmailTemplateDto;
+
+  @ApiPropertyOptional({ type: UpdateDocumentsCopyEmailDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateDocumentsCopyEmailDto)
+  submitter_documents_copy_email?: UpdateDocumentsCopyEmailDto;
+
+  @ApiPropertyOptional({ type: UpdateCompletedEmailDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateCompletedEmailDto)
+  submitter_completed_email?: UpdateCompletedEmailDto;
+
+  @ApiPropertyOptional({ type: UpdateCompletedMessageDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateCompletedMessageDto)
+  form_completed_message?: UpdateCompletedMessageDto;
+
+  @ApiPropertyOptional({ type: UpdateCompletedButtonDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateCompletedButtonDto)
+  form_completed_button?: UpdateCompletedButtonDto;
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @IsBoolean()
+  form_with_confetti?: boolean;
+
+  @ApiPropertyOptional({
+    example: '[Privacy Policy](https://example.com/privacy)',
+  })
+  @IsOptional()
+  @IsString()
+  policy_links?: string;
 }

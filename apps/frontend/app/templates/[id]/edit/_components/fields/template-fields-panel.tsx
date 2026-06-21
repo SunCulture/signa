@@ -1,28 +1,19 @@
 "use client";
 
 import type { ComponentType } from "react";
+import type { DragEvent as ReactDragEvent } from "react";
 import { useState } from "react";
 import {
-  ArrowDownIcon,
-  ArrowUpIcon,
-  FilePlus2Icon,
-  FileIcon,
-  GitBranchIcon,
   GripVerticalIcon,
   InfoIcon,
   LockIcon,
-  MoreVerticalIcon,
   PencilIcon,
-  PenLineIcon,
   PlusIcon,
-  SaveIcon,
   ScanSearchIcon,
-  SlidersHorizontalIcon,
   Trash2Icon,
   TypeIcon,
   UserRoundPlusIcon,
 } from "lucide-react";
-import { toast } from "sonner";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,7 +34,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
@@ -60,6 +50,7 @@ import {
   getPartyName,
   getSubmitterColor,
   getSubmitterName,
+  isChoiceField,
   readFieldDragPayload,
   writeFieldDragPayload,
   submitterColors,
@@ -69,6 +60,8 @@ import {
   type TemplateFieldArea,
   type TemplateSubmitter,
 } from "../../_lib/template-editor-model";
+import { FieldOptionsEditor } from "./field-options-editor";
+import { FieldSettingsMenu } from "./field-settings-menu";
 import {
   FieldAdvancedSettingsModal,
   FieldConditionsModal,
@@ -163,7 +156,7 @@ export function TemplateFieldsPanel({
 
           {visibleFields.length > 0 ? (
             <div className="border-b border-[var(--auth-input-border)] bg-[color-mix(in_srgb,var(--auth-muted),transparent_35%)] p-1">
-              <div className="flex max-h-32 flex-col gap-1 overflow-y-auto pr-1 [scrollbar-gutter:stable]">
+              <div className="flex max-h-72 flex-col gap-1 overflow-y-auto pr-1 [scrollbar-gutter:stable]">
                 {visibleFields.map((field) => (
                   <SidebarFieldItem
                     field={field}
@@ -489,10 +482,14 @@ export function SidebarFieldItem({
   const Icon = typeMeta?.icon ?? TypeIcon;
   const title = field.name || buildDefaultFieldName(field.type, index);
   const roleColor = getSubmitterColor(submitters, field.submitter_uuid);
+  const shouldShowOptions = isSelected && isChoiceField(field.type);
   const [isRenaming, setIsRenaming] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isConditionsOpen, setIsConditionsOpen] = useState(false);
   const [isDescriptionOpen, setIsDescriptionOpen] = useState(false);
+  const [dropPosition, setDropPosition] = useState<"after" | "before" | null>(
+    null,
+  );
 
   function saveName(name: string) {
     const nextName = name.trim() || buildDefaultFieldName(field.type, index);
@@ -503,15 +500,52 @@ export function SidebarFieldItem({
     }
   }
 
+  function updateDropPosition(event: ReactDragEvent<HTMLDivElement>) {
+    const payload = readFieldDragPayload(event.dataTransfer);
+
+    if (payload?.kind !== "existing" || payload.fieldUuid === field.uuid) {
+      return;
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const nextPosition =
+      event.clientY - rect.top > rect.height / 2 ? "after" : "before";
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDropPosition(nextPosition);
+  }
+
+  function dropField(event: ReactDragEvent<HTMLDivElement>) {
+    const payload = readFieldDragPayload(event.dataTransfer);
+
+    if (payload?.kind !== "existing" || payload.fieldUuid === field.uuid) {
+      setDropPosition(null);
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    void onMoveFieldToIndex(
+      payload.fieldUuid,
+      index + (dropPosition === "after" ? 1 : 0),
+    );
+    setDropPosition(null);
+  }
+
   return (
     <>
       <div
         aria-pressed={isSelected}
         className={cn(
-          "group/field flex h-8 w-full items-center gap-1 rounded border px-1.5 text-left text-sm transition-colors",
+          "group/field w-full rounded border text-left text-sm transition-colors",
           isSelected
             ? "border-red-300 bg-red-50 text-[var(--auth-primary)] shadow-sm dark:bg-red-950/25"
             : "border-[var(--auth-input-border)] bg-card hover:border-red-200 hover:bg-[var(--auth-muted)]",
+          dropPosition === "before" &&
+            "shadow-[0_-3px_0_0_var(--auth-primary)]",
+          dropPosition === "after" &&
+            "shadow-[0_3px_0_0_var(--auth-primary)]",
         )}
         draggable
         onDragStart={(event) => {
@@ -520,31 +554,9 @@ export function SidebarFieldItem({
             kind: "existing",
           });
         }}
-        onDragOver={(event) => {
-          const payload = readFieldDragPayload(event.dataTransfer);
-
-          if (
-            payload?.kind === "existing" &&
-            payload.fieldUuid !== field.uuid
-          ) {
-            event.preventDefault();
-            event.dataTransfer.dropEffect = "move";
-          }
-        }}
-        onDrop={(event) => {
-          const payload = readFieldDragPayload(event.dataTransfer);
-
-          if (
-            payload?.kind !== "existing" ||
-            payload.fieldUuid === field.uuid
-          ) {
-            return;
-          }
-
-          event.preventDefault();
-          event.stopPropagation();
-          void onMoveFieldToIndex(payload.fieldUuid, index);
-        }}
+        onDragLeave={() => setDropPosition(null)}
+        onDragOver={updateDropPosition}
+        onDrop={dropField}
         onClick={onSelect}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -555,204 +567,142 @@ export function SidebarFieldItem({
         role="button"
         tabIndex={0}
       >
-        <GripVerticalIcon className="size-4 shrink-0 cursor-grab text-[var(--auth-label)] active:cursor-grabbing" />
-        <span
-          aria-label={`Assigned to ${getSubmitterName(submitters, field.submitter_uuid)}`}
-          className="size-2.5 shrink-0 rounded-full"
-          style={{ backgroundColor: roleColor }}
-        />
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              aria-label={`Change type for ${title}`}
-              className="flex size-6 shrink-0 items-center justify-center rounded hover:bg-background"
-              draggable={false}
-              onClick={(event) => event.stopPropagation()}
-              type="button"
-            >
-              <Icon className="size-4" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-48">
-            <DropdownMenuLabel>Change type</DropdownMenuLabel>
-            <DropdownMenuGroup>
-              {fieldTypes.map((fieldType) => {
-                const TypeIconComponent = fieldType.icon;
-
-                return (
-                  <DropdownMenuItem
-                    disabled={fieldType.locked}
-                    key={fieldType.type}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void onUpdateField(
-                        field.uuid,
-                        buildFieldTypeUpdate(field, fieldType.type),
-                      );
-                    }}
-                  >
-                    <TypeIconComponent className="size-4" />
-                    {fieldType.label}
-                  </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        {isRenaming ? (
-          <input
-            aria-label={`Rename ${title}`}
-            autoFocus
-            className="min-w-0 flex-1 bg-transparent text-sm font-medium outline-none"
-            defaultValue={title}
-            draggable={false}
-            onBlur={(event) => saveName(event.target.value)}
-            onClick={(event) => event.stopPropagation()}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.currentTarget.blur();
-              }
-
-              if (event.key === "Escape") {
-                setIsRenaming(false);
-              }
-            }}
+        <div className="flex h-8 w-full items-center gap-1 px-1.5">
+          <GripVerticalIcon className="size-4 shrink-0 cursor-grab text-[var(--auth-label)] active:cursor-grabbing" />
+          <span
+            aria-label={`Assigned to ${getSubmitterName(submitters, field.submitter_uuid)}`}
+            className="size-2.5 shrink-0 rounded-full"
+            style={{ backgroundColor: roleColor }}
           />
-        ) : (
-          <span className="min-w-0 flex-1 truncate">{title}</span>
-        )}
-        <button
-          aria-label={`Rename ${title}`}
-          className="invisible flex size-6 shrink-0 items-center justify-center rounded text-[var(--auth-label)] hover:bg-background hover:text-[var(--auth-primary)] group-hover/field:visible"
-          draggable={false}
-          onClick={(event) => {
-            event.stopPropagation();
-            setIsRenaming(true);
-          }}
-          type="button"
-        >
-          <PencilIcon className="size-3.5" />
-        </button>
-        {field.required !== false ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span
-                aria-label={`${title} is required`}
-                className="flex size-5 shrink-0 items-center justify-center rounded-full text-red-500"
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                aria-label={`Change type for ${title}`}
+                className="flex size-6 shrink-0 items-center justify-center rounded hover:bg-background"
+                draggable={false}
+                onClick={(event) => event.stopPropagation()}
+                type="button"
               >
-                <InfoIcon className="size-3.5" />
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="top">Required</TooltipContent>
-          </Tooltip>
-        ) : null}
-        {getFieldConditions(field).length > 0 ? (
-          <span className="rounded-full bg-[var(--auth-primary)] px-1.5 text-[10px] font-semibold text-[var(--auth-primary-foreground)]">
-            {getFieldConditions(field).length}
-          </span>
-        ) : null}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              aria-label={`Open settings for ${title}`}
-              className="invisible flex size-6 shrink-0 items-center justify-center rounded text-[var(--auth-label)] hover:bg-background hover:text-[var(--auth-primary)] group-hover/field:visible"
+                <Icon className="size-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-48">
+              <DropdownMenuLabel>Change type</DropdownMenuLabel>
+              <DropdownMenuGroup>
+                {fieldTypes.map((fieldType) => {
+                  const TypeIconComponent = fieldType.icon;
+
+                  return (
+                    <DropdownMenuItem
+                      disabled={fieldType.locked}
+                      key={fieldType.type}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void onUpdateField(
+                          field.uuid,
+                          buildFieldTypeUpdate(field, fieldType.type),
+                        );
+                      }}
+                    >
+                      <TypeIconComponent className="size-4" />
+                      {fieldType.label}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {isRenaming ? (
+            <input
+              aria-label={`Rename ${title}`}
+              autoFocus
+              className="min-w-0 flex-1 bg-transparent text-sm font-medium outline-none"
+              defaultValue={title}
               draggable={false}
+              onBlur={(event) => saveName(event.target.value)}
               onClick={(event) => event.stopPropagation()}
-              type="button"
-            >
-              <MoreVerticalIcon className="size-3.5" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-60">
-            <DropdownMenuLabel className="truncate">{title}</DropdownMenuLabel>
-            <DropdownMenuGroup>
-              <DropdownMenuItem
-                disabled={index === 0}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void onMoveUp();
-                }}
-              >
-                <ArrowUpIcon className="size-4" />
-                Move up
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={index === fields.length - 1}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void onMoveDown();
-                }}
-              >
-                <ArrowDownIcon className="size-4" />
-                Move down
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setIsSettingsOpen(true)}>
-                <SlidersHorizontalIcon className="size-4" />
-                Format
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="gap-3"
-                onSelect={(event) => event.preventDefault()}
-              >
-                <span className="min-w-0 flex-1">Required</span>
-                <Switch
-                  aria-label={`Toggle required for ${title}`}
-                  checked={field.required !== false}
-                  onCheckedChange={(checked) =>
-                    void onUpdateField(field.uuid, { required: checked })
-                  }
-                  size="sm"
-                />
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setIsDescriptionOpen(true)}>
-                <InfoIcon className="size-4" />
-                Description
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setIsConditionsOpen(true)}>
-                <GitBranchIcon className="size-4" />
-                Condition
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onGoToPage}>
-                <FileIcon className="size-4" />
-                Page
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onStartDrawNewArea}>
-                <PenLineIcon className="size-4" />
-                Draw new area
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  void onCopyToAllPages(field);
-                }}
-              >
-                <FilePlus2Icon className="size-4" />
-                Copy to all pages
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() =>
-                toast.info("Custom fields need the saved-field library model")
-              }
-            >
-              <SaveIcon className="size-4" />
-              Save as custom field
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <button
-          aria-label={`Delete ${title}`}
-          className="invisible flex size-6 shrink-0 items-center justify-center rounded text-[var(--auth-label)] hover:bg-red-50 hover:text-red-600 group-hover/field:visible"
-          draggable={false}
-          onClick={(event) => {
-            event.stopPropagation();
-            void onDelete();
-          }}
-          type="button"
-        >
-          <Trash2Icon className="size-3.5" />
-        </button>
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.currentTarget.blur();
+                }
+
+                if (event.key === "Escape") {
+                  setIsRenaming(false);
+                }
+              }}
+            />
+          ) : (
+            <span className="min-w-0 flex-1 truncate">{title}</span>
+          )}
+          <button
+            aria-label={`Rename ${title}`}
+            className={cn(
+              "flex size-6 shrink-0 items-center justify-center rounded text-[var(--auth-label)] hover:bg-background hover:text-[var(--auth-primary)]",
+              shouldShowOptions ? "" : "invisible group-hover/field:visible",
+            )}
+            draggable={false}
+            onClick={(event) => {
+              event.stopPropagation();
+              setIsRenaming(true);
+            }}
+            type="button"
+          >
+            <PencilIcon className="size-3.5" />
+          </button>
+          {field.required !== false ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  aria-label={`${title} is required`}
+                  className="flex size-5 shrink-0 items-center justify-center rounded-full text-red-500"
+                >
+                  <InfoIcon className="size-3.5" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top">Required</TooltipContent>
+            </Tooltip>
+          ) : null}
+          {getFieldConditions(field).length > 0 ? (
+            <span className="rounded-full bg-[var(--auth-primary)] px-1.5 text-[10px] font-semibold text-[var(--auth-primary-foreground)]">
+              {getFieldConditions(field).length}
+            </span>
+          ) : null}
+          <FieldSettingsMenu
+            field={field}
+            fields={fields}
+            index={index}
+            onCopyToAllPages={onCopyToAllPages}
+            onGoToPage={onGoToPage}
+            onMoveDown={onMoveDown}
+            onMoveUp={onMoveUp}
+            onOpenConditions={() => setIsConditionsOpen(true)}
+            onOpenDescription={() => setIsDescriptionOpen(true)}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onStartDrawNewArea={onStartDrawNewArea}
+            onUpdateField={onUpdateField}
+            title={title}
+          />
+          <button
+            aria-label={`Delete ${title}`}
+            className="invisible flex size-6 shrink-0 items-center justify-center rounded text-[var(--auth-label)] hover:bg-red-50 hover:text-red-600 group-hover/field:visible"
+            draggable={false}
+            onClick={(event) => {
+              event.stopPropagation();
+              void onDelete();
+            }}
+            type="button"
+          >
+            <Trash2Icon className="size-3.5" />
+          </button>
+        </div>
+        {shouldShowOptions ? (
+          <FieldOptionsEditor
+            field={field}
+            onSelect={onSelect}
+            onStartDrawNewArea={onStartDrawNewArea}
+            onUpdateField={(patch) => onUpdateField(field.uuid, patch)}
+          />
+        ) : null}
       </div>
       {isDescriptionOpen ? (
         <FieldDescriptionModal

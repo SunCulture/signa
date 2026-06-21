@@ -2,7 +2,7 @@
 
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useRef, useState } from "react";
-import { Trash2Icon, TypeIcon } from "lucide-react";
+import { TypeIcon, XIcon } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
@@ -13,6 +13,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { handleFieldAreaKeyboard } from "./field-area-keyboard";
 import { FieldAreaResizeHandle } from "./field-area-resize-handle";
@@ -24,10 +29,12 @@ import {
   fieldTypes,
   getAutosizeInputCh,
   getFieldConditions,
+  getFieldOptions,
   getFieldStringValue,
   getFieldTypeDefinition,
   getPartyName,
   getSubmitterColor,
+  humanizeConditionAction,
   isTextEditableField,
   normalizeArea,
   submitterColors,
@@ -41,6 +48,7 @@ export function FieldAreaOverlay({
   area,
   areaIndex,
   field,
+  fields,
   isMultiSelected,
   isSaving,
   isSelected,
@@ -57,6 +65,7 @@ export function FieldAreaOverlay({
   area: TemplateFieldArea;
   areaIndex: number;
   field: TemplateEditorField;
+  fields: TemplateEditorField[];
   isMultiSelected: boolean;
   isSaving: boolean;
   isSelected: boolean;
@@ -226,10 +235,8 @@ export function FieldAreaOverlay({
     <div
       aria-label={`${title} field`}
       className={cn(
-        "group/field absolute cursor-grab rounded border outline-none shadow-[0_12px_30px_-24px_rgb(127_29_29)] ring-offset-1 transition-[border-color,box-shadow,background-color] [container-type:size] active:cursor-grabbing",
-        isSelected || isMultiSelected
-          ? "ring-2 ring-red-500/25"
-          : "hover:shadow-[0_16px_32px_-26px_rgb(15_23_42)]",
+        "group/field field-area-container absolute cursor-grab overflow-visible outline-none [container-type:size] active:cursor-grabbing",
+        isSelected || isMultiSelected ? "z-10" : "hover:z-10",
       )}
       onClick={(event) => {
         event.stopPropagation();
@@ -252,21 +259,24 @@ export function FieldAreaOverlay({
       role="button"
       style={{
         ...areaToStyle(displayArea),
-        backgroundColor: `${roleColor}1f`,
-        borderColor: roleColor,
       }}
       tabIndex={0}
     >
+      <div
+        className="pointer-events-none absolute inset-0 border border-[1.5px]"
+        style={{ borderColor: roleColor }}
+      />
       {shouldShowLabel ? (
         <div
-          className="absolute -top-7 left-0 flex w-max max-w-72 items-center gap-1 rounded-t-md border border-b-0 bg-white/95 px-2 py-1 text-xs font-medium text-[var(--auth-primary)] shadow-sm backdrop-blur dark:bg-card/95"
+          className="field-area-controls absolute left-0 top-[-25px] z-10 flex h-[25px] w-max max-w-80 items-center overflow-hidden whitespace-nowrap rounded-t border bg-white text-sm font-medium leading-none text-[var(--auth-primary)] shadow-sm"
           style={{ borderColor: roleColor }}
         >
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 aria-label={`Change ${title} role`}
-                className="flex size-4 shrink-0 items-center justify-center rounded-full"
+                className="roles-dropdown flex h-full w-7 shrink-0 items-center justify-center border-r"
+                style={{ borderColor: roleColor }}
                 onClick={(event) => {
                   event.stopPropagation();
                   onSelectField(field.uuid);
@@ -275,7 +285,7 @@ export function FieldAreaOverlay({
                 type="button"
               >
                 <span
-                  className="size-2.5 rounded-full"
+                  className="size-3 rounded-full"
                   style={{ backgroundColor: roleColor }}
                 />
               </button>
@@ -321,7 +331,7 @@ export function FieldAreaOverlay({
             <DropdownMenuTrigger asChild>
               <button
                 aria-label={`Change ${title} field type`}
-                className="flex size-5 shrink-0 items-center justify-center rounded-sm text-[var(--auth-primary)] hover:bg-red-50"
+                className="field-types-dropdown flex h-6 w-[27px] shrink-0 items-center justify-center text-[var(--auth-primary)] hover:bg-red-50"
                 onClick={(event) => {
                   event.stopPropagation();
                   onSelectField(field.uuid);
@@ -329,7 +339,7 @@ export function FieldAreaOverlay({
                 onPointerDown={(event) => event.stopPropagation()}
                 type="button"
               >
-                <Icon className="size-3.5" />
+                <Icon className="h-6 w-[27px] px-1" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
@@ -367,7 +377,7 @@ export function FieldAreaOverlay({
           {isRenamingLabel ? (
             <input
               aria-label={`${title} name`}
-              className="h-5 max-w-40 bg-transparent px-0 text-xs font-medium text-[var(--auth-primary)] outline-none ring-0 focus:outline-none focus:ring-0"
+              className="h-full max-w-40 bg-transparent px-0 pr-1 text-sm font-medium text-[var(--auth-primary)] outline-none ring-0 focus:outline-none focus:ring-0"
               onBlur={(event) => saveLabelName(event.target.value)}
               onChange={(event) => setLabelDraft(event.target.value)}
               onClick={(event) => event.stopPropagation()}
@@ -391,7 +401,7 @@ export function FieldAreaOverlay({
             />
           ) : (
             <button
-              className="min-w-0 flex-1 truncate rounded-sm text-left hover:underline"
+              className="block min-w-6 flex-1 cursor-text truncate pr-1 text-left outline-none"
               onClick={(event) => {
                 event.stopPropagation();
                 setLabelDraft(title);
@@ -404,8 +414,17 @@ export function FieldAreaOverlay({
               {title}
             </button>
           )}
-          {isSelected ? (
-            <>
+          <div
+            className={cn(
+              "ml-1 flex h-full shrink-0 items-center gap-0.5 border-l pl-1",
+              !isSelected && conditionCount === 0 ? "hidden" : "",
+            )}
+            style={{ borderColor: `${roleColor}66` }}
+          >
+            {conditionCount > 0 ? (
+              <ConditionCountBadge field={field} fields={fields} />
+            ) : null}
+            {isSelected ? (
               <Checkbox
                 aria-label={
                   field.required !== false
@@ -413,7 +432,7 @@ export function FieldAreaOverlay({
                     : `Mark ${title} required`
                 }
                 checked={field.required !== false}
-                className="ml-0.5"
+                className="size-4 shrink-0 rounded-[4px]"
                 onClick={(event) => {
                   event.stopPropagation();
                 }}
@@ -427,9 +446,11 @@ export function FieldAreaOverlay({
                 }}
                 title={field.required !== false ? "Required" : "Optional"}
               />
+            ) : null}
+            {isSelected ? (
               <button
                 aria-label={`Delete ${title}`}
-                className="ml-0.5 rounded-full p-0.5 text-[var(--auth-label)] hover:bg-red-50 hover:text-red-600"
+                className="flex size-5 shrink-0 items-center justify-center rounded-sm text-[var(--auth-primary)] hover:bg-red-50 hover:text-red-600"
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
@@ -440,19 +461,17 @@ export function FieldAreaOverlay({
                 }}
                 type="button"
               >
-                <Trash2Icon className="size-3" />
+                <XIcon className="size-3.5" />
               </button>
-            </>
-          ) : null}
-          {conditionCount > 0 ? (
-            <span className="ml-0.5 rounded bg-[var(--auth-primary)] px-1 text-[10px] font-bold text-[var(--auth-primary-foreground)]">
-              {conditionCount}
-            </span>
-          ) : null}
+            ) : null}
+          </div>
         </div>
       ) : null}
 
-      <div className="flex h-full w-full items-center justify-center overflow-hidden p-0 text-[var(--auth-primary)]">
+      <div
+        className="field-area flex h-full w-full items-center justify-center overflow-hidden bg-opacity-80 p-0 text-[var(--auth-primary)]"
+        style={{ backgroundColor: `${roleColor}26` }}
+      >
         <FieldAreaValue
           checkedValue={checkedValue}
           defaultValue={defaultValue}
@@ -475,4 +494,75 @@ export function FieldAreaOverlay({
       ) : null}
     </div>
   );
+}
+
+function ConditionCountBadge({
+  field,
+  fields,
+}: {
+  field: TemplateEditorField;
+  fields: TemplateEditorField[];
+}) {
+  const conditions = getFieldConditions(field);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          aria-label={`${conditions.length} conditions`}
+          className="flex h-5 min-w-5 shrink-0 cursor-help items-center justify-center rounded-full bg-[var(--auth-primary)] px-1 text-[10px] font-bold leading-none text-[var(--auth-primary-foreground)]"
+        >
+          {conditions.length}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-72" side="top">
+        <div className="grid gap-1 text-xs">
+          <p className="font-semibold">
+            {conditions.length} condition{conditions.length === 1 ? "" : "s"}
+          </p>
+          {conditions.map((condition, index) => (
+            <p key={`${condition.field_uuid ?? "condition"}-${index}`}>
+              {index > 0 ? `${condition.operation === "or" ? "OR" : "AND"} ` : ""}
+              {formatCondition(condition, fields)}
+            </p>
+          ))}
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function formatCondition(
+  condition: ReturnType<typeof getFieldConditions>[number],
+  fields: TemplateEditorField[],
+): string {
+  const conditionField = fields.find(
+    (item) => item.uuid === condition.field_uuid,
+  );
+  const fieldName = conditionField
+    ? conditionField.name || buildDefaultFieldName(conditionField.type, 0)
+    : "Unknown field";
+  const action = condition.action
+    ? humanizeConditionAction(condition.action)
+    : "matches";
+  const value = formatConditionValue(condition.value, conditionField);
+
+  return value ? `${fieldName} ${action} ${value}` : `${fieldName} ${action}`;
+}
+
+function formatConditionValue(
+  value: string | undefined,
+  field: TemplateEditorField | undefined,
+): string {
+  if (!value) {
+    return "";
+  }
+
+  if (!field) {
+    return value;
+  }
+
+  const option = getFieldOptions(field).find((item) => item.uuid === value);
+
+  return option?.value || value;
 }

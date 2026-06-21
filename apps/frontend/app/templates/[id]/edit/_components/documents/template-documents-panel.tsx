@@ -31,7 +31,10 @@ import { cn } from "@/lib/utils";
 import {
   DocumentThumbnail,
   getDocumentDisplayName,
+  normalizeTemplateFields,
+  type TemplateEditorField,
 } from "../../_lib/template-editor-model";
+import { FieldConditionsModal } from "../modals/field-modals";
 
 export function TemplateDocumentsPanel({
   editingDocumentUuid,
@@ -42,7 +45,9 @@ export function TemplateDocumentsPanel({
   onRenameDocument,
   onRemoveDocument,
   onReplaceDocument,
+  onReorderDocumentFields,
   onSelectDocument,
+  onUpdateDocumentConditions,
   selectedDocumentUuid,
   template,
 }: {
@@ -57,10 +62,17 @@ export function TemplateDocumentsPanel({
   onRenameDocument: (document: TemplateDocument, name: string) => Promise<void>;
   onRemoveDocument: (document: TemplateDocument) => Promise<void>;
   onReplaceDocument: (document: TemplateDocument, file: File) => Promise<void>;
+  onReorderDocumentFields: (document: TemplateDocument) => Promise<void>;
   onSelectDocument: (uuid: string) => void;
+  onUpdateDocumentConditions: (
+    document: TemplateDocument,
+    conditions: unknown,
+  ) => Promise<void>;
   selectedDocumentUuid: string | null;
   template: TemplateResponse;
 }) {
+  const fields = normalizeTemplateFields(template.fields);
+
   return (
     <aside className="flex h-full min-h-0 flex-col overflow-hidden border-r border-[var(--auth-input-border)] bg-card">
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 [scrollbar-gutter:stable]">
@@ -83,7 +95,13 @@ export function TemplateDocumentsPanel({
               onRename={onRenameDocument}
               onRemove={() => onRemoveDocument(document)}
               onReplace={(file) => onReplaceDocument(document, file)}
+              onReorderFields={() => onReorderDocumentFields(document)}
               onSelect={() => onSelectDocument(document.uuid)}
+              onUpdateConditions={(conditions) =>
+                onUpdateDocumentConditions(document, conditions)
+              }
+              template={template}
+              templateFields={fields}
             />
           ))}
         </div>
@@ -113,7 +131,11 @@ export function TemplateDocumentCard({
   onRename,
   onRemove,
   onReplace,
+  onReorderFields,
   onSelect,
+  onUpdateConditions,
+  template,
+  templateFields,
 }: {
   canMoveDown: boolean;
   canMoveUp: boolean;
@@ -128,8 +150,14 @@ export function TemplateDocumentCard({
   onRename: (document: TemplateDocument, name: string) => Promise<void>;
   onRemove: () => void;
   onReplace: (file: File) => void;
+  onReorderFields: () => Promise<void>;
   onSelect: () => void;
+  onUpdateConditions: (conditions: unknown) => Promise<void>;
+  template: TemplateResponse;
+  templateFields: TemplateEditorField[];
 }) {
+  const [isConditionsOpen, setIsConditionsOpen] = useState(false);
+
   return (
     <div className="flex flex-col gap-3">
       <div
@@ -154,25 +182,12 @@ export function TemplateDocumentCard({
           canMoveDown={canMoveDown}
           canMoveUp={canMoveUp}
           name={name}
-          onCondition={() =>
-            toast.info(
-              "Document conditions are tracked for the next editor pass",
-              {
-                description:
-                  "DocuSeal stores conditions on schema/field JSON; the backend shape is preserved, but the modal workflow is not implemented yet.",
-              },
-            )
-          }
+          onCondition={() => setIsConditionsOpen(true)}
           onEditName={onEditName}
           onMoveDown={onMoveDown}
           onMoveUp={onMoveUp}
           onRemove={onRemove}
-          onReorderFields={() =>
-            toast.info("Field reordering is tracked for the next editor pass", {
-              description:
-                "Placed fields are persisted now; the dedicated DocuSeal-style ordering modal still needs to be wired.",
-            })
-          }
+          onReorderFields={onReorderFields}
           onReplace={onReplace}
         />
       </div>
@@ -183,6 +198,16 @@ export function TemplateDocumentCard({
         onEditingChange={onEditingNameChange}
         onRename={onRename}
       />
+      {isConditionsOpen ? (
+        <DocumentConditionsModal
+          document={document}
+          fields={templateFields}
+          name={name}
+          onOpenChange={setIsConditionsOpen}
+          onSave={onUpdateConditions}
+          template={template}
+        />
+      ) : null}
     </div>
   );
 }
@@ -207,7 +232,7 @@ export function DocumentThumbnailOverlay({
   onMoveDown: () => void;
   onMoveUp: () => void;
   onRemove: () => void;
-  onReorderFields: () => void;
+  onReorderFields: () => Promise<void>;
   onReplace: (file: File) => void;
 }) {
   const replaceInputRef = useRef<HTMLInputElement>(null);
@@ -215,7 +240,7 @@ export function DocumentThumbnailOverlay({
   return (
     <div className="absolute inset-0 flex cursor-pointer justify-between rounded bg-black/0 p-1 transition-colors group-hover/thumb:bg-black/10">
       <input
-        accept="application/pdf,image/*"
+        accept="application/pdf,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         className="hidden"
         onChange={(event) => {
           const file = event.target.files?.[0];
@@ -279,7 +304,7 @@ export function DocumentThumbnailOverlay({
             <DropdownMenuItem
               onClick={(event) => {
                 event.stopPropagation();
-                onReorderFields();
+                void onReorderFields();
               }}
             >
               <SortDescIcon />
@@ -331,6 +356,54 @@ export function DocumentThumbnailOverlay({
       </div>
     </div>
   );
+}
+
+function DocumentConditionsModal({
+  document,
+  fields,
+  name,
+  onOpenChange,
+  onSave,
+  template,
+}: {
+  document: TemplateDocument;
+  fields: TemplateEditorField[];
+  name: string;
+  onOpenChange: (open: boolean) => void;
+  onSave: (conditions: unknown) => Promise<void>;
+  template: TemplateResponse;
+}) {
+  const schemaItem = template.schema.find(
+    (item) => item.attachment_uuid === document.uuid,
+  );
+  const field = createDocumentConditionItem(document, name, schemaItem);
+
+  return (
+    <FieldConditionsModal
+      field={field}
+      fields={fields}
+      onOpenChange={onOpenChange}
+      onSave={(patch) => onSave(patch.conditions)}
+      title={name}
+    />
+  );
+}
+
+function createDocumentConditionItem(
+  document: TemplateDocument,
+  name: string,
+  schemaItem?: TemplateResponse["schema"][number],
+): TemplateEditorField {
+  return {
+    areas: [],
+    conditions: Array.isArray(schemaItem?.conditions)
+      ? schemaItem.conditions
+      : undefined,
+    name,
+    required: false,
+    type: "text",
+    uuid: `document:${document.uuid}`,
+  };
 }
 
 export function DocumentNameEditor({
@@ -434,7 +507,7 @@ export function AddDocumentMenu({
   return (
     <DropdownMenu>
       <input
-        accept="application/pdf,image/*"
+        accept="application/pdf,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         className="hidden"
         disabled={isUploadingDocument}
         onChange={(event) => {

@@ -77,6 +77,12 @@ const validationSchema = Joi.object({
     .truthy('true')
     .falsy('false')
     .default(false),
+  GMAIL_OAUTH_CLIENT_ID: Joi.string().allow('').optional(),
+  GMAIL_OAUTH_CLIENT_SECRET: Joi.string().allow('').optional(),
+  GMAIL_OAUTH_REDIRECT_URI: Joi.string().uri().allow('').optional(),
+  MICROSOFT_OAUTH_CLIENT_ID: Joi.string().allow('').optional(),
+  MICROSOFT_OAUTH_CLIENT_SECRET: Joi.string().allow('').optional(),
+  MICROSOFT_OAUTH_REDIRECT_URI: Joi.string().uri().allow('').optional(),
 
   WEBHOOK_TIMEOUT_MS: Joi.number().integer().min(1000).default(10_000),
   WEBHOOK_MAX_ATTEMPTS: Joi.number().integer().min(1).default(8),
@@ -89,6 +95,11 @@ const validationSchema = Joi.object({
     .default(10 * 1024 * 1024),
   PDF_PREVIEW_MAX_PAGES: Joi.number().integer().min(1).default(15),
   PDF_PREVIEW_MAX_WIDTH: Joi.number().integer().min(300).default(1400),
+  DOCUMENT_CONVERSION_MAX_BYTES: Joi.number()
+    .integer()
+    .min(1)
+    .default(15 * 1024 * 1024),
+  HTML_TO_PDF_TIMEOUT_MS: Joi.number().integer().min(1000).default(30_000),
   HEALTH_HEAP_LIMIT_MB: Joi.number().integer().min(64).default(512),
   HEALTH_REDIS_REQUIRED: Joi.boolean()
     .truthy('true')
@@ -110,6 +121,8 @@ const validationSchema = Joi.object({
   TWILIO_ACCOUNT_SID: Joi.string().allow('').optional(),
   TWILIO_AUTH_TOKEN: Joi.string().allow('').optional(),
   TWILIO_VERIFY_SERVICE_SID: Joi.string().allow('').optional(),
+  TWILIO_MESSAGING_SERVICE_SID: Joi.string().allow('').optional(),
+  TWILIO_FROM_PHONE: Joi.string().allow('').optional(),
 });
 
 export default validationSchema;

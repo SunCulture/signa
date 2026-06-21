@@ -1,10 +1,10 @@
-"use client"
+"use client";
 
-import { Suspense, useEffect, useRef, useState } from "react"
-import Image from "next/image"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { parseAsBoolean, parseAsString, useQueryStates } from "nuqs"
+import { Suspense, useEffect, useRef, useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { parseAsBoolean, parseAsString, useQueryStates } from "nuqs";
 import {
   ArchiveIcon,
   CalendarDaysIcon,
@@ -22,8 +22,8 @@ import {
   UserRoundIcon,
   type LucideIcon,
   PencilIcon,
-} from "lucide-react"
-import { toast } from "sonner"
+} from "lucide-react";
+import { toast } from "sonner";
 
 import {
   AlertDialog,
@@ -33,49 +33,49 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Spinner } from "@/components/ui/spinner"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip"
-import { ApiError } from "@/lib/api/http"
+} from "@/components/ui/tooltip";
+import { ApiError } from "@/lib/api/http";
 import {
   archiveTemplate,
   cloneTemplate,
-  createTemplateFromPdf,
+  createTemplateFromDocument,
   deleteTemplatePermanently,
   listTemplates,
   type TemplateResponse,
   updateTemplate,
-} from "@/lib/api/templates"
-import { cn } from "@/lib/utils"
-import { TemplateUploadDropzone } from "./_components/template-upload-dropzone"
-import { ThemeModeSwitcher } from "./_components/theme-mode-switcher"
-import { UserMenu } from "./_components/user-menu"
+} from "@/lib/api/templates";
+import { cn } from "@/lib/utils";
+import { TemplateUploadDropzone } from "./_components/template-upload-dropzone";
+import { ThemeModeSwitcher } from "./_components/theme-mode-switcher";
+import { UserMenu } from "./_components/user-menu";
 
 type PendingDelete = {
-  mode: "archive" | "delete"
-  template: TemplateResponse
-}
+  mode: "archive" | "delete";
+  template: TemplateResponse;
+};
 
 export default function TemplatesPage() {
   return (
     <Suspense fallback={<TemplatesPageFallback />}>
       <TemplatesDashboard />
     </Suspense>
-  )
+  );
 }
 
 function TemplatesDashboard() {
-  const router = useRouter()
-  const uploadInputRef = useRef<HTMLInputElement>(null)
+  const router = useRouter();
+  const uploadInputRef = useRef<HTMLInputElement>(null);
   const [templateUrlState, setTemplateUrlState] = useQueryStates(
     {
       archived: parseAsBoolean.withDefault(false),
@@ -84,168 +84,178 @@ function TemplatesDashboard() {
     {
       history: "push",
       shallow: true,
-    }
-  )
-  const [templates, setTemplates] = useState<TemplateResponse[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [isUploading, setIsUploading] = useState(false)
-  const [query, setQuery] = useState(templateUrlState.q)
-  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
-  const isArchivedView = templateUrlState.archived
-  const submittedQuery = templateUrlState.q
+    },
+  );
+  const [templates, setTemplates] = useState<TemplateResponse[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isUploading, setIsUploading] = useState(false);
+  const [query, setQuery] = useState(templateUrlState.q);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(
+    null,
+  );
+  const isArchivedView = templateUrlState.archived;
+  const submittedQuery = templateUrlState.q;
 
   useEffect(() => {
-    void loadTemplates()
+    void loadTemplates();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isArchivedView, submittedQuery])
+  }, [isArchivedView, submittedQuery]);
 
   async function loadTemplates() {
-    setIsLoading(true)
+    setIsLoading(true);
 
     try {
       const response = await listTemplates({
         archived: isArchivedView,
         limit: 100,
         q: submittedQuery || undefined,
-      })
+      });
 
-      setTemplates(response.data)
+      setTemplates(response.data);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
-        router.push("/auth/login")
-        return
+        router.push("/auth/login");
+        return;
       }
 
       const message =
-        error instanceof Error ? error.message : "Templates could not be loaded."
+        error instanceof Error
+          ? error.message
+          : "Templates could not be loaded.";
 
-      toast.error("Templates could not be loaded", { description: message })
+      toast.error("Templates could not be loaded", { description: message });
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
   }
 
   async function uploadTemplate(file: File) {
-    setIsUploading(true)
+    setIsUploading(true);
     toast.loading("Uploading document", {
       description: file.name,
       id: "template-upload",
-    })
+    });
 
     try {
-      const template = await createTemplateFromPdf(file)
+      const template = await createTemplateFromDocument(file);
 
       toast.success("Document uploaded", {
         description: "Opening template editor.",
         id: "template-upload",
-      })
-      router.push(`/templates/${template.id}/edit`)
+      });
+      router.push(`/templates/${template.id}/edit`);
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Document upload failed."
+        error instanceof Error ? error.message : "Document upload failed.";
 
       toast.error("Document upload failed", {
         description: message,
         id: "template-upload",
-      })
+      });
     } finally {
-      setIsUploading(false)
+      setIsUploading(false);
     }
   }
 
   async function moveTemplate(template: TemplateResponse) {
-    const folderName = window.prompt("Move to folder", template.folder_name)
+    const folderName = window.prompt("Move to folder", template.folder_name);
 
     if (!folderName || folderName === template.folder_name) {
-      return
+      return;
     }
 
     try {
-      await updateTemplate(template.id, { folder_name: folderName })
-      toast.success("Template moved", { description: folderName })
-      await loadTemplates()
+      await updateTemplate(template.id, { folder_name: folderName });
+      toast.success("Template moved", { description: folderName });
+      await loadTemplates();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Template could not be moved."
+        error instanceof Error ? error.message : "Template could not be moved.";
 
-      toast.error("Template move failed", { description: message })
+      toast.error("Template move failed", { description: message });
     }
   }
 
   async function restoreTemplate(template: TemplateResponse) {
     try {
-      await updateTemplate(template.id, { archived: false })
-      toast.success("Template restored", { description: template.name })
-      await loadTemplates()
+      await updateTemplate(template.id, { archived: false });
+      toast.success("Template restored", { description: template.name });
+      await loadTemplates();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Template could not be restored."
+        error instanceof Error
+          ? error.message
+          : "Template could not be restored.";
 
-      toast.error("Template restore failed", { description: message })
+      toast.error("Template restore failed", { description: message });
     }
   }
 
   async function duplicateTemplate(template: TemplateResponse) {
-    const cloneName = `${template.name} (Clone)`
+    const cloneName = `${template.name} (Clone)`;
 
     toast.loading("Cloning template", {
       description: template.name,
       id: `template-clone-${template.id}`,
-    })
+    });
 
     try {
       const clonedTemplate = await cloneTemplate(template.id, {
         name: cloneName,
-      })
+      });
 
       toast.success("Template cloned", {
         description: clonedTemplate.name,
         id: `template-clone-${template.id}`,
-      })
+      });
 
       if (isArchivedView) {
-        await setTemplateUrlState({ archived: false })
-        return
+        await setTemplateUrlState({ archived: false });
+        return;
       }
 
-      await loadTemplates()
+      await loadTemplates();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Template could not be cloned."
+        error instanceof Error
+          ? error.message
+          : "Template could not be cloned.";
 
       toast.error("Template clone failed", {
         description: message,
         id: `template-clone-${template.id}`,
-      })
+      });
     }
   }
 
   async function confirmDelete() {
     if (!pendingDelete) {
-      return
+      return;
     }
 
-    const { mode, template } = pendingDelete
+    const { mode, template } = pendingDelete;
 
     try {
       if (mode === "delete") {
-        await deleteTemplatePermanently(template.id)
-        toast.success("Template deleted", { description: template.name })
+        await deleteTemplatePermanently(template.id);
+        toast.success("Template deleted", { description: template.name });
       } else {
-        await archiveTemplate(template.id)
-        toast.success("Template archived", { description: template.name })
+        await archiveTemplate(template.id);
+        toast.success("Template archived", { description: template.name });
       }
 
-      setPendingDelete(null)
-      await loadTemplates()
+      setPendingDelete(null);
+      await loadTemplates();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Template action failed."
+        error instanceof Error ? error.message : "Template action failed.";
 
       toast.error(
-        mode === "delete" ? "Template delete failed" : "Template archive failed",
-        { description: message }
-      )
+        mode === "delete"
+          ? "Template delete failed"
+          : "Template archive failed",
+        { description: message },
+      );
     }
   }
 
@@ -317,7 +327,7 @@ function TemplatesDashboard() {
                       if (value) {
                         void setTemplateUrlState({
                           archived: value === "archived",
-                        })
+                        });
                       }
                     }}
                     type="single"
@@ -350,8 +360,8 @@ function TemplatesDashboard() {
                 <form
                   className="relative w-full min-w-56 sm:w-72"
                   onSubmit={(event) => {
-                    event.preventDefault()
-                    void setTemplateUrlState({ q: query.trim() })
+                    event.preventDefault();
+                    void setTemplateUrlState({ q: query.trim() });
                   }}
                 >
                   <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--auth-label)]" />
@@ -364,17 +374,17 @@ function TemplatesDashboard() {
                 </form>
 
                 <input
-                  accept="application/pdf,.doc,.docx"
+                  accept="application/pdf,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                   className="hidden"
                   disabled={isUploading}
                   onChange={(event) => {
-                    const file = event.target.files?.[0]
+                    const file = event.target.files?.[0];
 
                     if (file) {
-                      void uploadTemplate(file)
+                      void uploadTemplate(file);
                     }
 
-                    event.target.value = ""
+                    event.target.value = "";
                   }}
                   ref={uploadInputRef}
                   type="file"
@@ -386,7 +396,11 @@ function TemplatesDashboard() {
                   type="button"
                   variant="ghost"
                 >
-                  {isUploading ? <Spinner /> : <UploadIcon data-icon="inline-start" />}
+                  {isUploading ? (
+                    <Spinner />
+                  ) : (
+                    <UploadIcon data-icon="inline-start" />
+                  )}
                   UPLOAD
                 </Button>
                 <Button
@@ -425,9 +439,7 @@ function TemplatesDashboard() {
                           onArchive={() =>
                             setPendingDelete({ mode: "archive", template })
                           }
-                          onClone={() =>
-                            void duplicateTemplate(template)
-                          }
+                          onClone={() => void duplicateTemplate(template)}
                           onDelete={() =>
                             setPendingDelete({ mode: "delete", template })
                           }
@@ -447,9 +459,7 @@ function TemplatesDashboard() {
                           onArchive={() =>
                             setPendingDelete({ mode: "archive", template })
                           }
-                          onClone={() =>
-                            void duplicateTemplate(template)
-                          }
+                          onClone={() => void duplicateTemplate(template)}
                           onDelete={() =>
                             setPendingDelete({ mode: "delete", template })
                           }
@@ -472,7 +482,7 @@ function TemplatesDashboard() {
       <AlertDialog
         onOpenChange={(open) => {
           if (!open) {
-            setPendingDelete(null)
+            setPendingDelete(null);
           }
         }}
         open={Boolean(pendingDelete)}
@@ -492,10 +502,12 @@ function TemplatesDashboard() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={(event) => {
-                event.preventDefault()
-                void confirmDelete()
+                event.preventDefault();
+                void confirmDelete();
               }}
-              variant={pendingDelete?.mode === "delete" ? "destructive" : "default"}
+              variant={
+                pendingDelete?.mode === "delete" ? "destructive" : "default"
+              }
             >
               {pendingDelete?.mode === "delete" ? "Delete" : "Archive"}
             </AlertDialogAction>
@@ -503,7 +515,7 @@ function TemplatesDashboard() {
         </AlertDialogContent>
       </AlertDialog>
     </TooltipProvider>
-  )
+  );
 }
 
 function TemplatesPageFallback() {
@@ -514,7 +526,7 @@ function TemplatesPageFallback() {
         Loading templates
       </div>
     </main>
-  )
+  );
 }
 
 function TemplateCard({
@@ -556,13 +568,21 @@ function TemplateCard({
             </>
           ) : (
             <>
-              <TemplateActionButton icon={FolderInputIcon} label="Move" onClick={onMove} />
+              <TemplateActionButton
+                icon={FolderInputIcon}
+                label="Move"
+                onClick={onMove}
+              />
               <TemplateActionButton
                 href={`/templates/${template.id}/edit`}
                 icon={PencilIcon}
                 label="Edit"
               />
-              <TemplateActionButton icon={CopyIcon} label="Clone" onClick={onClone} />
+              <TemplateActionButton
+                icon={CopyIcon}
+                label="Clone"
+                onClick={onClone}
+              />
               <TemplateActionButton
                 icon={ArchiveIcon}
                 label="Archive"
@@ -573,18 +593,18 @@ function TemplateCard({
         </div>
       </div>
     </article>
-  )
+  );
 }
 
 type TemplateActionProps = {
-  isArchivedView: boolean
-  onArchive: () => void
-  onClone: () => void
-  onDelete: () => void
-  onMove: () => void
-  onRestore: () => void
-  template: TemplateResponse
-}
+  isArchivedView: boolean;
+  onArchive: () => void;
+  onClone: () => void;
+  onDelete: () => void;
+  onMove: () => void;
+  onRestore: () => void;
+  template: TemplateResponse;
+};
 
 function TemplateListRow({
   isArchivedView,
@@ -615,7 +635,7 @@ function TemplateListRow({
               "rounded-full px-6 py-1 text-xs font-bold uppercase",
               isArchivedView
                 ? "bg-[var(--auth-label)]/20 text-[var(--auth-primary)]"
-                : "bg-[var(--status-success)] text-[var(--status-success-foreground)]"
+                : "bg-[var(--status-success)] text-[var(--status-success-foreground)]",
             )}
           >
             {isArchivedView ? "Archived" : "Active"}
@@ -692,15 +712,15 @@ function TemplateListRow({
         </div>
       </div>
     </article>
-  )
+  );
 }
 
 function TemplateMetadata({
   compact,
   template,
 }: {
-  compact?: boolean
-  template: TemplateResponse
+  compact?: boolean;
+  template: TemplateResponse;
 }) {
   return (
     <div className="flex flex-col gap-1 text-xs text-[var(--auth-label)]">
@@ -718,7 +738,7 @@ function TemplateMetadata({
         ) : null}
       </span>
     </div>
-  )
+  );
 }
 
 function TemplateActionButton({
@@ -728,22 +748,28 @@ function TemplateActionButton({
   label,
   onClick,
 }: {
-  destructive?: boolean
-  href?: string
-  icon: LucideIcon
-  label: string
-  onClick?: () => void
+  destructive?: boolean;
+  href?: string;
+  icon: LucideIcon;
+  label: string;
+  onClick?: () => void;
 }) {
   const className = cn(
     "rounded-full border-transparent bg-[var(--auth-muted)] shadow-sm hover:border-[var(--auth-primary)] hover:bg-card",
-    destructive ? "text-destructive" : "text-[var(--auth-primary)]"
-  )
+    destructive ? "text-destructive" : "text-[var(--auth-primary)]",
+  );
 
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         {href ? (
-          <Button aria-label={label} asChild className={className} size="icon-xs" variant="outline">
+          <Button
+            aria-label={label}
+            asChild
+            className={className}
+            size="icon-xs"
+            variant="outline"
+          >
             <Link href={href}>
               <Icon data-icon="inline-start" />
             </Link>
@@ -763,7 +789,7 @@ function TemplateActionButton({
       </TooltipTrigger>
       <TooltipContent side="left">{label}</TooltipContent>
     </Tooltip>
-  )
+  );
 }
 
 function TemplatesLoadingState() {
@@ -782,15 +808,15 @@ function TemplatesLoadingState() {
         </div>
       ))}
     </div>
-  )
+  );
 }
 
 function TemplatesEmptyState({
   isArchivedView,
   query,
 }: {
-  isArchivedView: boolean
-  query: string
+  isArchivedView: boolean;
+  query: string;
 }) {
   return (
     <div className="rounded-2xl border border-dashed border-[var(--auth-input-border)] px-6 py-12 text-center">
@@ -807,15 +833,15 @@ function TemplatesEmptyState({
           : "Upload a PDF or DOCX to start building a signing template."}
       </p>
     </div>
-  )
+  );
 }
 
 function getAuthorName(template: TemplateResponse): string {
   const name = [template.author.first_name, template.author.last_name]
     .filter(Boolean)
-    .join(" ")
+    .join(" ");
 
-  return name || template.author.email
+  return name || template.author.email;
 }
 
 function formatTemplateDate(value: string): string {
@@ -824,5 +850,5 @@ function formatTemplateDate(value: string): string {
     hour: "numeric",
     minute: "2-digit",
     month: "short",
-  }).format(new Date(value))
+  }).format(new Date(value));
 }

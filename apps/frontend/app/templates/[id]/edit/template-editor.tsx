@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -12,6 +13,7 @@ import {
   SlidersHorizontalIcon,
   UserRoundPlusIcon,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -26,11 +28,13 @@ import { PendingImportedFieldsBanner } from "./_components/pending-imported-fiel
 import { TemplateCanvas } from "./_components/canvas/template-canvas";
 import { TemplateDocumentsPanel } from "./_components/documents/template-documents-panel";
 import { TemplateFieldsPanel } from "./_components/fields/template-fields-panel";
+import { TemplateSendRecipientsDialog } from "./_components/send/template-send-recipients-dialog";
 import { useTemplateEditorController } from "./_hooks/use-template-editor-controller";
 import { TemplatePreferencesDialog } from "./template-preferences-dialog";
 
 export function TemplateEditor() {
   const editor = useTemplateEditorController();
+  const [isRecipientsOpen, setIsRecipientsOpen] = useState(false);
 
   if (!editor.isLoaded) {
     return (
@@ -78,6 +82,7 @@ export function TemplateEditor() {
     renameDocument,
     renameSubmitter,
     replaceDocument,
+    reorderDocumentFields,
     resolvePendingImportedFields,
     saveTemplateDraft,
     saveTemplatePreferences,
@@ -95,8 +100,21 @@ export function TemplateEditor() {
     updateField,
     updateFieldAndTemplate,
     updateFieldArea,
+    updateDocumentConditions,
     updateTemplateSharedLink,
   } = editor;
+
+  function openRecipientsDialog() {
+    if (currentSubmitters.length <= 1) {
+      toast.error("Add another party before sending", {
+        description:
+          "Party one is reserved for self-signing. Add a second party to send this template to recipients.",
+      });
+      return;
+    }
+
+    setIsRecipientsOpen(true);
+  }
 
   return (
     <main className="flex h-svh flex-col overflow-hidden bg-[var(--auth-background)] text-[var(--auth-foreground)]">
@@ -146,6 +164,7 @@ export function TemplateEditor() {
           </Button>
           <Button
             className="h-12 rounded-full border-[var(--auth-primary)] px-6 font-bold text-[var(--auth-primary)] hover:bg-[var(--auth-primary)] hover:text-[var(--auth-primary-foreground)]"
+            onClick={openRecipientsDialog}
             type="button"
             variant="outline"
           >
@@ -225,6 +244,13 @@ export function TemplateEditor() {
           onSharedLinkChange={updateTemplateSharedLink}
         />
       ) : null}
+      {isRecipientsOpen ? (
+        <TemplateSendRecipientsDialog
+          onOpenChange={setIsRecipientsOpen}
+          open={isRecipientsOpen}
+          template={currentTemplate}
+        />
+      ) : null}
 
       <div className="grid min-h-0 flex-1 grid-cols-[226px_minmax(0,1fr)_340px]">
         <TemplateDocumentsPanel
@@ -235,7 +261,9 @@ export function TemplateEditor() {
           onRenameDocument={renameDocument}
           onRemoveDocument={removeDocument}
           onReplaceDocument={replaceDocument}
+          onReorderDocumentFields={reorderDocumentFields}
           onSelectDocument={setSelectedDocumentUuid}
+          onUpdateDocumentConditions={updateDocumentConditions}
           editingDocumentUuid={editingDocumentUuid}
           selectedDocumentUuid={selectedDocument?.uuid ?? null}
           template={currentTemplate}

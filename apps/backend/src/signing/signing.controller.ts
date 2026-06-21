@@ -22,7 +22,10 @@ import type { Request } from 'express';
 import type { UploadedBufferFile } from '../storage/storage.types';
 import {
   DeclineSigningDto,
+  DelegateSigningDto,
+  SendPhoneVerificationDto,
   UpdateSigningValuesDto,
+  VerifyPhoneCodeDto,
 } from './dto/signing-request.dto';
 import {
   SigningAttachmentDto,
@@ -44,11 +47,12 @@ export class SigningController {
   getSigningForm(
     @Param('slug') slug: string,
     @Query('t') trackingParam: string | undefined,
+    @Query('c') smsTrackingParam: string | undefined,
     @Req() request: Request,
   ): Promise<SigningResponseDto> {
     return this.signingService.getSigningForm(
       slug,
-      getSigningRequestMetadata(request, trackingParam),
+      getSigningRequestMetadata(request, trackingParam, smsTrackingParam),
     );
   }
 
@@ -134,6 +138,73 @@ export class SigningController {
     );
   }
 
+  @Post(':slug/delegate')
+  @ApiOperation({
+    summary: 'Delegate public signing form to another recipient',
+  })
+  @ApiOkResponse({ type: SigningResponseDto })
+  delegate(
+    @Param('slug') slug: string,
+    @Body() body: DelegateSigningDto,
+    @Req() request: Request,
+  ): Promise<SigningResponseDto> {
+    return this.signingService.delegate(
+      slug,
+      body,
+      getSigningRequestMetadata(request),
+    );
+  }
+
+  @Post(':slug/resubmit')
+  @ApiOperation({ summary: 'Create a fresh public signing form revision' })
+  @ApiOkResponse({ type: SigningResponseDto })
+  resubmit(
+    @Param('slug') slug: string,
+    @Req() request: Request,
+  ): Promise<SigningResponseDto> {
+    return this.signingService.resubmit(
+      slug,
+      getSigningRequestMetadata(request),
+    );
+  }
+
+  @Post(':slug/phone-verification/send')
+  @ApiOperation({ summary: 'Send public signing phone verification code' })
+  @ApiOkResponse({
+    schema: {
+      properties: {
+        phone: { type: 'string' },
+        status: { type: 'string' },
+      },
+    },
+  })
+  sendPhoneVerification(
+    @Param('slug') slug: string,
+    @Body() body: SendPhoneVerificationDto,
+    @Req() request: Request,
+  ): Promise<{ phone: string; status: string }> {
+    return this.signingService.sendPhoneVerification(
+      slug,
+      body,
+      getSigningRequestMetadata(request),
+    );
+  }
+
+  @Post(':slug/phone-verification/check')
+  @ApiOperation({ summary: 'Verify public signing phone code' })
+  @ApiOkResponse({ type: SigningResponseDto })
+  verifyPhoneCode(
+    @Param('slug') slug: string,
+    @Body() body: VerifyPhoneCodeDto,
+    @Req() request: Request,
+  ): Promise<SigningResponseDto> {
+    return this.signingService.verifyPhoneCode(
+      slug,
+      body,
+      getSigningRequestMetadata(request),
+    );
+  }
+
   @Get(':slug/download')
   @ApiOperation({ summary: 'Get public signing form download URLs' })
   @ApiOkResponse({ type: SigningDownloadResponseDto })
@@ -145,9 +216,11 @@ export class SigningController {
 function getSigningRequestMetadata(
   request: Request,
   trackingParam?: string,
+  smsTrackingParam?: string,
 ): SigningRequestMetadata {
   return {
     ip: request.ip,
+    smsTrackingParam,
     trackingParam,
     ua: request.get('user-agent'),
   };

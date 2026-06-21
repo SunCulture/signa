@@ -13,6 +13,7 @@ import {
 import { Account } from '../../accounts/entities/account.entity';
 import { User } from '../../users/entities/user.entity';
 import { TemplateAccess } from './template-access.entity';
+import { DynamicDocument } from './dynamic-document.entity';
 import { TemplateFolder } from './template-folder.entity';
 import { TemplateSharing } from './template-sharing.entity';
 import { TemplateVersion } from './template-version.entity';
@@ -112,4 +113,7 @@ export class Template {
 
   @OneToMany(() => TemplateVersion, (version) => version.template)
   versions!: TemplateVersion[];
+
+  @OneToMany(() => DynamicDocument, (document) => document.template)
+  dynamicDocuments!: DynamicDocument[];
 }

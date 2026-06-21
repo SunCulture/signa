@@ -92,7 +92,7 @@ describe('UsersService', () => {
     );
   });
 
-  it('defaults imported users to member and reports skipped duplicates', async () => {
+  it('imports users with only email and reports skipped duplicates', async () => {
     users.findOne
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
@@ -107,13 +107,9 @@ describe('UsersService', () => {
       users: [
         {
           email: 'new@example.com',
-          first_name: 'New',
-          last_name: 'User',
         },
         {
           email: 'taken@example.com',
-          first_name: 'Taken',
-          last_name: 'User',
         },
       ],
     });

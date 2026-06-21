@@ -6,8 +6,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'node:crypto';
 import sharp from 'sharp';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
+import { AccountConfig } from '../accounts/entities/account-config.entity';
 import { StorageAttachment } from '../storage/entities/storage-attachment.entity';
 import { StorageService } from '../storage/storage.service';
 import { UploadedBufferFile } from '../storage/storage.types';
@@ -23,7 +25,10 @@ import {
 import { Submitter } from '../submitters/entities/submitter.entity';
 import {
   DeclineSigningDto,
+  DelegateSigningDto,
+  SendPhoneVerificationDto,
   UpdateSigningValuesDto,
+  VerifyPhoneCodeDto,
 } from './dto/signing-request.dto';
 import {
   SigningAttachmentDto,
@@ -36,17 +41,21 @@ import {
   buildEventData,
   SigningRequestMetadata,
 } from './signing-request-metadata';
+import { PhoneVerificationService } from './phone-verification/phone-verification.service';
 
 @Injectable()
 export class SigningService {
   constructor(
     @InjectRepository(Submitter)
     private readonly submitters: Repository<Submitter>,
+    @InjectRepository(AccountConfig)
+    private readonly accountConfigs: Repository<AccountConfig>,
     private readonly dataSource: DataSource,
     private readonly storageService: StorageService,
     private readonly submissionDocumentsService: SubmissionDocumentsService,
     private readonly events: EventEmitter2,
     private readonly config: ConfigService,
+    private readonly phoneVerification: PhoneVerificationService,
   ) {}
 
   async getSigningForm(
@@ -100,6 +109,7 @@ export class SigningService {
   ): Promise<StorageAttachment> {
     const submitter = await this.findSubmitterBySlugOrFail(slug);
     this.assertCanUpdate(submitter);
+    await this.assertSigningOrderAvailable(submitter);
 
     if (!file?.buffer?.length) {
       throw new UnprocessableEntityException({
@@ -158,6 +168,7 @@ export class SigningService {
   ): Promise<SigningResponseDto> {
     const submitter = await this.findSubmitterBySlugOrFail(slug);
     this.assertCanUpdate(submitter);
+    await this.assertSigningOrderAvailable(submitter);
     const shouldRecordStart = await this.shouldRecordStartFormEvent(
       submitter,
       input,
@@ -203,6 +214,13 @@ export class SigningService {
       }
     });
 
+    if (shouldRecordStart) {
+      this.events.emit(runtimeEvents.formStarted, {
+        submitterId: submitter.id,
+        accountId: submitter.accountId,
+      });
+    }
+
     if (input.completed) {
       await this.submissionDocumentsService.processSubmitterCompletion(
         submitter,
@@ -211,7 +229,178 @@ export class SigningService {
         submitterId: submitter.id,
         accountId: submitter.accountId,
       });
+      if (isSubmissionComplete(submitter)) {
+        this.events.emit(runtimeEvents.submissionCompleted, {
+          submissionId: submitter.submissionId,
+          accountId: submitter.accountId,
+        });
+      }
     }
+
+    return this.toSigningResponse(submitter);
+  }
+
+  async delegate(
+    slug: string,
+    input: DelegateSigningDto,
+    metadata?: SigningRequestMetadata,
+  ): Promise<SigningResponseDto> {
+    const submitter = await this.findSubmitterBySlugOrFail(slug);
+    this.assertCanUpdate(submitter);
+    await this.assertSigningOrderAvailable(submitter);
+    await this.assertAllowed(submitter, 'allow_to_delegate', {
+      error: 'Delegation is not allowed',
+    });
+
+    const previousEmail = submitter.email;
+
+    submitter.email = input.email;
+    submitter.name = input.name ?? null;
+    submitter.phone = input.phone
+      ? this.phoneVerification.normalizePhone(input.phone)
+      : null;
+    submitter.slug = randomUUID();
+    submitter.openedAt = null;
+    submitter.sentAt = null;
+    submitter.values = {};
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(Submitter).save(submitter);
+      await manager.getRepository(SubmissionEvent).save(
+        manager.getRepository(SubmissionEvent).create({
+          accountId: submitter.accountId,
+          submissionId: submitter.submissionId,
+          submitterId: submitter.id,
+          eventType: 'delegate_form',
+          eventTimestamp: new Date(),
+          data: buildEventData(metadata, {
+            email: input.email,
+            name: input.name ?? null,
+            phone: submitter.phone,
+            previous_email: previousEmail,
+          }),
+        }),
+      );
+    });
+
+    this.events.emit(runtimeEvents.submitterInvitationRequested, {
+      submitterId: submitter.id,
+      accountId: submitter.accountId,
+    });
+
+    return this.toSigningResponse(submitter);
+  }
+
+  async resubmit(
+    slug: string,
+    metadata?: SigningRequestMetadata,
+  ): Promise<SigningResponseDto> {
+    const submitter = await this.findSubmitterBySlugOrFail(slug);
+
+    await this.assertAllowed(submitter, 'allow_to_resubmit', {
+      error: 'Resubmission is not allowed',
+    });
+
+    const nextSubmitter = this.submitters.create({
+      accountId: submitter.accountId,
+      submissionId: submitter.submissionId,
+      uuid: submitter.uuid,
+      slug: randomUUID(),
+      email: submitter.email,
+      name: submitter.name,
+      phone: submitter.phone,
+      externalId: submitter.externalId,
+      metadata: submitter.metadata ?? {},
+      preferences: submitter.preferences ?? {},
+      values: submitter.preferences?.default_values ?? {},
+      timezone: submitter.timezone,
+    });
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(Submitter).save(nextSubmitter);
+      await manager.getRepository(SubmissionEvent).save(
+        manager.getRepository(SubmissionEvent).create({
+          accountId: submitter.accountId,
+          submissionId: submitter.submissionId,
+          submitterId: nextSubmitter.id,
+          eventType: 'resubmit_form',
+          eventTimestamp: new Date(),
+          data: buildEventData(metadata, {
+            previous_submitter_id: submitter.id,
+          }),
+        }),
+      );
+    });
+
+    return this.toSigningResponse(
+      await this.findSubmitterBySlugOrFail(nextSubmitter.slug),
+    );
+  }
+
+  async sendPhoneVerification(
+    slug: string,
+    input: SendPhoneVerificationDto,
+    metadata?: SigningRequestMetadata,
+  ): Promise<{ phone: string; status: string }> {
+    const submitter = await this.findSubmitterBySlugOrFail(slug);
+    this.assertCanUpdate(submitter);
+    await this.assertSigningOrderAvailable(submitter);
+    const phone = this.resolvePhoneInput(submitter, input);
+    const result = await this.phoneVerification.sendCode(phone);
+
+    await this.recordEvent(submitter, 'send_2fa_sms', metadata, {
+      field_uuid: input.field_uuid ?? null,
+      phone: result.to,
+    });
+
+    return { phone: result.to, status: result.status };
+  }
+
+  async verifyPhoneCode(
+    slug: string,
+    input: VerifyPhoneCodeDto,
+    metadata?: SigningRequestMetadata,
+  ): Promise<SigningResponseDto> {
+    const submitter = await this.findSubmitterBySlugOrFail(slug);
+    this.assertCanUpdate(submitter);
+    await this.assertSigningOrderAvailable(submitter);
+    const phone = this.resolvePhoneInput(submitter, input);
+    const result = await this.phoneVerification.checkCode(phone, input.code);
+
+    if (!result.valid) {
+      throw new UnprocessableEntityException({
+        error: 'Phone verification code is invalid',
+      });
+    }
+
+    const normalizedPhone = this.phoneVerification.normalizePhone(phone);
+
+    submitter.phone = normalizedPhone;
+
+    if (input.field_uuid) {
+      submitter.values = {
+        ...(submitter.values ?? {}),
+        [input.field_uuid]: normalizedPhone,
+      };
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(Submitter).save(submitter);
+      await manager.getRepository(SubmissionEvent).save(
+        manager.getRepository(SubmissionEvent).create({
+          accountId: submitter.accountId,
+          submissionId: submitter.submissionId,
+          submitterId: submitter.id,
+          eventType: 'phone_verified',
+          eventTimestamp: new Date(),
+          data: buildEventData(metadata, {
+            field_uuid: input.field_uuid ?? null,
+            phone: normalizedPhone,
+            status: result.status,
+          }),
+        }),
+      );
+    });
 
     return this.toSigningResponse(submitter);
   }
@@ -247,6 +436,52 @@ export class SigningService {
     });
 
     return this.toSigningResponse(submitter);
+  }
+
+  async trackEmailClick(
+    slug: string,
+    trackingParam: string | undefined,
+    metadata?: SigningRequestMetadata,
+  ): Promise<void> {
+    const submitter = await this.findSubmitterBySlugOrFail(slug);
+
+    if (!this.isValidTrackingParam(submitter, trackingParam)) {
+      return;
+    }
+
+    await this.dataSource.getRepository(SubmissionEvent).save(
+      this.dataSource.getRepository(SubmissionEvent).create({
+        accountId: submitter.accountId,
+        submissionId: submitter.submissionId,
+        submitterId: submitter.id,
+        eventType: 'click_email',
+        eventTimestamp: new Date(),
+        data: buildEventData(metadata),
+      }),
+    );
+  }
+
+  async trackSmsClick(
+    slug: string,
+    trackingParam: string | undefined,
+    metadata?: SigningRequestMetadata,
+  ): Promise<void> {
+    const submitter = await this.findSubmitterBySlugOrFail(slug);
+
+    if (!this.isValidTrackingParam(submitter, trackingParam, 'click_sms')) {
+      return;
+    }
+
+    await this.recordEvent(submitter, 'click_sms', metadata, {
+      phone: submitter.phone,
+    });
+  }
+
+  async trackFormView(
+    slug: string,
+    metadata?: SigningRequestMetadata,
+  ): Promise<void> {
+    await this.markOpened(await this.findSubmitterBySlugOrFail(slug), metadata);
   }
 
   async getDownload(slug: string): Promise<SigningDownloadResponseDto> {
@@ -322,6 +557,19 @@ export class SigningService {
         );
       }
 
+      if (this.isValidClickSmsTracking(submitter, metadata)) {
+        await manager.getRepository(SubmissionEvent).save(
+          manager.getRepository(SubmissionEvent).create({
+            accountId: submitter.accountId,
+            submissionId: submitter.submissionId,
+            submitterId: submitter.id,
+            eventType: 'click_sms',
+            eventTimestamp: new Date(),
+            data: buildEventData(metadata, { phone: submitter.phone }),
+          }),
+        );
+      }
+
       await manager.getRepository(SubmissionEvent).save(
         manager.getRepository(SubmissionEvent).create({
           accountId: submitter.accountId,
@@ -344,11 +592,34 @@ export class SigningService {
     submitter: Submitter,
     metadata?: SigningRequestMetadata,
   ): boolean {
+    return this.isValidTrackingParam(
+      submitter,
+      metadata?.trackingParam,
+      'click_email',
+    );
+  }
+
+  private isValidClickSmsTracking(
+    submitter: Submitter,
+    metadata?: SigningRequestMetadata,
+  ): boolean {
+    return this.isValidTrackingParam(
+      submitter,
+      metadata?.smsTrackingParam,
+      'click_sms',
+    );
+  }
+
+  private isValidTrackingParam(
+    submitter: Submitter,
+    trackingParam?: string,
+    eventType = 'click_email',
+  ): boolean {
     return isValidSubmitterEventTrackingParam({
-      eventType: 'click_email',
+      eventType,
       secret: this.config.get<string>('JWT_SECRET', 'signa-development-secret'),
       submitterSlug: submitter.slug,
-      trackingParam: metadata?.trackingParam,
+      trackingParam,
     });
   }
 
@@ -370,6 +641,114 @@ export class SigningService {
       });
 
     return !existingStartEvent;
+  }
+
+  private async assertSigningOrderAvailable(
+    submitter: Submitter,
+  ): Promise<void> {
+    if (!(await this.shouldEnforceSigningOrder(submitter))) {
+      return;
+    }
+
+    const orderedSubmitters = [...(submitter.submission.submitters ?? [])].sort(
+      (a, b) => Number(a.id) - Number(b.id),
+    );
+    const currentIndex = orderedSubmitters.findIndex(
+      (item) => item.id === submitter.id,
+    );
+    const blocker = orderedSubmitters
+      .slice(0, currentIndex)
+      .find((item) => !item.completedAt && !item.declinedAt);
+
+    if (blocker) {
+      throw new UnprocessableEntityException({
+        error: 'Waiting for previous submitter to complete the form',
+      });
+    }
+  }
+
+  private async shouldEnforceSigningOrder(
+    submitter: Submitter,
+  ): Promise<boolean> {
+    if (submitter.submission.submittersOrder === 'preserved') {
+      return true;
+    }
+
+    return this.getAccountBooleanConfig(
+      submitter.accountId,
+      'enforce_signing_order',
+    );
+  }
+
+  private async assertAllowed(
+    submitter: Submitter,
+    key: 'allow_to_delegate' | 'allow_to_resubmit',
+    error: { error: string },
+  ): Promise<void> {
+    const value =
+      booleanOrNull(submitter.preferences?.[key]) ??
+      booleanOrNull(submitter.submission.preferences?.[key]) ??
+      booleanOrNull(submitter.submission.template?.preferences?.[key]) ??
+      (await this.getAccountBooleanConfig(
+        submitter.accountId,
+        key,
+        key === 'allow_to_resubmit',
+      ));
+
+    if (!value) {
+      throw new UnprocessableEntityException(error);
+    }
+  }
+
+  private async getAccountBooleanConfig(
+    accountId: string,
+    key: string,
+    defaultValue = false,
+  ): Promise<boolean> {
+    const config = await this.accountConfigs.findOne({
+      where: { accountId, key },
+    });
+
+    return typeof config?.value === 'boolean' ? config.value : defaultValue;
+  }
+
+  private resolvePhoneInput(
+    submitter: Submitter,
+    input: SendPhoneVerificationDto,
+  ): string {
+    const valueFromField = input.field_uuid
+      ? submitter.values?.[input.field_uuid]
+      : null;
+    const phone =
+      input.phone ??
+      (typeof valueFromField === 'string' ? valueFromField : null) ??
+      submitter.phone;
+
+    if (!phone) {
+      throw new UnprocessableEntityException({
+        error: 'Phone number is required',
+      });
+    }
+
+    return phone;
+  }
+
+  private async recordEvent(
+    submitter: Submitter,
+    eventType: string,
+    metadata?: SigningRequestMetadata,
+    data: Record<string, unknown> = {},
+  ): Promise<void> {
+    await this.dataSource.getRepository(SubmissionEvent).save(
+      this.dataSource.getRepository(SubmissionEvent).create({
+        accountId: submitter.accountId,
+        submissionId: submitter.submissionId,
+        submitterId: submitter.id,
+        eventType,
+        eventTimestamp: new Date(),
+        data: buildEventData(metadata, data),
+      }),
+    );
   }
 
   private assertCanUpdate(submitter: Submitter): void {
@@ -460,6 +839,35 @@ export class SigningService {
       values: submitter.values ?? {},
       readonly_values: this.getReadonlyValues(submitter),
       attachments: await this.serializeSubmitterAttachments(submitter),
+      configs: await this.getSigningFormConfigs(submitter.accountId),
+    };
+  }
+
+  private async getSigningFormConfigs(
+    accountId: string,
+  ): Promise<SigningResponseDto['configs']> {
+    const configs = await this.accountConfigs.find({
+      where: {
+        accountId,
+        key: In([
+          'form_completed_button',
+          'form_completed_message',
+          'form_with_confetti',
+          'policy_links',
+        ]),
+      },
+    });
+    const configByKey = new Map(configs.map((config) => [config.key, config]));
+
+    return {
+      completed_button: toRecord(
+        configByKey.get('form_completed_button')?.value,
+      ),
+      completed_message: toRecord(
+        configByKey.get('form_completed_message')?.value,
+      ),
+      policy_links: toString(configByKey.get('policy_links')?.value),
+      with_confetti: configByKey.get('form_with_confetti')?.value === true,
     };
   }
 
@@ -584,6 +992,12 @@ export class SigningService {
   }
 }
 
+function isSubmissionComplete(submitter: Submitter): boolean {
+  return (submitter.submission.submitters ?? []).every((item) =>
+    item.id === submitter.id ? true : Boolean(item.completedAt),
+  );
+}
+
 function getSchemaDocumentName(
   schema: TemplateSchemaItem[],
   attachmentUuid: string,
@@ -627,4 +1041,28 @@ function parseDate(value: string | undefined): Date | null {
   const date = new Date(value);
 
   return Number.isNaN(date.valueOf()) ? null : date;
+}
+
+function toRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const record: Record<string, string> = {};
+
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item === 'string') {
+      record[key] = item;
+    }
+  }
+
+  return record;
+}
+
+function toString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function booleanOrNull(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null;
 }

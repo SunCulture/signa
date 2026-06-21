@@ -4,6 +4,10 @@ import { AuthModule } from '../auth/auth.module';
 import { UserHydrationGuard } from '../auth/guards/user-hydration/user-hydration.guard';
 import { StorageModule } from '../storage/storage.module';
 import { UsersModule } from '../users/users.module';
+import { DocumentConversionService } from './document-conversion.service';
+import { DocxFieldTagService } from './docx-field-tag.service';
+import { DynamicDocumentVersion } from './entities/dynamic-document-version.entity';
+import { DynamicDocument } from './entities/dynamic-document.entity';
 import { TemplateAccess } from './entities/template-access.entity';
 import { TemplateFolder } from './entities/template-folder.entity';
 import { TemplateSharing } from './entities/template-sharing.entity';
@@ -24,10 +28,18 @@ import { PdfAcroFormService } from './pdf-acro-form/pdf-acro-form.service';
       TemplateAccess,
       TemplateSharing,
       TemplateVersion,
+      DynamicDocument,
+      DynamicDocumentVersion,
     ]),
   ],
   controllers: [TemplatesController],
-  providers: [TemplatesService, UserHydrationGuard, PdfAcroFormService],
+  providers: [
+    TemplatesService,
+    UserHydrationGuard,
+    PdfAcroFormService,
+    DocumentConversionService,
+    DocxFieldTagService,
+  ],
   exports: [TemplatesService, TypeOrmModule],
 })
 export class TemplatesModule {}

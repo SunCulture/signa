@@ -1,4 +1,5 @@
 import {
+  BeforeInsert,
   Column,
   CreateDateColumn,
   DeleteDateColumn,
@@ -10,6 +11,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { randomUUID } from 'node:crypto';
 import { Account } from '../../accounts/entities/account.entity';
 import { User } from '../../users/entities/user.entity';
 import { TeamInvitation } from './team-invitation.entity';
@@ -23,11 +25,7 @@ export class Team {
   id!: string;
 
   @Index({ unique: true })
-  @Column({
-    type: 'varchar',
-    length: 255,
-    default: () => '(gen_random_uuid())',
-  })
+  @Column({ type: 'varchar', length: 255 })
   uuid!: string;
 
   @Column({ name: 'account_id', type: 'bigint' })
@@ -71,4 +69,9 @@ export class Team {
 
   @OneToMany(() => TeamInvitation, (invitation) => invitation.team)
   invitations!: TeamInvitation[];
+
+  @BeforeInsert()
+  setUuid(): void {
+    this.uuid ||= randomUUID();
+  }
 }

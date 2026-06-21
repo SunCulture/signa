@@ -60,6 +60,11 @@ export class MailProcessor extends WorkerHost {
           job as MailJob<typeof runtimeJobNames.deliverDocumentsCopyEmail>,
         );
         break;
+      case runtimeJobNames.deliverReminderEmail:
+        await this.handleReminder(
+          job as MailJob<typeof runtimeJobNames.deliverReminderEmail>,
+        );
+        break;
       case runtimeJobNames.deliverSignatureRequestEmail:
         await this.handleInvitation(
           job as MailJob<typeof runtimeJobNames.deliverSignatureRequestEmail>,
@@ -96,6 +101,26 @@ export class MailProcessor extends WorkerHost {
       submitter.sentAt = submitter.sentAt ?? new Date();
       await this.submitters.save(submitter);
       await this.recordSubmissionEvent(submitter, 'send_email');
+    }
+  }
+
+  private async handleReminder(
+    job: MailJob<typeof runtimeJobNames.deliverReminderEmail>,
+  ): Promise<void> {
+    const submitter = await this.findSubmitter(job.data.submitterId);
+    const mail = await this.deliveryBuilder.buildInvitationReminder(submitter);
+
+    if (!mail) {
+      this.logger.log(`Skipping reminder email for submitter ${submitter.id}`);
+      return;
+    }
+
+    const result = await this.send(mail);
+
+    if (result === 'sent') {
+      await this.recordSubmissionEvent(submitter, 'send_reminder_email', {
+        reminder_index: job.data.reminderIndex,
+      });
     }
   }
 

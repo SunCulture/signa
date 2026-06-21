@@ -35,9 +35,9 @@ Implemented:
 
 Pending:
 
-- Concrete BullMQ processors are still owned by the relevant feature modules and are not implemented yet.
+- Remaining BullMQ processors are still owned by the relevant feature modules.
 - Queue registration into Bull Board will happen when processors are added.
-- Mail/SMS delivery orchestration, webhook delivery attempts, and maintenance schedules still need feature-module implementations.
+- SMS delivery orchestration, remaining maintenance schedules, and document-generation processors still need feature-module implementations. Mail and webhook processors exist for the current implemented flows.
 
 Tests:
 
@@ -82,6 +82,8 @@ Responsibilities:
 - Resolve `X-Auth-Token`.
 - Hash and compare API tokens.
 - Attach `{ userId, accountId }` tenant context to requests.
+- Manage the current user's API token with masked fetch, password-gated reveal, password-gated rotation, and permission updates.
+- Enforce API-token permissions in API-key guards before controller logic runs.
 - Return DocuSeal-compatible auth errors.
 - Register a first-class web account and owner user through JSON API.
 - Login with email/password and issue a bearer JWT for web-app routes.
@@ -215,7 +217,7 @@ Current Signa status:
 - Frontend `/templates/:id/edit` now supports backend-backed document list ordering, append, replace, remove, rename, and center-canvas preview rendering.
 - Frontend `/templates/:id/edit` now supports DocuSeal-style normalized field placement on preview pages, including click/draw create, page overlays, select, move, resize, delete, and persistence through `PUT /api/templates/:id`.
 - Pending for deeper parity: folder picker modal, blank-template creation, embedded text-tag extraction/removal, DocuSeal-grade PDF flattening/signing, PDF/A/LTV/timestamp support, and XFA support.
-- Webhook event enqueue is deferred until the Webhooks module exists.
+- Template lifecycle webhook enqueue is implemented through the Webhooks module.
 
 Tests:
 
@@ -266,7 +268,7 @@ Responsibilities:
 - Return full submission details, submitters, documents, values, variables, and events.
 - Generate preview/final/merged/audit documents when endpoint behavior requires it.
 - Archive or permanently delete submissions.
-- Persist `api_complete_form` and public signing completion events; completion now creates generated result documents, completion records, generation events, and completed document checksum records. Webhook event delivery is pending.
+- Persist `api_complete_form` and public signing completion events; completion now creates generated result documents, completion records, generation events, completed document checksum records, and webhook delivery events.
 
 Tests:
 
@@ -337,14 +339,17 @@ Tests:
 
 Purpose: outgoing email/SMS orchestration.
 
-Owns no base entities initially.
+Owns:
+
+- `EmailMessage`
+- `EmailEvent`
 
 Responsibilities:
 
 - Send signature request emails/SMS when enabled.
 - Send completion notifications.
 - Render DocuSeal-compatible Markdown email templates after replacing template, submitter, submission, document, account, and sender variables.
-- Later store `EmailMessage` and `EmailEvent`.
+- Store `EmailMessage` and `EmailEvent` delivery records for sent/skipped template mail.
 - Keep provider-specific code behind adapters.
 
 Current Signa status:
@@ -354,8 +359,9 @@ Current Signa status:
 - Generated `MailModule` owns the first concrete BullMQ `mail` queue processor.
 - `MailService` is reusable and queue-friendly, with `MAIL_ENABLED` skip mode, template checks, formatted sender/recipient handling, and SMTP rejected-recipient detection.
 - `MailEventListener` maps submitter/form lifecycle events to queued jobs.
-- `MailProcessor` currently handles signature request, submitter verification, completed notification, documents copy, and declined emails, including result-document/audit attachments when generated artifacts are already available.
-- Remaining gaps: SMS processors, reminders, user/password/account email orchestration, provider-specific delivery/open/bounce events, `EmailMessage`/`EmailEvent` persistence, and Bull Board feature registration for concrete queues.
+- `MailProcessor` currently handles signature request, submitter verification, reminder, completed notification, documents copy, and declined emails, including result-document/audit attachments when generated artifacts are already available.
+- `MailReminderScheduler` scans due pending submitters hourly and queues idempotent reminder jobs from account reminder settings.
+- Remaining gaps: SMS processors, user/password/account email orchestration, provider-specific delivery/open/bounce events, and Bull Board feature registration for concrete queues.
 
 Tests:
 
@@ -364,6 +370,7 @@ Tests:
 - Message subject/body overrides are preserved.
 - Mail service send/skip/rejected-recipient behavior is covered.
 - Mail event-to-queue mapping is covered.
+- Reminder scheduler due-job enqueueing is covered.
 - Variable replacement and safe Markdown rendering are covered by focused unit tests.
 
 ### 11. Webhooks Module
@@ -373,8 +380,8 @@ Purpose: webhook configuration and delivery.
 Owns:
 
 - `WebhookUrl`
-- later `WebhookEvent`
-- later `WebhookAttempt`
+- `WebhookEvent`
+- `WebhookAttempt`
 
 Responsibilities:
 
@@ -387,6 +394,14 @@ Tests:
 
 - Event enqueue is account-scoped.
 - Failed attempts are recorded without blocking API requests.
+
+Implemented:
+
+- Webhook URL CRUD, test delivery, event log, and manual resend APIs.
+- BullMQ delivery processor with configured timeout, retry count, backoff, HMAC signature header, and response attempt persistence.
+- Runtime event listeners for form, submission, and template events.
+- Hourly submission-expiry scheduler that emits `submission.expired`.
+- Webhook events persist outbound payload snapshots for event-log inspection.
 
 ### 12. Tools Module
 
@@ -471,7 +486,9 @@ Implemented JSON endpoints:
 - `POST /api/users/import`
 - `PATCH /api/users/:id`
 - `DELETE /api/users/:id`
-- `GET/PATCH /api/account/preferences` includes DocuSeal notification settings: `receive_completed_email`, `bcc_emails`, and `submitter_reminders`.
+- `GET/PATCH /api/account/preferences` includes DocuSeal notification, e-signature, and personalization settings: `receive_completed_email`, `bcc_emails`, `submitter_reminders`, `esigning_preference`, `flatten_result_pdf`, `document_filename_format`, account-level email templates, completed form message/button, policy links, and confetti settings.
+- `GET/POST/DELETE /api/account/logo`
+- `GET/POST/PATCH/DELETE /api/account/signing-certificates`
 - `GET/POST /api/teams`
 - `GET/PATCH/DELETE /api/teams/:id`
 - `GET/POST /api/teams/:id/members`
@@ -485,7 +502,7 @@ Notes:
 
 - Local DocuSeal OSS includes users settings routes but no standalone team model/controller. Signa now implements an account-local team model using common workspace best practices: account remains the tenant, team membership is many-to-many, and account role is separate from team role.
 - Local DocuSeal OSS only enables `admin` and displays editor/viewer as Pro-gated options. Signa intentionally unlocks `admin`, `editor`, `member`, `viewer`, and `agent`, backed by CASL policy guards and shared role constants.
-- `POST /api/users/import` supports CSV-backed bulk user creation/restoration with per-row results. XLS/XLSX parsing and import-time team membership assignment remain pending.
+- `POST /api/users/import` supports bulk user creation/restoration with per-row results from normalized frontend import rows. The frontend now supports manual comma/space-separated emails, CSV parsing, `.xlsx` parsing, sample CSV download, and optional first/last names. Import-time team membership assignment remains pending.
 - Team invitation email delivery is not yet queued; invitation creation stores a token hash and returns the raw accept token only in the create response.
 
 - Web-app routes use bearer JWT auth.

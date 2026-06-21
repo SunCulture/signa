@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AccountConfig } from '../accounts/entities/account-config.entity';
+import { EncryptedConfig } from '../accounts/entities/encrypted-config.entity';
 import { Account } from '../accounts/entities/account.entity';
 import { queueNames } from '../runtime/queue-options';
 import { StorageModule } from '../storage/storage.module';
@@ -14,8 +15,11 @@ import { MailEventListener } from './mail-event.listener';
 import { MailProcessor } from './mail.processor';
 import { MailBrandingService } from './mail-branding.service';
 import { MailDeliveryBuilder } from './mail-delivery.builder';
+import { MailReminderScheduler } from './mail-reminder.scheduler';
 import { MailService } from './mail.service';
 import { MailTemplateResolver } from './mail-template-resolver.service';
+import { EmailEvent } from './entities/email-event.entity';
+import { EmailMessage } from './entities/email-message.entity';
 
 @Module({
   imports: [
@@ -24,6 +28,9 @@ import { MailTemplateResolver } from './mail-template-resolver.service';
     TypeOrmModule.forFeature([
       Account,
       AccountConfig,
+      EncryptedConfig,
+      EmailEvent,
+      EmailMessage,
       Submission,
       SubmissionEvent,
       Submitter,
@@ -36,6 +43,7 @@ import { MailTemplateResolver } from './mail-template-resolver.service';
     MailDeliveryBuilder,
     MailEventListener,
     MailProcessor,
+    MailReminderScheduler,
     MailService,
     MailTemplateResolver,
   ],

@@ -14,6 +14,7 @@ export type MailTemplateName =
   | 'submitter-declined'
   | 'submitter-documents-copy'
   | 'submitter-invitation'
+  | 'submitter-invitation-reminder'
   | 'submitter-otp-verification'
   | 'template-otp-verification'
   | 'user-invitation';
@@ -30,6 +31,7 @@ export type MailAddress = {
 };
 
 export type SendTemplateMailInput = {
+  accountId?: string;
   to: MailAddress | MailAddress[];
   subject: string;
   template: MailTemplateName;
@@ -65,6 +67,10 @@ export type MailJobMap = {
     reason?: string | null;
   };
   [runtimeJobNames.deliverDocumentsCopyEmail]: {
+    submitterId: string;
+  };
+  [runtimeJobNames.deliverReminderEmail]: {
+    reminderIndex: number;
     submitterId: string;
   };
   [runtimeJobNames.deliverSignatureRequestEmail]: {

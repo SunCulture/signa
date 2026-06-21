@@ -1,5 +1,6 @@
 export type SubmissionRequestMetadata = {
   ip?: string;
+  smsTrackingParam?: string;
   trackingParam?: string;
   ua?: string;
 };

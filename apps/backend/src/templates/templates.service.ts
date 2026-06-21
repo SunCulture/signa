@@ -1,17 +1,22 @@
-import { Injectable, UnprocessableEntityException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import { basename, extname } from 'node:path';
 import { Brackets, IsNull, Repository, SelectQueryBuilder } from 'typeorm';
 import { throwDatabaseErrors, throwIfNotFound } from '../common/utils/error';
+import { runtimeEvents } from '../runtime/runtime-events';
 import { StorageService } from '../storage/storage.service';
 import { UploadedBufferFile } from '../storage/storage.types';
 import { User } from '../users/entities/user.entity';
 import { CloneTemplateDto } from './dto/clone-template.dto';
-import {
-  CreateTemplateFromPdfDto,
-  CreateTemplatePdfDocumentDto,
-} from './dto/create-template-from-pdf.dto';
+import { CreateTemplateFromDocxDto } from './dto/create-template-from-docx.dto';
+import { CreateTemplateFromHtmlDto } from './dto/create-template-from-html.dto';
+import { CreateTemplateFromPdfDto } from './dto/create-template-from-pdf.dto';
 import { DeleteTemplateQueryDto } from './dto/delete-template-query.dto';
 import { ListTemplatesQueryDto } from './dto/list-templates-query.dto';
 import { TemplateDeleteResponseDto } from './dto/template-delete-response.dto';
@@ -21,6 +26,10 @@ import { TemplateUpdateResponseDto } from './dto/template-update-response.dto';
 import { TemplatesListResponseDto } from './dto/templates-list-response.dto';
 import { UpdateTemplateDocumentsDto } from './dto/update-template-documents.dto';
 import { UpdateTemplateDto } from './dto/update-template.dto';
+import { DocumentConversionService } from './document-conversion.service';
+import { DocxFieldTagService } from './docx-field-tag.service';
+import { DynamicDocumentVersion } from './entities/dynamic-document-version.entity';
+import { DynamicDocument } from './entities/dynamic-document.entity';
 import { TemplateFolder } from './entities/template-folder.entity';
 import { Template } from './entities/template.entity';
 import { PdfAcroFormService } from './pdf-acro-form/pdf-acro-form.service';
@@ -40,8 +49,15 @@ export class TemplatesService {
     private readonly templates: Repository<Template>,
     @InjectRepository(TemplateFolder)
     private readonly folders: Repository<TemplateFolder>,
+    @InjectRepository(DynamicDocument)
+    private readonly dynamicDocuments: Repository<DynamicDocument>,
+    @InjectRepository(DynamicDocumentVersion)
+    private readonly dynamicDocumentVersions: Repository<DynamicDocumentVersion>,
     private readonly storageService: StorageService,
     private readonly pdfAcroFormService: PdfAcroFormService,
+    private readonly documentConversionService: DocumentConversionService,
+    private readonly docxFieldTagService: DocxFieldTagService,
+    private readonly events: EventEmitter2,
   ) {}
 
   async listTemplates(
@@ -105,12 +121,66 @@ export class TemplatesService {
     return this.findAccountTemplateOrFail(user, response.id);
   }
 
+  async createBackingTemplateFromHtml(
+    user: User,
+    input: CreateTemplateFromHtmlDto,
+  ): Promise<Template> {
+    const response = await this.createTemplateFromHtml(user, {
+      ...input,
+      shared_link: input.shared_link ?? false,
+    });
+
+    return this.findAccountTemplateOrFail(user, response.id);
+  }
+
+  async createBackingTemplateFromDocx(
+    user: User,
+    input: CreateTemplateFromDocxDto,
+  ): Promise<Template> {
+    const response = await this.createTemplateFromDocx(user, {
+      ...input,
+      shared_link: input.shared_link ?? false,
+    });
+
+    return this.findAccountTemplateOrFail(user, response.id);
+  }
+
   async createTemplateFromPdf(
     user: User,
     input: CreateTemplateFromPdfDto,
     multipartFiles?: Record<string, UploadedBufferFile[]>,
   ): Promise<TemplateResponseDto> {
     const documents = await this.resolvePdfDocuments(input, multipartFiles);
+
+    return this.createTemplateFromResolvedDocuments(user, input, documents);
+  }
+
+  async createTemplateFromHtml(
+    user: User,
+    input: CreateTemplateFromHtmlDto,
+  ): Promise<TemplateResponseDto> {
+    const documents = await this.resolveHtmlDocuments(input);
+
+    return this.createTemplateFromResolvedDocuments(user, input, documents);
+  }
+
+  async createTemplateFromDocx(
+    user: User,
+    input: CreateTemplateFromDocxDto,
+  ): Promise<TemplateResponseDto> {
+    const documents = await this.resolveDocxDocuments(input);
+
+    return this.createTemplateFromResolvedDocuments(user, input, documents);
+  }
+
+  private async createTemplateFromResolvedDocuments(
+    user: User,
+    input: Pick<
+      CreateTemplateFromPdfDto,
+      'external_id' | 'folder_name' | 'name' | 'shared_link'
+    >,
+    documents: ResolvedPdfDocument[],
+  ): Promise<TemplateResponseDto> {
     const folder = await this.findOrCreateFolder(
       user,
       input.folder_name ?? TemplateFolder.DEFAULT_NAME,
@@ -163,6 +233,7 @@ export class TemplatesService {
       ({ attachment, document }) => ({
         attachment_uuid: attachment.uuid,
         name: getBaseName(document.filename),
+        ...(document.dynamicSource ? { dynamic: true } : {}),
         ...(document.pendingFields ? { pending_fields: true } : {}),
       }),
     );
@@ -174,6 +245,10 @@ export class TemplatesService {
 
     try {
       const saved = await this.templates.save(savedTemplate);
+      this.events.emit(runtimeEvents.templateCreated, {
+        accountId: saved.accountId,
+        templateId: saved.id,
+      });
       return this.toTemplateResponse(
         await this.findAccountTemplateOrFail(user, saved.id),
       );
@@ -229,6 +304,10 @@ export class TemplatesService {
     try {
       const savedClone = await this.templates.save(clone);
       await this.cloneTemplateAttachments(originalTemplate, savedClone);
+      this.events.emit(runtimeEvents.templateCreated, {
+        accountId: savedClone.accountId,
+        templateId: savedClone.id,
+      });
       return this.toTemplateResponse(
         await this.findAccountTemplateOrFail(user, savedClone.id),
       );
@@ -293,6 +372,18 @@ export class TemplatesService {
 
     try {
       const saved = await this.templates.save(template);
+      this.events.emit(runtimeEvents.templateUpdated, {
+        accountId: saved.accountId,
+        templateId: saved.id,
+      });
+
+      if (body.archived === true) {
+        this.events.emit(runtimeEvents.templateArchived, {
+          accountId: saved.accountId,
+          templateId: saved.id,
+        });
+      }
+
       return {
         id: saved.id,
         updated_at: saved.updatedAt,
@@ -319,7 +410,10 @@ export class TemplatesService {
     multipartFiles?: Record<string, UploadedBufferFile[]>,
   ): Promise<TemplateDocumentsUpdateResponseDto> {
     const template = await this.findAccountTemplateOrFail(user, templateId);
-    const documents = await this.resolvePdfDocuments(input, multipartFiles);
+    const documents = await this.resolveTemplateUpdateDocuments(
+      input,
+      multipartFiles,
+    );
     const oldFields = JSON.stringify(template.fields);
     const documentAttachments = await this.replaceTemplateDocuments(
       template,
@@ -329,6 +423,7 @@ export class TemplatesService {
     const newSchema = documentAttachments.map(({ attachment, document }) => ({
       attachment_uuid: attachment.uuid,
       name: getBaseName(document.filename),
+      ...(document.dynamicSource ? { dynamic: true } : {}),
       ...(document.pendingFields ? { pending_fields: true } : {}),
     }));
     const newFields = this.normalizeDocumentFields(
@@ -383,6 +478,10 @@ export class TemplatesService {
 
     try {
       const saved = await this.templates.save(template);
+      this.events.emit(runtimeEvents.templateArchived, {
+        accountId: saved.accountId,
+        templateId: saved.id,
+      });
       return {
         id: saved.id,
         archived_at: saved.archivedAt,
@@ -403,11 +502,12 @@ export class TemplatesService {
         recordId: template.id,
         name: 'documents',
       });
+      await this.dynamicDocuments.delete({ templateId: template.id });
     }
 
     return Promise.all(
-      documents.map(async (document) => ({
-        attachment: await this.storageService.createPdfAttachment({
+      documents.map(async (document) => {
+        const attachment = await this.storageService.createPdfAttachment({
           buffer: document.buffer,
           filename: document.filename,
           name: 'documents',
@@ -416,10 +516,55 @@ export class TemplatesService {
           metadata: {
             identified: true,
             analyzed: true,
+            ...(document.dynamicSource
+              ? {
+                  dynamic: true,
+                  dynamic_source_type: document.dynamicSource.type,
+                }
+              : {}),
           },
-        }),
-        document,
-      })),
+        });
+
+        if (document.dynamicSource) {
+          await this.createDynamicDocumentVersion(
+            template,
+            attachment.uuid,
+            document,
+          );
+        }
+
+        return {
+          attachment,
+          document,
+        };
+      }),
+    );
+  }
+
+  private async createDynamicDocumentVersion(
+    template: Template,
+    uuid: string,
+    document: ResolvedPdfDocument,
+  ): Promise<void> {
+    if (!document.dynamicSource) {
+      return;
+    }
+
+    const dynamicDocument = await this.dynamicDocuments.save(
+      this.dynamicDocuments.create({
+        body: document.dynamicSource.body,
+        head: document.dynamicSource.head,
+        templateId: template.id,
+        uuid,
+      }),
+    );
+
+    await this.dynamicDocumentVersions.save(
+      this.dynamicDocumentVersions.create({
+        areas: document.fields.flatMap((field) => field.areas ?? []),
+        dynamicDocumentId: dynamicDocument.id,
+        sha1: dynamicDocument.sha1,
+      }),
     );
   }
 
@@ -510,7 +655,9 @@ export class TemplatesService {
 
     const resolvedDocuments = await Promise.all(
       documents.map(async (document) => {
-        const buffer = await this.resolveDocumentFile(document);
+        const buffer = await this.resolveDocumentFile(document, {
+          requireHttpsUrl: true,
+        });
         this.assertPdf(buffer, document.name, 'application/pdf');
 
         return {
@@ -523,6 +670,180 @@ export class TemplatesService {
     );
 
     return this.extractAcroFieldsForDocuments(resolvedDocuments);
+  }
+
+  private async resolveTemplateUpdateDocuments(
+    input: UpdateTemplateDocumentsDto,
+    multipartFiles?: Record<string, UploadedBufferFile[]>,
+  ): Promise<ResolvedPdfDocument[]> {
+    const multipartFilesList = [
+      ...(multipartFiles?.documents ?? []),
+      ...(multipartFiles?.files ?? []),
+      ...(multipartFiles?.file ?? []),
+    ];
+
+    if (multipartFilesList.length) {
+      const documents = await Promise.all(
+        multipartFilesList.map((file) =>
+          this.resolveUploadedTemplateDocument(file),
+        ),
+      );
+
+      return this.extractAcroFieldsForDocuments(documents);
+    }
+
+    const documents = input.documents ?? [];
+
+    if (!documents.length) {
+      throw new UnprocessableEntityException({ error: 'File is missing' });
+    }
+
+    const resolvedDocuments = await Promise.all(
+      documents.map(async (document) => {
+        const buffer = await this.resolveDocumentFile(document, {
+          requireHttpsUrl: true,
+        });
+
+        if (isDocxFilename(document.name)) {
+          return this.resolveDocxBufferDocument({
+            buffer,
+            fields: document.fields ?? [],
+            name: document.name,
+          });
+        }
+
+        this.assertPdf(buffer, document.name, 'application/pdf');
+
+        return {
+          buffer,
+          fields: document.fields ?? [],
+          filename: ensurePdfFilename(document.name),
+          pendingFields: false,
+        };
+      }),
+    );
+
+    return this.extractAcroFieldsForDocuments(resolvedDocuments);
+  }
+
+  private async resolveUploadedTemplateDocument(
+    file: UploadedBufferFile,
+  ): Promise<ResolvedPdfDocument> {
+    if (isDocxFilename(file.originalname)) {
+      return this.resolveDocxBufferDocument({
+        buffer: file.buffer,
+        fields: [],
+        name: file.originalname,
+      });
+    }
+
+    this.assertPdf(file.buffer, file.originalname, file.mimetype);
+
+    return {
+      buffer: file.buffer,
+      fields: [],
+      filename: ensurePdfFilename(file.originalname),
+      pendingFields: false,
+    };
+  }
+
+  private async resolveHtmlDocuments(
+    input: CreateTemplateFromHtmlDto,
+  ): Promise<ResolvedPdfDocument[]> {
+    const documents = input.documents?.length
+      ? input.documents
+      : input.html
+        ? [
+            {
+              html: input.html,
+              html_footer: input.html_footer,
+              html_header: input.html_header,
+              name: input.name,
+              size: input.size,
+            },
+          ]
+        : [];
+
+    if (!documents.length) {
+      throw new UnprocessableEntityException({ error: 'HTML is missing' });
+    }
+
+    return Promise.all(
+      documents.map(async (document, index) => {
+        const rendered =
+          await this.documentConversionService.renderHtmlDocument({
+            html: document.html,
+            htmlFooter: document.html_footer ?? input.html_footer,
+            htmlHeader: document.html_header ?? input.html_header,
+            name: document.name ?? input.name ?? `document-${index + 1}`,
+            size: document.size ?? input.size,
+          });
+
+        return {
+          buffer: rendered.buffer,
+          dynamicSource: {
+            body: rendered.body,
+            head: rendered.head,
+            type: 'html',
+          },
+          fields: rendered.fields,
+          filename: rendered.filename,
+          pendingFields: false,
+        };
+      }),
+    );
+  }
+
+  private async resolveDocxDocuments(
+    input: CreateTemplateFromDocxDto,
+  ): Promise<ResolvedPdfDocument[]> {
+    const documents = input.documents ?? [];
+
+    if (!documents.length) {
+      throw new UnprocessableEntityException({ error: 'File is missing' });
+    }
+
+    return Promise.all(
+      documents.map(async (document) => {
+        const buffer = await this.resolveDocumentFile(document, {
+          requireHttpsUrl: true,
+        });
+        return this.resolveDocxBufferDocument({
+          buffer,
+          fields: document.fields ?? [],
+          name: document.name,
+        });
+      }),
+    );
+  }
+
+  private async resolveDocxBufferDocument(input: {
+    buffer: Buffer;
+    fields: TemplateField[];
+    name: string;
+  }): Promise<ResolvedPdfDocument> {
+    this.assertDocx(input.buffer, input.name);
+    const prepared = this.docxFieldTagService.prepareDocument(input.buffer);
+    const pdfBuffer = await this.documentConversionService.convertDocxToPdf({
+      buffer: prepared.buffer,
+      name: input.name,
+    });
+    const extractedFields = await this.docxFieldTagService.extractMarkerFields({
+      markers: prepared.markers,
+      pdf: pdfBuffer,
+    });
+
+    return {
+      buffer: pdfBuffer,
+      dynamicSource: {
+        body: input.buffer.toString('base64'),
+        head: `docx:${input.name}:${this.documentConversionService.hashSource(input.buffer)}`,
+        type: 'docx',
+      },
+      fields: [...extractedFields, ...input.fields],
+      filename: ensurePdfFilename(getBaseName(input.name)),
+      pendingFields: false,
+    };
   }
 
   private async extractAcroFieldsForDocuments(
@@ -549,9 +870,19 @@ export class TemplatesService {
   }
 
   private async resolveDocumentFile(
-    document: CreateTemplatePdfDocumentDto,
+    document: {
+      file: string;
+      name: string;
+    },
+    options: { requireHttpsUrl?: boolean } = {},
   ): Promise<Buffer> {
     if (isUrl(document.file)) {
+      if (options.requireHttpsUrl && !document.file.startsWith('https://')) {
+        throw new UnprocessableEntityException({
+          error: 'Only HTTPS document URLs are supported',
+        });
+      }
+
       const response = await fetch(document.file);
 
       if (!response.ok) {
@@ -577,6 +908,15 @@ export class TemplatesService {
       buffer.subarray(0, 5).toString('utf8') === '%PDF-';
 
     if (!isPdf) {
+      throw new UnprocessableEntityException({ error: 'Invalid file type' });
+    }
+  }
+
+  private assertDocx(buffer: Buffer, filename: string): void {
+    const lowerName = filename.toLowerCase();
+    const isZipContainer = buffer.subarray(0, 2).toString('utf8') === 'PK';
+
+    if (!lowerName.endsWith('.docx') || !isZipContainer) {
       throw new UnprocessableEntityException({ error: 'Invalid file type' });
     }
   }
@@ -928,6 +1268,47 @@ export class TemplatesService {
     };
   }
 
+  async getTemplateWebhookPayload(
+    templateId: string,
+  ): Promise<Record<string, unknown>> {
+    const template = await this.templates.findOne({
+      where: { id: templateId },
+      relations: {
+        author: true,
+        folder: {
+          parentFolder: true,
+        },
+      },
+    });
+
+    if (!template) {
+      throw new NotFoundException({ error: 'Template not found' });
+    }
+
+    return (await this.toTemplateResponse(template)) as unknown as Record<
+      string,
+      unknown
+    >;
+  }
+
+  async getTemplateArchiveWebhookPayload(
+    templateId: string,
+  ): Promise<Record<string, unknown>> {
+    const template = await this.templates.findOne({
+      where: { id: templateId },
+      withDeleted: true,
+    });
+
+    if (!template) {
+      throw new NotFoundException({ error: 'Template not found' });
+    }
+
+    return {
+      id: template.id,
+      archived_at: template.archivedAt,
+    };
+  }
+
   private async toTemplateResponse(
     template: Template,
   ): Promise<TemplateResponseDto> {
@@ -1018,6 +1399,11 @@ type ResolvedPdfDocument = {
   buffer: Buffer;
   fields: TemplateField[];
   pendingFields: boolean;
+  dynamicSource?: {
+    body: string;
+    head: string | null;
+    type: 'docx' | 'html';
+  };
 };
 
 type DocumentAttachment = {
@@ -1034,13 +1420,17 @@ function ensurePdfFilename(filename: string): string {
 }
 
 function stripDataUrlPrefix(value: string): string {
-  const [, base64] = value.match(/^data:application\/pdf;base64,(.*)$/) ?? [];
+  const [, base64] = value.match(/^data:[^;]+;base64,(.*)$/) ?? [];
 
   return base64 ?? value;
 }
 
 function isUrl(value: string): boolean {
   return value.startsWith('http://') || value.startsWith('https://');
+}
+
+function isDocxFilename(filename: string): boolean {
+  return filename.toLowerCase().endsWith('.docx');
 }
 
 function deepClone<T>(value: T): T {

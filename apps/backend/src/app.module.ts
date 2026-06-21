@@ -3,23 +3,26 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { AccountsModule } from './accounts/accounts.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AuthModule } from './auth/auth.module';
 import { createCacheOptions } from './cache/cache-options';
 import { DatabaseModule } from './database/database.module';
 import validationSchema from './env.schema';
 import { HealthModule } from './health/health.module';
-import { AccountsModule } from './accounts/accounts.module';
-import { AuthModule } from './auth/auth.module';
-import { UsersModule } from './users/users.module';
-import { TemplatesModule } from './templates/templates.module';
+import { MailModule } from './mail/mail.module';
+import { RuntimeModule } from './runtime/runtime.module';
+import { SigningModule } from './signing/signing.module';
 import { StorageModule } from './storage/storage.module';
 import { SubmissionsModule } from './submissions/submissions.module';
 import { SubmittersModule } from './submitters/submitters.module';
-import { SigningModule } from './signing/signing.module';
-import { RuntimeModule } from './runtime/runtime.module';
-import { MailModule } from './mail/mail.module';
 import { TeamsModule } from './teams/teams.module';
+import { TemplatesModule } from './templates/templates.module';
+import { ToolsModule } from './tools/tools.module';
+import { UsersModule } from './users/users.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
+import { SmsModule } from './sms/sms.module';
 
 @Module({
   imports: [
@@ -63,6 +66,9 @@ import { TeamsModule } from './teams/teams.module';
     SigningModule,
     MailModule,
     TeamsModule,
+    ToolsModule,
+    WebhooksModule,
+    SmsModule,
   ],
   controllers: [AppController],
   providers: [

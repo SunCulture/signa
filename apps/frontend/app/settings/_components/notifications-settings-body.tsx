@@ -218,7 +218,7 @@ function NotificationsPanel() {
           Sign Request Email Reminders
         </h2>
 
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-[repeat(3,minmax(10.5rem,1fr))]">
           <ReminderSelect
             label="First reminder in"
             onValueChange={(value) => setReminder("first_duration", value)}
@@ -261,7 +261,7 @@ function ReminderSelect({
     <div className="grid gap-2">
       <Label>{label}</Label>
       <Select onValueChange={onValueChange} value={value ?? "none"}>
-        <SelectTrigger className="h-12 rounded-full">
+        <SelectTrigger className="h-12 min-h-12 w-full rounded-full px-5 py-3 text-base leading-none">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

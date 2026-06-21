@@ -99,6 +99,7 @@ export type FieldDragPayload =
   | {
       kind: "existing";
       fieldUuid: string;
+      optionUuid?: string;
     }
   | {
       kind: "new";
@@ -701,7 +702,14 @@ export function readFieldDragPayload(
     }
 
     if (payload.kind === "existing" && typeof payload.fieldUuid === "string") {
-      return { fieldUuid: payload.fieldUuid, kind: "existing" };
+      return {
+        fieldUuid: payload.fieldUuid,
+        kind: "existing",
+        optionUuid:
+          typeof payload.optionUuid === "string"
+            ? payload.optionUuid
+            : undefined,
+      };
     }
 
     return null;
@@ -761,15 +769,17 @@ export function compareAreas(
 export function centerDefaultArea({
   attachmentUuid,
   pageIndex,
+  pageAspectRatio,
   pointer,
   type,
 }: {
   attachmentUuid: string;
   pageIndex: number;
+  pageAspectRatio?: number;
   pointer: { x: number; y: number };
   type: EditorFieldType;
 }): TemplateFieldArea {
-  const size = getDefaultAreaSize(type);
+  const size = getDefaultAreaSize(type, pageAspectRatio);
 
   return normalizeArea(
     {
@@ -785,57 +795,41 @@ export function centerDefaultArea({
   );
 }
 
-export function getDefaultAreaSize(type: EditorFieldType): AreaSize {
+export function getDefaultAreaSize(
+  type: EditorFieldType,
+  pageAspectRatio = 612 / 792,
+): AreaSize {
   if (["checkbox", "multiple", "radio"].includes(type)) {
-    return { h: 0.034, w: 0.034 };
+    return { h: (1 / 30) * pageAspectRatio, w: 1 / 30 };
   }
 
   if (type === "image") {
-    return { h: 0.2, w: 0.2 };
+    return { h: 0.2 * pageAspectRatio, w: 0.2 };
   }
 
   if (["signature", "stamp"].includes(type)) {
-    return { h: 0.1, w: 0.2 };
+    return { h: (0.2 * pageAspectRatio) / 2, w: 0.2 };
   }
 
   if (type === "initials") {
-    return { h: 0.03, w: 0.1 };
+    return { h: 1 / 35, w: 0.1 };
   }
 
   if (type === "cells") {
-    return { h: 0.045, w: 0.2 };
+    return { h: 1 / 35, w: 0.2 };
   }
 
-  return { h: 0.045, w: 0.2 };
-}
-
-export function getMinimumAreaSize(type: EditorFieldType): AreaSize {
-  if (["checkbox", "multiple", "radio"].includes(type)) {
-    return { h: 0.038, w: 0.038 };
-  }
-
-  if (["date", "initials", "number", "text"].includes(type)) {
-    return { h: 0.006, w: 0.004 };
-  }
-
-  if (type === "image") {
-    return { h: 0.08, w: 0.14 };
-  }
-
-  if (["signature", "stamp"].includes(type)) {
-    return { h: 0.055, w: 0.12 };
-  }
-
-  return { h: 0.04, w: 0.055 };
+  return { h: 1 / 35, w: 0.2 };
 }
 
 export function normalizeArea(
   area: TemplateFieldArea,
   type: EditorFieldType = "text",
 ): TemplateFieldArea {
-  const minimum = getMinimumAreaSize(type);
-  const w = Math.min(Math.max(area.w, minimum.w), 1);
-  const h = Math.min(Math.max(area.h, minimum.h), 1);
+  void type;
+
+  const w = Math.min(Math.max(area.w, 0), 1);
+  const h = Math.min(Math.max(area.h, 0), 1);
 
   return {
     ...area,

@@ -40,9 +40,11 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import {
   getSigningFieldValue,
+  sendSigningPhoneVerification,
   type SigningAttachment,
   type SigningField,
   type SigningForm,
+  verifySigningPhoneCode,
 } from "@/lib/api/signing";
 import phoneData from "@/lib/phone-data";
 import { cn } from "@/lib/utils";
@@ -72,7 +74,9 @@ export function SignaturePanel({
   );
   const [fieldValue, setFieldValue] = useState("");
   const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
-  const [attachmentValueUuids, setAttachmentValueUuids] = useState<string[]>([]);
+  const [attachmentValueUuids, setAttachmentValueUuids] = useState<string[]>(
+    [],
+  );
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -82,7 +86,8 @@ export function SignaturePanel({
   const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const incompleteFields = useMemo(
-    () => fields.filter((field) => !field.readonly && !hasFieldValue(form, field)),
+    () =>
+      fields.filter((field) => !field.readonly && !hasFieldValue(form, field)),
     [fields, form],
   );
   const activeFieldKey = activeField ? getFieldKey(activeField) : "";
@@ -171,15 +176,12 @@ export function SignaturePanel({
           onClick={() => setIsMinimized(false)}
           type="button"
         >
-          {(selectedField.type === "signature" ||
-            selectedField.type === "initials") ? (
+          {selectedField.type === "signature" ||
+          selectedField.type === "initials" ? (
             <PenLineIcon data-icon="inline-start" />
           ) : null}
           {minimizedLabel}
-          <Maximize2Icon
-            className="absolute right-5"
-            data-icon="inline-end"
-          />
+          <Maximize2Icon className="absolute right-5" data-icon="inline-end" />
         </Button>
       </div>
     );
@@ -201,7 +203,9 @@ export function SignaturePanel({
       }
     } catch (saveError) {
       const message =
-        saveError instanceof Error ? saveError.message : "Field could not be saved.";
+        saveError instanceof Error
+          ? saveError.message
+          : "Field could not be saved.";
 
       toast.error("Signing failed", { description: message });
     } finally {
@@ -238,7 +242,9 @@ export function SignaturePanel({
     }
 
     if (mode === "phone") {
-      throw new Error("Scan the QR code and complete the signature on your phone.");
+      throw new Error(
+        "Scan the QR code and complete the signature on your phone.",
+      );
     }
 
     if (!typedSignature.trim()) {
@@ -250,7 +256,9 @@ export function SignaturePanel({
     return onUploadAttachment(file, "signature");
   }
 
-  async function collectActiveFieldValue(field: SigningField): Promise<unknown> {
+  async function collectActiveFieldValue(
+    field: SigningField,
+  ): Promise<unknown> {
     if (field.type === "signature" || field.type === "initials") {
       return collectSignatureValue();
     }
@@ -292,7 +300,9 @@ export function SignaturePanel({
     <div className="fixed inset-x-0 bottom-0 z-30 flex justify-center px-0 sm:bottom-4 sm:px-4">
       <section className="max-h-[min(86svh,640px)] w-full overflow-y-auto rounded-t-xl border border-[var(--auth-input-border)] bg-card p-4 shadow-2xl sm:max-w-3xl sm:rounded-xl sm:p-5">
         <div className="mb-3.5 flex items-end justify-between gap-3 md:mb-4">
-          <h2 className="min-w-0 flex-1 truncate text-xl font-medium sm:text-2xl">{title}</h2>
+          <h2 className="min-w-0 flex-1 truncate text-xl font-medium sm:text-2xl">
+            {title}
+          </h2>
           <div className="flex flex-none items-center justify-end gap-2">
             {isSignatureField ? (
               <>
@@ -379,6 +389,7 @@ export function SignaturePanel({
             field={selectedField}
             attachmentsIndex={attachmentsIndex}
             attachmentValueUuids={attachmentValueUuids}
+            form={form}
             selectedOptions={selectedOptions}
             uploadedFiles={uploadedFiles}
             value={fieldValue}
@@ -392,7 +403,10 @@ export function SignaturePanel({
         <p className="mt-2 text-center text-xs text-[var(--auth-muted-foreground)] sm:mt-2.5">
           By clicking &quot;Sign and Complete&quot;, you agree to the{" "}
           <span className="sm:hidden">eSignature Disclosure</span>
-          <span className="hidden sm:inline">Electronic Signature Disclosure</span>.
+          <span className="hidden sm:inline">
+            Electronic Signature Disclosure
+          </span>
+          .
         </p>
         <Button
           className="mt-3 h-12 w-full rounded-full bg-[var(--auth-primary)] text-sm font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
@@ -400,7 +414,11 @@ export function SignaturePanel({
           onClick={() => void saveActiveField()}
           type="button"
         >
-          {isSaving ? <Spinner className="size-4" /> : <CheckIcon data-icon="inline-start" />}
+          {isSaving ? (
+            <Spinner className="size-4" />
+          ) : (
+            <CheckIcon data-icon="inline-start" />
+          )}
           {incompleteFields.length <= 1 ? "SIGN AND COMPLETE" : "SAVE AND NEXT"}
         </Button>
       </section>
@@ -541,6 +559,7 @@ function SignerFieldInput({
   attachmentValueUuids,
   attachmentsIndex,
   field,
+  form,
   onAttachmentValueUuidsChange,
   onChange,
   onFilesChange,
@@ -552,6 +571,7 @@ function SignerFieldInput({
   attachmentValueUuids: string[];
   attachmentsIndex: Record<string, { filename: string; url: string }>;
   field: SigningField;
+  form: SigningForm;
   onAttachmentValueUuidsChange: (value: string[]) => void;
   onChange: (value: string) => void;
   onFilesChange: (files: File[]) => void;
@@ -576,7 +596,11 @@ function SignerFieldInput({
     );
   }
 
-  if (field.type === "image" || field.type === "file" || field.type === "stamp") {
+  if (
+    field.type === "image" ||
+    field.type === "file" ||
+    field.type === "stamp"
+  ) {
     return (
       <AttachmentFieldInput
         attachmentValueUuids={attachmentValueUuids}
@@ -593,11 +617,7 @@ function SignerFieldInput({
 
   if (field.type === "select") {
     return (
-      <OptionSelectInput
-        field={field}
-        value={value}
-        onChange={onChange}
-      />
+      <OptionSelectInput field={field} value={value} onChange={onChange} />
     );
   }
 
@@ -624,7 +644,12 @@ function SignerFieldInput({
   }
 
   return (
-    <TextLikeFieldInput field={field} value={value} onChange={onChange} />
+    <TextLikeFieldInput
+      field={field}
+      form={form}
+      value={value}
+      onChange={onChange}
+    />
   );
 }
 
@@ -777,8 +802,12 @@ function UploadedFileList({
   const existingAttachments = valueUuids
     .map((uuid) => ({ attachment: attachmentsIndex[uuid], uuid }))
     .filter(
-      (item): item is { attachment: { filename: string; url: string }; uuid: string } =>
-        Boolean(item.attachment),
+      (
+        item,
+      ): item is {
+        attachment: { filename: string; url: string };
+        uuid: string;
+      } => Boolean(item.attachment),
     );
 
   return (
@@ -838,10 +867,12 @@ function UploadedFileList({
 
 function TextLikeFieldInput({
   field,
+  form,
   onChange,
   value,
 }: {
   field: SigningField;
+  form: SigningForm;
   onChange: (value: string) => void;
   value: string;
 }) {
@@ -857,8 +888,8 @@ function TextLikeFieldInput({
         <Field className="rounded-2xl border border-[var(--auth-input-border)] bg-[var(--auth-muted)] p-4">
           <FieldLabel>Payment step</FieldLabel>
           <FieldDescription>
-            Payment collection needs the DocuSeal-compatible payment provider flow
-            before this field can be completed.
+            Payment collection needs the DocuSeal-compatible payment provider
+            flow before this field can be completed.
           </FieldDescription>
         </Field>
       </FieldGroup>
@@ -866,7 +897,14 @@ function TextLikeFieldInput({
   }
 
   if (field.type === "phone") {
-    return <PhoneFieldInput field={field} value={value} onChange={onChange} />;
+    return (
+      <PhoneFieldInput
+        field={field}
+        form={form}
+        value={value}
+        onChange={onChange}
+      />
+    );
   }
 
   const canToggleMultiline =
@@ -919,13 +957,21 @@ function TextLikeFieldInput({
 
 function PhoneFieldInput({
   field,
+  form,
   onChange,
   value,
 }: {
   field: SigningField;
+  form: SigningForm;
   onChange: (value: string) => void;
   value: string;
 }) {
+  const [code, setCode] = useState("");
+  const [isSending, setIsSending] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verificationSentTo, setVerificationSentTo] = useState<string | null>(
+    null,
+  );
   const detectedCountry = getPhoneCountry(value);
   const [countryDialCode, setCountryDialCode] = useState(
     detectedCountry?.dial ?? getDefaultPhoneCountry().dial,
@@ -945,6 +991,49 @@ function PhoneFieldInput({
         ? `+${nextCountryDialCode}${cleanedNationalValue}`
         : "",
     );
+  }
+
+  async function sendCode() {
+    setIsSending(true);
+
+    try {
+      const result = await sendSigningPhoneVerification(form.submitter.slug, {
+        field_uuid: field.uuid,
+        phone: value,
+      });
+
+      setVerificationSentTo(result.phone);
+      toast.success("Verification code sent");
+    } catch (error) {
+      toast.error("Phone verification failed", {
+        description:
+          error instanceof Error ? error.message : "Unable to send SMS code.",
+      });
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  async function verifyCode() {
+    setIsVerifying(true);
+
+    try {
+      await verifySigningPhoneCode(form.submitter.slug, {
+        code,
+        field_uuid: field.uuid,
+        phone: value,
+      });
+      toast.success("Phone verified");
+    } catch (error) {
+      toast.error("Phone verification failed", {
+        description:
+          error instanceof Error
+            ? error.message
+            : "Check the code and try again.",
+      });
+    } finally {
+      setIsVerifying(false);
+    }
   }
 
   return (
@@ -985,10 +1074,38 @@ function PhoneFieldInput({
             value={nationalValue}
           />
         </div>
-        <FieldDescription>
-          SMS verification is pending backend support; values are stored in
-          international format.
-        </FieldDescription>
+        <div className="flex flex-col gap-3 rounded-2xl border border-[var(--auth-input-border)] bg-[var(--auth-muted)] p-3 sm:flex-row">
+          <Button
+            className="h-11 rounded-full px-5 font-bold"
+            disabled={!value || isSending}
+            onClick={() => void sendCode()}
+            type="button"
+            variant="outline"
+          >
+            {isSending ? "Sending..." : "Send SMS code"}
+          </Button>
+          <Input
+            className="h-11 rounded-full border-[var(--auth-input-border)] bg-white px-4 shadow-none focus-visible:ring-0"
+            inputMode="numeric"
+            maxLength={8}
+            onChange={(event) => setCode(event.target.value)}
+            placeholder="Code"
+            value={code}
+          />
+          <Button
+            className="h-11 rounded-full px-5 font-bold"
+            disabled={!code || isVerifying}
+            onClick={() => void verifyCode()}
+            type="button"
+          >
+            {isVerifying ? "Verifying..." : "Verify"}
+          </Button>
+        </div>
+        {verificationSentTo ? (
+          <FieldDescription>
+            Verification code sent to {verificationSentTo}.
+          </FieldDescription>
+        ) : null}
       </Field>
     </FieldGroup>
   );
@@ -1038,7 +1155,9 @@ function DateFieldInput({
 
             if (inputType === "datetime-local" && nextValue) {
               const date = new Date(nextValue);
-              onChange(Number.isNaN(date.valueOf()) ? nextValue : date.toISOString());
+              onChange(
+                Number.isNaN(date.valueOf()) ? nextValue : date.toISOString(),
+              );
               return;
             }
 
@@ -1118,10 +1237,7 @@ function OptionToggleInput({
             onValueChange={(nextValue: string) => onChange?.(nextValue)}
           >
             {options.map((option) => (
-              <Field
-                className="flex-row items-center gap-3"
-                key={option.uuid}
-              >
+              <Field className="flex-row items-center gap-3" key={option.uuid}>
                 <RadioGroupItem className="size-7" value={option.value} />
                 <FieldLabel className="text-xl font-normal">
                   {option.value}
@@ -1142,10 +1258,7 @@ function OptionToggleInput({
         </FieldLabel>
         <div className="mx-auto flex max-h-44 w-fit flex-col gap-3.5 overflow-y-auto">
           {options.map((option) => (
-            <Field
-              className="flex-row items-center gap-3"
-              key={option.uuid}
-            >
+            <Field className="flex-row items-center gap-3" key={option.uuid}>
               <Checkbox
                 checked={(selectedOptions ?? []).includes(option.value)}
                 className="size-7"
@@ -1305,10 +1418,29 @@ function getFieldOptions(field: SigningField): Array<{
     return [];
   }
 
-  return field.options.map((option, index) => ({
-    uuid: option.uuid ?? `${field.uuid ?? field.name ?? "field"}-${index}`,
-    value: option.value?.trim() || `Option ${index + 1}`,
-  }));
+  return field.options.map((option, index) => {
+    const fallbackUuid = `${field.uuid ?? field.name ?? "field"}-${index}`;
+    const optionRecord = isOptionRecord(option) ? option : {};
+    const label =
+      getOptionString(optionRecord.value) ||
+      getOptionString(optionRecord.label) ||
+      getOptionString(optionRecord.name) ||
+      getOptionString(optionRecord.title) ||
+      getOptionString(optionRecord.text);
+
+    return {
+      uuid: getOptionString(optionRecord.uuid) || fallbackUuid,
+      value: label || `Option ${index + 1}`,
+    };
+  });
+}
+
+function isOptionRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function getOptionString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function getStringFieldValue(value: unknown): string {
@@ -1341,7 +1473,9 @@ function getInputType(field: SigningField): string {
   return "text";
 }
 
-function getInputMode(field: SigningField): React.HTMLAttributes<HTMLInputElement>["inputMode"] {
+function getInputMode(
+  field: SigningField,
+): React.HTMLAttributes<HTMLInputElement>["inputMode"] {
   if (field.type === "number") {
     return "decimal";
   }
@@ -1361,7 +1495,10 @@ function getAttachmentAccept(field: SigningField): string {
   return "application/pdf,image/*,.doc,.docx,.txt";
 }
 
-function getMobileSignatureUrl(submitterSlug: string, fieldUuid: string): string {
+function getMobileSignatureUrl(
+  submitterSlug: string,
+  fieldUuid: string,
+): string {
   if (typeof window === "undefined") {
     return "";
   }
@@ -1505,14 +1642,18 @@ function getDateInputValue(
     return value;
   }
 
-  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  const localDate = new Date(
+    date.getTime() - date.getTimezoneOffset() * 60_000,
+  );
 
   return localDate.toISOString().slice(0, 16);
 }
 
 function getTodayInputValue(inputType: "date" | "datetime-local" | "month") {
   const date = new Date();
-  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  const localDate = new Date(
+    date.getTime() - date.getTimezoneOffset() * 60_000,
+  );
   const localIso = localDate.toISOString();
 
   if (inputType === "month") {

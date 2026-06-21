@@ -1,0 +1,13 @@
+import { IntegrationsSettingsBody } from "../_components/integrations-settings-body"
+import { SettingsHeader } from "../_components/settings-header"
+
+export default function SettingsIntegrationsPage() {
+  return (
+    <main className="min-h-svh bg-[var(--auth-background)] text-[var(--auth-foreground)]">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-5 py-4 md:px-2">
+        <SettingsHeader />
+        <IntegrationsSettingsBody />
+      </div>
+    </main>
+  )
+}

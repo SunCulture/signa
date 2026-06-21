@@ -141,8 +141,8 @@ function UsersPanel() {
     try {
       const payload = {
         email: form.email,
-        first_name: form.firstName,
-        last_name: form.lastName,
+        first_name: form.firstName.trim() || undefined,
+        last_name: form.lastName.trim() || undefined,
         role: form.role,
       }
       const savedUser = editingUser
@@ -396,6 +396,7 @@ function UserForm({
       <FieldInput
         label="Email"
         onChange={(email) => onChange({ ...form, email })}
+        required
         type="email"
         value={form.email}
       />
@@ -407,7 +408,7 @@ function UserForm({
           }
           value={form.role}
         >
-          <SelectTrigger className="h-12 w-full rounded-full px-5">
+          <SelectTrigger className="!h-11 min-h-11 w-full rounded-full px-5 py-0">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -509,9 +510,11 @@ function FieldInput({
   onChange,
   type = "text",
   value,
+  required = false,
 }: {
   label: string
   onChange: (value: string) => void
+  required?: boolean
   type?: string
   value: string
 }) {
@@ -521,7 +524,7 @@ function FieldInput({
       <Input
         className="h-11 rounded-full"
         onChange={(event) => onChange(event.target.value)}
-        required
+        required={required}
         type={type}
         value={value}
       />

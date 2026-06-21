@@ -2,11 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import {
-  CheckCircle2Icon,
-  DownloadIcon,
-  FileWarningIcon,
-} from "lucide-react";
+import confetti from "canvas-confetti";
+import { CheckCircle2Icon, DownloadIcon, FileWarningIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -36,6 +33,11 @@ import { SignaturePanel } from "./signature-panel";
 type ActivePanelState = {
   field: SigningField;
   mode: "complete" | "field";
+};
+
+type SigningChoiceOption = {
+  uuid: string;
+  value: string;
 };
 
 export function SigningPage({
@@ -76,7 +78,7 @@ export function SigningPage({
       return [];
     }
 
-    return [...form.fields].sort(compareFieldsByDocumentPosition);
+    return form.fields;
   }, [form]);
 
   async function saveFieldValue(field: SigningField, value: unknown) {
@@ -103,6 +105,7 @@ export function SigningPage({
 
     setForm(completedForm);
     setActivePanel(null);
+    showCompletionConfetti(completedForm.configs.with_confetti);
     toast.success("Document completed");
   }
 
@@ -225,18 +228,14 @@ export function SigningPage({
         {isCompleted || isDeclined ? (
           <div
             className={cn(
-              "mx-auto mb-4 flex w-full max-w-[920px] items-center gap-3 rounded-lg border px-4 py-3 text-sm font-semibold shadow-sm",
+              "mx-auto mb-4 flex w-full max-w-[920px] items-start gap-3 rounded-lg border px-4 py-3 text-sm font-semibold shadow-sm",
               isCompleted
                 ? "border-[var(--auth-primary)]/20 bg-[var(--auth-primary)]/8 text-[var(--auth-primary)]"
                 : "border-destructive/40 bg-destructive/10 text-destructive",
             )}
           >
-            <CheckCircle2Icon className="size-4 shrink-0" />
-            <span>
-              {isCompleted
-                ? "This document has been completed."
-                : "This document has been declined."}
-            </span>
+            <CheckCircle2Icon className="mt-0.5 size-4 shrink-0" />
+            <CompletedStatusContent form={form} isCompleted={isCompleted} />
           </div>
         ) : null}
 
@@ -294,6 +293,54 @@ export function SigningPage({
   );
 }
 
+function CompletedStatusContent({
+  form,
+  isCompleted,
+}: {
+  form: SigningForm;
+  isCompleted: boolean;
+}) {
+  if (!isCompleted) {
+    return <span>This document has been declined.</span>;
+  }
+
+  const message = form.configs.completed_message;
+  const button = form.configs.completed_button;
+
+  return (
+    <div className="grid gap-1">
+      <span>{message.title || "This document has been completed."}</span>
+      {message.body ? (
+        <span className="font-normal text-[var(--auth-foreground)]">
+          {message.body}
+        </span>
+      ) : null}
+      {button.title && button.url ? (
+        <a
+          className="mt-1 font-bold underline underline-offset-4"
+          href={button.url}
+          rel="noreferrer"
+          target="_blank"
+        >
+          {button.title}
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+function showCompletionConfetti(isEnabled: boolean) {
+  if (!isEnabled) {
+    return;
+  }
+
+  void confetti({
+    particleCount: 140,
+    spread: 70,
+    origin: { y: 0.7 },
+  });
+}
+
 function DocumentPage({
   activeFieldUuid,
   documentUuid,
@@ -319,7 +366,8 @@ function DocumentPage({
   const height = previewImage.metadata?.height ?? 1400;
   const pageFields = fields.filter((field) =>
     field.areas?.some(
-      (area) => area.attachment_uuid === documentUuid && area.page === pageIndex,
+      (area) =>
+        area.attachment_uuid === documentUuid && area.page === pageIndex,
     ),
   );
 
@@ -359,7 +407,7 @@ function DocumentPage({
                 style={areaToStyle(area)}
                 type="button"
               >
-                <FieldDisplayValue field={field} values={form.values} />
+                <FieldDisplayValue area={area} field={field} form={form} />
               </button>
             )),
         )}
@@ -369,15 +417,29 @@ function DocumentPage({
 }
 
 function FieldDisplayValue({
+  area,
   field,
-  values,
+  form,
 }: {
+  area: { option_uuid?: string };
   field: SigningField;
-  values: Record<string, unknown>;
+  form: SigningForm;
 }) {
-  const value = values[getFieldKey(field)] ?? field.default_value;
+  const value = form.values[getFieldKey(field)] ?? field.default_value;
+  const attachment = getValueAttachment(form, value);
 
   if (field.type === "signature" || field.type === "initials") {
+    if (attachment) {
+      return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt={field.name || field.title || field.type}
+          className="h-full w-full object-contain"
+          src={attachment.url}
+        />
+      );
+    }
+
     return (
       <span className="text-sm font-bold">
         {isBlankValue(value) ? "Sign Here" : "Signed"}
@@ -389,18 +451,90 @@ function FieldDisplayValue({
     return <span className="text-lg font-bold">{value ? "✓" : ""}</span>;
   }
 
-  if (field.type === "image" || field.type === "stamp" || field.type === "file") {
+  if (["multiple", "radio", "select"].includes(field.type ?? "")) {
+    return (
+      <ChoiceFieldDisplay area={area} field={field} value={value} />
+    );
+  }
+
+  if (
+    field.type === "image" ||
+    field.type === "stamp" ||
+    field.type === "file"
+  ) {
+    if ((field.type === "image" || field.type === "stamp") && attachment) {
+      return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt={attachment.filename}
+          className="h-full w-full object-contain"
+          src={attachment.url}
+        />
+      );
+    }
+
     return (
       <span className="truncate text-sm font-semibold">
-        {isBlankValue(value) ? field.name || field.title || "Upload" : "Uploaded"}
+        {isBlankValue(value)
+          ? field.name || field.title || "Upload"
+          : "Uploaded"}
       </span>
     );
   }
 
   return (
     <span className="truncate text-sm font-semibold">
-      {isBlankValue(value) ? field.name || field.title || "Field" : String(value)}
+      {isBlankValue(value)
+        ? field.name || field.title || "Field"
+        : String(value)}
     </span>
+  );
+}
+
+function ChoiceFieldDisplay({
+  area,
+  field,
+  value,
+}: {
+  area: { option_uuid?: string };
+  field: SigningField;
+  value: unknown;
+}) {
+  const options = getSigningChoiceOptions(field);
+
+  if (area.option_uuid) {
+    const option = options.find((item) => item.uuid === area.option_uuid);
+    const isSelected = option ? isOptionSelected(value, option) : false;
+
+    return (
+      <span className="text-lg font-bold text-[var(--auth-primary)]">
+        {isSelected ? "✓" : ""}
+      </span>
+    );
+  }
+
+  const selectedLabels = options
+    .filter((option) => isOptionSelected(value, option))
+    .map((option) => option.value);
+
+  return (
+    <span className="truncate text-sm font-semibold">
+      {selectedLabels.length
+        ? selectedLabels.join(", ")
+        : field.name || field.title || "Select"}
+    </span>
+  );
+}
+
+function getValueAttachment(form: SigningForm, value: unknown) {
+  const uuid = typeof value === "string" ? value : null;
+
+  if (!uuid) {
+    return null;
+  }
+
+  return (
+    form.attachments.find((attachment) => attachment.uuid === uuid) ?? null
   );
 }
 
@@ -408,13 +542,15 @@ function getInitialPanelState(
   form: SigningForm,
   focusFieldPrefix?: string,
 ): ActivePanelState | null {
-  const sortedFields = [...form.fields].sort(compareFieldsByDocumentPosition);
+  const sortedFields = form.fields;
   const focusedField = focusFieldPrefix
     ? sortedFields.find((field) => field.uuid?.startsWith(focusFieldPrefix))
     : null;
-  const field = focusedField ?? sortedFields.find(
-    (candidate) => !candidate.readonly && !hasFieldValue(form, candidate),
-  );
+  const field =
+    focusedField ??
+    sortedFields.find(
+      (candidate) => !candidate.readonly && !hasFieldValue(form, candidate),
+    );
 
   return field ? { field, mode: "field" } : null;
 }
@@ -423,7 +559,7 @@ function getNextPanelState(
   form: SigningForm,
   currentField: SigningField,
 ): ActivePanelState | null {
-  const fields = [...form.fields].sort(compareFieldsByDocumentPosition);
+  const fields = form.fields;
   const currentIndex = fields.findIndex(
     (field) => getFieldKey(field) === getFieldKey(currentField),
   );
@@ -434,41 +570,7 @@ function getNextPanelState(
   return nextField ? { field: nextField, mode: "field" } : null;
 }
 
-function compareFieldsByDocumentPosition(
-  firstField: SigningField,
-  secondField: SigningField,
-): number {
-  const firstArea = firstField.areas?.at(0);
-  const secondArea = secondField.areas?.at(0);
-
-  if (!firstArea || !secondArea) {
-    return firstArea ? -1 : secondArea ? 1 : 0;
-  }
-
-  const firstAttachmentUuid = firstArea.attachment_uuid ?? "";
-  const secondAttachmentUuid = secondArea.attachment_uuid ?? "";
-
-  if (firstAttachmentUuid !== secondAttachmentUuid) {
-    return firstAttachmentUuid.localeCompare(secondAttachmentUuid);
-  }
-
-  if (firstArea.page !== secondArea.page) {
-    return (firstArea.page ?? 0) - (secondArea.page ?? 0);
-  }
-
-  if (firstArea.y !== secondArea.y) {
-    return (firstArea.y ?? 0) - (secondArea.y ?? 0);
-  }
-
-  return (firstArea.x ?? 0) - (secondArea.x ?? 0);
-}
-
-function areaToStyle(area: {
-  h?: number;
-  w?: number;
-  x?: number;
-  y?: number;
-}) {
+function areaToStyle(area: { h?: number; w?: number; x?: number; y?: number }) {
   return {
     height: `${(area.h ?? 0.04) * 100}%`,
     left: `${(area.x ?? 0) * 100}%`,
@@ -492,4 +594,51 @@ function isBlankValue(value: unknown): boolean {
     value === "" ||
     (Array.isArray(value) && value.length === 0)
   );
+}
+
+function isOptionSelected(
+  value: unknown,
+  option: SigningChoiceOption,
+): boolean {
+  if (Array.isArray(value)) {
+    return value.some((item) => isOptionSelected(item, option));
+  }
+
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  return value === option.value || value === option.uuid;
+}
+
+function getSigningChoiceOptions(field: SigningField): SigningChoiceOption[] {
+  if (!Array.isArray(field.options)) {
+    return [];
+  }
+
+  return field.options.map((option, index) => {
+    const fallbackUuid = `${field.uuid ?? field.name ?? "field"}-${index}`;
+    const optionRecord = isSigningOptionRecord(option) ? option : {};
+    const label =
+      getSigningOptionString(optionRecord.value) ||
+      getSigningOptionString(optionRecord.label) ||
+      getSigningOptionString(optionRecord.name) ||
+      getSigningOptionString(optionRecord.title) ||
+      getSigningOptionString(optionRecord.text);
+
+    return {
+      uuid: getSigningOptionString(optionRecord.uuid) || fallbackUuid,
+      value: label || `Option ${index + 1}`,
+    };
+  });
+}
+
+function isSigningOptionRecord(
+  value: unknown,
+): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function getSigningOptionString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }

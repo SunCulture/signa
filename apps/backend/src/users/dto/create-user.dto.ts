@@ -13,13 +13,15 @@ export class CreateUserDto {
   @IsEmail()
   email!: string;
 
-  @ApiProperty({ example: 'Grace' })
+  @ApiPropertyOptional({ example: 'Grace' })
+  @IsOptional()
   @IsString()
-  first_name!: string;
+  first_name?: string;
 
-  @ApiProperty({ example: 'Hopper' })
+  @ApiPropertyOptional({ example: 'Hopper' })
+  @IsOptional()
   @IsString()
-  last_name!: string;
+  last_name?: string;
 
   @ApiPropertyOptional({
     enum: signaRoles,

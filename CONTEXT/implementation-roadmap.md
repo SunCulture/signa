@@ -129,7 +129,8 @@ Rules:
 - `Account` is the tenant root.
 - `User` belongs to one account.
 - `AccessToken` belongs to user and stores a SHA-256 hash for lookup.
-- Do not store plaintext API keys except at creation time if absolutely needed; prefer one-time reveal.
+- `AccessToken` stores encrypted token material for password-gated reveal/rotation, a SHA-256 hash for lookup, permissions, last-used timestamp, and revocation timestamp.
+- Do not store plaintext API keys. Reveal is password-gated and decrypts the encrypted value only for the current user.
 - `AccountConfig` stores account-scoped non-secret JSON values.
 - `EncryptedConfig` stores account-scoped secret values.
 - `AccountLinkedAccount` models production/testing account pairs.
@@ -138,6 +139,7 @@ DocuSeal compatibility notes:
 
 - API auth uses `X-Auth-Token`.
 - API token lookup hashes the incoming token and resolves user/account.
+- API-token permissions are Signa's production hardening layer on top of DocuSeal parity; they must be enforced by API-key guards for every public compatibility route.
 - Testing account mismatch should produce a wrong-environment style authorization error without leaking cross-tenant records.
 
 Acceptance checks:

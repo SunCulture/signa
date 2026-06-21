@@ -39,8 +39,8 @@
 - Added unlocked Signa account roles (`admin`, `editor`, `member`, `viewer`, `agent`) with shared frontend/backend role constants, Swagger enum validation, and backend preservation instead of DocuSeal OSS's Pro-gated editor/viewer selector.
 - Added the first CASL authorization module and policy guard pass; user-management endpoints now use explicit policy checks and team endpoints are prepared for route-level policy checks while retaining team-manager enforcement in `TeamsService`.
 - Added last-active-admin safeguards for role downgrade/archive operations.
-- Added `POST /api/users/import` with per-row import results for CSV-backed bulk user creation/restoration and duplicate skipping.
-- Added `/settings/users` CSV import modal using PapaParse with row preview and backend-backed import completion toasts.
+- Added `POST /api/users/import` with per-row import results for bulk user creation/restoration and duplicate skipping.
+- Added `/settings/users` import modal with manual comma/space-separated email parsing, PapaParse CSV import, `.xlsx` import, sample CSV download, row preview, and backend-backed import completion toasts.
 - Added a first-class Teams module using account-local workspace best practices because local DocuSeal OSS has no separate teams model/controller to port 1:1.
 - Added module-local TypeORM entities for `teams`, `team_members`, and `team_invitations`.
 - Added team CRUD, team member add/update/remove, invitation create/list/revoke, and authenticated invitation accept endpoints.
@@ -52,6 +52,18 @@
 - Added standardized DB error helpers plus current account/current user decorators and request hydration guards.
 - Added account settings preference persistence through `GET/PATCH /api/account/preferences`, backed by account-scoped `account_configs` and DocuSeal-compatible preference defaults.
 - Added `/settings/notifications` with completed-submission email toggle, BCC email config, and DocuSeal-compatible sign-request reminder durations (`one_hour` through `thirty_days`) persisted through account preferences.
+- Added DocuSeal-style `/settings/e-signature` and `/settings/personalization` pages:
+  - account preferences now persist DocuSeal-compatible `esigning_preference`, `flatten_result_pdf`, `document_filename_format`, account-level email templates, completed form message/button, policy links, and confetti settings through `account_configs`;
+  - E-Signature page supports signed PDF verification via `POST /api/tools/verify`, signing certificate upload/list/default/remove backed by `encrypted_configs`, and PDF result preference controls;
+  - Personalization page supports account-level signature request, documents copy, and completed notification email templates using the shared Markdown editor and variable insertion;
+  - Personalization page supports company logo upload/delete backed by account-scoped storage attachments, completed-form message/button settings, and a confetti toggle;
+  - public signing responses now include DocuSeal-style form config data and the signing page renders completed message/button content and uses `canvas-confetti` when enabled.
+- Added DocuSeal-style `/settings/api` API access management:
+  - backend now exposes authenticated API-token management endpoints for masked token fetch, password-gated reveal, password-gated rotation, and permission updates;
+  - `access_tokens` keep DocuSeal's encrypted token plus SHA-256 lookup shape, and now track permissions, last-used time, and revocation time;
+  - API-key guards enforce least-privilege resource permissions for templates, submissions, submitters, webhooks, tools, and users while preserving DocuSeal-compatible `X-Auth-Token` authentication;
+  - frontend renders the API settings page with masked/revealed token controls, rotation, copy action, test-mode switch, permission toggles, and cURL examples;
+  - migration still required for `access_tokens.permissions`, `access_tokens.last_used_at`, and `access_tokens.revoked_at`.
 - Generated the Templates module with the Nest CLI.
 - Added module-local TypeORM entities for templates, template folders, template accesses, template sharings, and template versions based on DocuSeal Rails schema.
 - Added `ApiOrJwtGuard` so DocuSeal-style API endpoints can accept either Bearer JWT or `X-Auth-Token`, matching DocuSeal's signed-in-or-token API behavior.
@@ -204,6 +216,11 @@
   - public signing views now persist repeated `view_form` events, first `start_form` events, and request IP/user-agent metadata while keeping `opened_at` as first-open state;
   - signature request email links now include a signed DocuSeal-style `t` tracking param and public signing records `click_email` before `view_form` when that token is valid;
   - API completion events now include request IP/user-agent metadata for `api_complete_form`.
+- Added the DocuSeal-style template editor SEND workflow:
+  - editor topbar SEND is guarded until the template has more than one role, keeping party one reserved for self-signing;
+  - added a tabbed "Add New Recipients" dialog for via Email, via Phone, Detailed, and Upload List flows;
+  - supports multiple recipient groups, preserved/random signing order, email/SMS toggles, editable request message defaults, save-as-template-message, CSV import, XLSX import, and sample CSV download;
+  - creates real submissions through the DocuSeal-compatible nested `POST /api/templates/:id/submissions` route, preserving role names, request message, `send_email`, `send_sms`, and `submitters_order`.
 - Closed the first e2e backend compatibility gap batch:
   - added `POST /api/attachments` for DocuSeal-compatible public submitter attachment uploads;
   - added `POST /api/submissions/emails`, `POST /api/submissions/init`, `GET /api/templates/:id/submissions`, and `POST /api/templates/:id/submissions` aliases backed by the existing submission creation/listing flow;
@@ -216,6 +233,12 @@
   - attachment-backed API values for `signature`, `initials`, `image`, `file`, and `stamp` now accept HTTPS URLs, base64/data URI payloads, typed signature/initials text, and arrays for multi-file fields;
   - normalized attachments are persisted as submitter attachments and saved field values are replaced with attachment UUIDs, while already-uploaded submitter attachment UUIDs are preserved on submitter updates;
   - remote ingestion blocks non-HTTPS, localhost, and private-network targets and enforces `ATTACHMENT_INGEST_MAX_BYTES`.
+- Added the first DocuSeal advanced-format API batch:
+  - added module-local `DynamicDocument` and `DynamicDocumentVersion` entities matching DocuSeal's dynamic document source/version boundary without DB-side UUID defaults;
+  - added `DocumentConversionService` for Playwright HTML-to-PDF rendering and LibreOffice DOCX-to-PDF conversion;
+  - implemented `POST /api/templates/html` with top-level HTML and `documents[]`, `html_header`, `html_footer`, `size`, dynamic source/version persistence, generated PDF attachments, previews, and DocuSeal-style custom field tag extraction;
+  - implemented `POST /api/submissions/html` through the backing-template flow, preserving existing submission creation, `template_ids` merge-in, mail/SMS/webhook side effects, and response shape;
+  - implemented `POST /api/templates/docx` and `POST /api/submissions/docx` for DOCX base64/data-URI/HTTPS URL ingestion, LibreOffice conversion, explicit coordinate fields, embedded `{{...}}` signing-field tag extraction through deterministic marker geometry, dynamic source/version persistence, previews, and existing submission side effects.
 
 ## In Progress
 
@@ -227,38 +250,44 @@
 
 ## Known Not Done
 
-- Submission side effects are not wired yet:
-  - `submission.created` and `submission.archived` webhook enqueue/delivery is pending.
-  - signature request, submitter verification, completed, documents-copy, and declined email dispatch are wired through the mail queue; SMS dispatch is pending.
-  - submitter completion now queues next-signer invitation and completed/document-copy emails; webhook dispatch remains pending.
+- Submission side effects are partially wired:
+  - submission/form/template webhook enqueue and delivery are implemented through the Webhooks module;
+  - signature request, submitter verification, reminder, completed, documents-copy, and declined email dispatch are wired through the mail queue; SMS invitation dispatch is wired through the SMS queue using Twilio Messaging configuration.
+  - submitter completion now queues next-signer invitation, completed/document-copy emails, and form/submission completion webhooks.
 - Submitter side effects are not wired yet:
-  - `PUT /api/submitters/{id}` with `send_email=true` now emits the queued invitation flow; SMS dispatch is pending.
+  - `PUT /api/submitters/{id}` with `send_email=true` now emits the queued invitation flow; dashboard-created submitters with `send_sms=true` now queue SMS invitation delivery when a phone number is present.
 - Public signing gaps:
-  - phone fields still need the public SMS one-time-code send/check endpoints wired into the signer panel state.
+  - phone fields now support public SMS one-time-code send/check endpoints through Twilio Verify and record `send_2fa_sms`/`phone_verified` events.
   - payment fields are intentionally not treated as numeric inputs; completing them is blocked until a DocuSeal-compatible payment provider step is implemented.
-  - signing order enforcement, reasons, submitter auth, delegation, resubmission, and audit trail display remain pending.
+  - signing order enforcement, delegation, and resubmission are implemented for the public signing flow.
+  - signing reasons, submitter auth, and audit trail display remain pending.
 - Submission API compatibility still has gaps:
-  - multiple submissions in one `POST /api/submissions` request are not implemented yet.
-  - `POST /api/submissions/pdf` does not support `template_ids` merge-in behavior yet.
+  - multiple submissions in one `POST /api/submissions` request are implemented for both array bodies and `{ submissions: [...] }` bodies, returning flattened DocuSeal-style submitter responses.
+  - `POST /api/submissions` accepts DocuSeal-style `message: { subject, body }` at submission or submitter level and stores request email subject/body preferences for queued invitation rendering.
+  - `POST /api/submissions/pdf` supports `template_ids` merge-in by cloning referenced template documents/previews and remapping fields/roles into the backing template.
   - `POST /api/submissions/pdf` uses a backing template; true one-off hidden-template semantics are still pending.
-  - Template detail "Add Recipients" uses a prompt-backed first pass; DocuSeal's full modal with custom message, send options, ordering, and role value editing remains pending.
+  - Template detail "Add Recipients" now uses a modal with multiple recipients, role selection, phone/email inputs, send email/SMS toggles, submission name, signing-order selection, custom message editing, and save-as-default template message support.
   - Submission detail document preview overlays saved values on source preview images; generated completed PDF page-image previews and attached signature/image thumbnails in the side panel remain pending.
-  - Event log now has DocuSeal-style timeline data and signature request `click_email` tracking, but SMS click/send, provider open/bounce, reminder, delegation, KBA/identity verification, and payment events depend on their pending subsystems.
+  - Event log now has DocuSeal-style timeline data and tracks `click_email`, `click_sms`, `send_sms`, reminder sends, phone verification sends/checks, delegation, decline, and completion; provider open/bounce, KBA/identity verification, and payment events depend on their pending subsystems.
 - PDF template/signing gaps:
-  - embedded `{{...}}` text-tag extraction/removal is not implemented yet.
+  - embedded PDF `{{...}}` text-tag extraction/removal is not implemented yet.
+  - DOCX embedded `{{...}}` signing-field tag extraction is implemented through marker geometry after LibreOffice conversion; searchable marker cleanup is still tracked as a PDF text cleanup hardening task.
+  - DOCX `[[variable]]` dynamic content expansion for generated documents is not implemented yet.
   - Generated result PDFs stamp supported values onto pages with `pdf-lib`, but DocuSeal's HexaPDF/PDFium-grade flattening, annotation preservation, rotation edge cases, PDF/A output, cryptographic signing, LTV, and timestamp server integration are not complete.
+  - E-Signature certificate upload/list/default/remove is implemented for settings management, but those certificates are not yet used by the PDF result-signing engine.
+  - PDF signature verification currently validates parseability and Signa completion checksum matches; true DocuSeal/HexaPDF-style cryptographic certificate-chain verification remains pending.
   - XFA form support is not implemented; `pdf-lib` does not support XFA.
   - AcroForm extraction is standard-form only; DocuSeal's HexaPDF edge-case coverage is broader than our current `pdf-lib` extractor.
 - Infrastructure gaps:
-  - Webhook module and delivery attempts are not implemented yet; runtime queue/event foundations exist.
-  - Mail queue processing is implemented for the first submitter/completion flows, and invitation email click tracking is persisted as `submission_events.click_email`; `EmailMessage`/`EmailEvent` persistence, provider open/bounce tracking, reminders, user invite/reset orchestration, and delivery dashboards remain pending.
-  - Reminder settings are persisted on the account, but scheduled reminder dispatch is still pending.
-  - SMS notification processors are not implemented yet.
-  - BullMQ queue processors are not implemented yet for document generation, webhooks, SMS, or maintenance.
+  - Webhook module and delivery attempts are implemented for form, submission, and template lifecycle events.
+  - Mail queue processing is implemented for submitter invitation, verification, reminder, completed, documents-copy, and declined flows; invitation email click tracking is persisted as `submission_events.click_email`.
+  - `EmailMessage`/`EmailEvent` persistence is implemented for sent/skipped mail deliveries; provider open/bounce tracking, user invite/reset orchestration, and delivery dashboards remain pending.
+  - Reminder settings are persisted on the account and scheduled reminder dispatch is implemented with idempotent BullMQ jobs.
+  - SMS invitation queue processor is implemented with Twilio Messaging; SMS click tracking is implemented through `/api/submitter_sms_clicks` and public `?c=` signing links; SMS provider delivery callbacks/open tracking and SMS settings UI remain pending.
+  - BullMQ queue processors are not implemented yet for document generation or remaining maintenance jobs.
   - Bull Board root infrastructure exists, but the mail queue feature is not registered in the dashboard yet because the backend package currently lacks a direct linked `@bull-board/api` adapter dependency.
 - User/role management gaps:
-  - CSV import is implemented; XLS/XLSX import still needs a separate spreadsheet parser because PapaParse only handles delimited text.
-  - Imported `team` values are accepted in the DTO shape but not yet mapped to team membership during import.
+  - Imported `team` values are accepted in the DTO shape and sample import file but not yet mapped to team membership during import.
   - CASL is wired for the first Users/Teams pass; templates, submissions, accounts, API keys, webhooks, and settings still need route-by-route policy replacement beyond the legacy role/service checks.
   - Frontend hides/actions are not yet fully permission-aware for every role; backend remains the source of truth.
 - Template editor gaps:
@@ -273,7 +302,8 @@
   - Blank template creation is not implemented yet.
 - Template detail gaps:
   - Preferences button redirects users to the editor preference modal workflow instead of opening the DocuSeal template-detail modal directly.
-  - Export is currently a client-side CSV from loaded submissions; DocuSeal's full export modal/filter workflow remains pending.
+  - Add Recipients modal supports custom messages and phone/email role entries; richer DocuSeal prefillable role-value editing remains pending.
+  - Export now uses a DocuSeal-style modal with backend status filtering plus backend-generated CSV/XLSX downloads.
 
 ## Todo
 
@@ -282,20 +312,14 @@
 - Decide a text-geometry/removal engine for embedded `{{...}}` text tags; current stack does not provide safe full removal parity.
 - Implement embedded text-tag removal/extraction for PDF templates.
 - Spike PDF editing/signing with `pdf-lib` and `@signpdf/signpdf`.
-- Spike DOCX conversion with LibreOffice worker.
-- Spike HTML-to-PDF with Playwright worker.
-- Implement public API P1 endpoints:
-  - `POST /api/submissions/docx`
-  - `POST /api/submissions/html`
-  - `POST /api/templates/docx`
-  - `POST /api/templates/html`
+- Complete DOCX dynamic-variable parity:
+  - `[[variable]]` dynamic content expansion for strings, HTML, tables, and lists;
+  - richer DOCX text/table mutation before DOCX-to-PDF generation.
 - Implement DocuSeal-style runtime processors:
   - document generation queue processor for previews, completed PDFs, merged PDFs, audit trails, DOCX conversion, and HTML conversion;
   - expand the mail queue processor beyond current submitter invitation, verification, completed, documents-copy, and declined emails to password/reset, account/user emails, reminders, provider delivery/open/bounce tracking, and remaining tracked-link flows;
-  - webhook queue processor with account-scoped webhook URLs, delivery attempts, retry/backoff, and signing;
-  - SMS queue processor for invitation and phone verification flows;
-  - maintenance scheduler for submission expiry, stale generation retry, and cleanup.
-  - `POST /api/templates/{id}/clone`
+  - SMS provider callbacks beyond invitation/click tracking;
+  - remaining maintenance schedulers for stale generation retry and cleanup.
   - `POST /api/templates/merge`
 - Implement template dashboard parity polish:
   - folder picker/move modal instead of `window.prompt`;
@@ -322,8 +346,21 @@
      - folder picker/move modal instead of `window.prompt`;
      - blank-template create flow.
 - Implement secondary/internal Rails API candidates:
-  - `POST /api/submitter_email_clicks`
-  - `POST /api/submitter_form_views`
-  - `POST /api/tools/merge`
-  - `POST /api/tools/verify`
-- Plan webhook delivery and event storage.
+  - full cryptographic PDF signature verification for `POST /api/tools/verify`;
+  - provider callback tracking for email/SMS delivery, open, bounce, and unsubscribe events.
+
+Recently completed:
+
+- Added DocuSeal-compatible submitter tracking endpoints:
+  - `POST /api/submitter_email_clicks`;
+  - `POST /api/submitter_form_views`.
+- Added Tools API endpoints:
+  - `POST /api/tools/merge` for base64 PDF merge;
+  - `POST /api/tools/verify` for PDF parse/checksum verification against completed Signa documents.
+- Added Webhooks Module:
+  - account-scoped webhook URL/event/attempt entities;
+  - CRUD/test/event-log/resend APIs;
+  - BullMQ delivery processor with retry/backoff and HMAC signature headers;
+  - form, submission, and template runtime event listeners;
+  - hourly submission-expiry event scheduler.
+- Added Settings > Webhooks frontend page using TanStack Query for server state, with endpoint CRUD, event toggles, signing secret copy, test delivery, event filtering, payload/attempt detail modal, and resend.

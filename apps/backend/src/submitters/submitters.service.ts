@@ -139,7 +139,7 @@ export class SubmittersService {
 
     if (normalized.input.completed) {
       submitter.completedAt = new Date();
-      submitter.values = this.mergeFieldDefaultValues(submitter);
+      submitter.values = this.prepareCompletedValues(submitter);
     }
 
     try {
@@ -169,7 +169,10 @@ export class SubmittersService {
       throwDatabaseErrors(error);
     }
 
-    if (normalized.input.send_email && submitter.email) {
+    if (
+      (normalized.input.send_email && submitter.email) ||
+      (normalized.input.send_sms && submitter.phone)
+    ) {
       this.events.emit(runtimeEvents.submitterInvitationRequested, {
         submitterId: submitter.id,
         accountId: submitter.accountId,
@@ -319,10 +322,6 @@ export class SubmittersService {
     }
 
     this.assignPreferences(submitter, input);
-
-    if (input.send_sms && !input.send_email) {
-      submitter.sentAt = new Date();
-    }
   }
 
   private assignPreferences(
@@ -353,6 +352,12 @@ export class SubmittersService {
 
     if (input.message) {
       preferences.message = input.message;
+      if (input.message.subject) {
+        preferences.request_email_subject = input.message.subject;
+      }
+      if (input.message.body) {
+        preferences.request_email_body = input.message.body;
+      }
     }
 
     submitter.preferences = preferences;
@@ -505,6 +510,76 @@ export class SubmittersService {
     }
 
     return values;
+  }
+
+  private prepareCompletedValues(
+    submitter: Submitter,
+  ): Record<string, unknown> {
+    return this.replaceCurrentDatePlaceholders(
+      this.removeConditionHiddenValues(
+        this.mergeFieldDefaultValues(submitter),
+        submitter,
+      ),
+      submitter,
+    );
+  }
+
+  private removeConditionHiddenValues(
+    values: Record<string, unknown>,
+    submitter: Submitter,
+  ): Record<string, unknown> {
+    const fields =
+      submitter.submission.templateFields ??
+      submitter.submission.template?.fields ??
+      [];
+    const nextValues = { ...values };
+
+    for (const field of fields) {
+      if (!field.uuid || field.submitter_uuid !== submitter.uuid) {
+        continue;
+      }
+
+      const conditions = Array.isArray(field.conditions)
+        ? field.conditions.filter(isFieldCondition)
+        : [];
+
+      if (
+        conditions.some(
+          (condition) =>
+            condition.action === 'hide' &&
+            isConditionSatisfied(condition, values),
+        )
+      ) {
+        delete nextValues[field.uuid];
+      }
+    }
+
+    return nextValues;
+  }
+
+  private replaceCurrentDatePlaceholders(
+    values: Record<string, unknown>,
+    submitter: Submitter,
+  ): Record<string, unknown> {
+    const fields =
+      submitter.submission.templateFields ??
+      submitter.submission.template?.fields ??
+      [];
+    const nextValues = { ...values };
+    const today = new Date().toISOString().slice(0, 10);
+
+    for (const field of fields) {
+      if (
+        field.uuid &&
+        field.type === 'date' &&
+        field.submitter_uuid === submitter.uuid &&
+        isCurrentDatePlaceholder(nextValues[field.uuid])
+      ) {
+        nextValues[field.uuid] = today;
+      }
+    }
+
+    return nextValues;
   }
 
   private findPhoneValueFieldUuid(
@@ -742,6 +817,71 @@ function normalizePhone(value: unknown): string | null {
 
 function normalizeFieldName(value: string): string {
   return value.toLowerCase().replaceAll(' ', '_');
+}
+
+type FieldCondition = {
+  action?: string;
+  field_uuid?: string;
+  operation?: string;
+  value?: unknown;
+};
+
+function isFieldCondition(value: unknown): value is FieldCondition {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isConditionSatisfied(
+  condition: FieldCondition,
+  values: Record<string, unknown>,
+): boolean {
+  if (!condition.field_uuid) {
+    return false;
+  }
+
+  const actual = values[condition.field_uuid];
+  const expected = condition.value;
+  const operation = condition.operation ?? 'equals';
+  const actualString = valueToString(actual);
+  const expectedString = valueToString(expected);
+
+  if (operation === 'not_equals') {
+    return actualString !== expectedString;
+  }
+
+  if (operation === 'contains') {
+    return actualString.includes(expectedString);
+  }
+
+  if (operation === 'not_contains') {
+    return !actualString.includes(expectedString);
+  }
+
+  return actualString === expectedString;
+}
+
+function isCurrentDatePlaceholder(value: unknown): boolean {
+  return (
+    typeof value === 'string' &&
+    ['current_date', '{{current_date}}', '{current_date}', 'today'].includes(
+      value.trim().toLowerCase(),
+    )
+  );
+}
+
+function valueToString(value: unknown): string {
+  if (value === undefined || value === null) {
+    return '';
+  }
+
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  return JSON.stringify(value);
 }
 
 function getBaseName(filename: string): string {

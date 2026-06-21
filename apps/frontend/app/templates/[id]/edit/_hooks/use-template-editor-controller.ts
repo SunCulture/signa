@@ -216,7 +216,7 @@ export function useTemplateEditorController() {
     const previousFields = currentTemplate.fields;
     const previousSubmitters = currentTemplate.submitters;
     const serializedFields = fields as unknown[];
-    const serializedSubmitters = submitters as unknown[];
+    const serializedSubmitters = submitters;
 
     setTemplate((previousTemplate) =>
       previousTemplate?.id === currentTemplate.id
@@ -346,6 +346,7 @@ export function useTemplateEditorController() {
     renameDocument: documentActions.renameDocument,
     renameSubmitter: submitterActions.renameSubmitter,
     replaceDocument: documentActions.replaceDocument,
+    reorderDocumentFields: documentActions.reorderDocumentFields,
     resolvePendingImportedFields: templateActions.resolvePendingImportedFields,
     saveTemplateDraft: templateActions.saveTemplateDraft,
     saveTemplatePreferences: templateActions.saveTemplatePreferences,
@@ -363,6 +364,7 @@ export function useTemplateEditorController() {
     updateField: fieldActions.updateField,
     updateFieldAndTemplate: fieldActions.updateFieldAndTemplate,
     updateFieldArea: fieldActions.updateFieldArea,
+    updateDocumentConditions: documentActions.updateDocumentConditions,
     updateTemplateSharedLink: templateActions.updateTemplateSharedLink,
     error,
     goBackToTemplates,

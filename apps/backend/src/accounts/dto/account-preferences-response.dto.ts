@@ -11,6 +11,55 @@ export class SubmitterRemindersResponseDto {
   third_duration!: string | null;
 }
 
+export class AccountEmailTemplateResponseDto {
+  @ApiProperty({ example: 'You are invited to sign a document' })
+  subject!: string;
+
+  @ApiProperty({ example: 'Hi there,\n\nPlease sign {template.name}.' })
+  body!: string;
+
+  @ApiProperty({ example: 'reply@example.com', nullable: true })
+  reply_to?: string | null;
+}
+
+export class AccountDocumentsCopyEmailResponseDto extends AccountEmailTemplateResponseDto {
+  @ApiProperty({ example: true })
+  attach_audit_log!: boolean;
+
+  @ApiProperty({ example: true })
+  attach_documents!: boolean;
+
+  @ApiProperty({ example: true })
+  enabled!: boolean;
+}
+
+export class AccountCompletedEmailResponseDto extends AccountEmailTemplateResponseDto {
+  @ApiProperty({ example: true })
+  attach_audit_log!: boolean;
+
+  @ApiProperty({ example: true })
+  attach_documents!: boolean;
+}
+
+export class CompletedMessageResponseDto {
+  @ApiProperty({ example: 'Thank you', required: false })
+  title?: string;
+
+  @ApiProperty({
+    example: 'Your document has been completed.',
+    required: false,
+  })
+  body?: string;
+}
+
+export class CompletedButtonResponseDto {
+  @ApiProperty({ example: 'Back to website', required: false })
+  title?: string;
+
+  @ApiProperty({ example: 'https://example.com', required: false })
+  url?: string;
+}
+
 export class AccountPreferencesResponseDto {
   @ApiProperty({ example: true })
   receive_completed_email!: boolean;
@@ -68,4 +117,34 @@ export class AccountPreferencesResponseDto {
 
   @ApiProperty({ example: false })
   knowledge_based_authentication!: boolean;
+
+  @ApiProperty({ enum: ['single', 'multiple'], example: 'single' })
+  esigning_preference!: 'single' | 'multiple';
+
+  @ApiProperty({ example: true })
+  flatten_result_pdf!: boolean;
+
+  @ApiProperty({ example: '{document.name}' })
+  document_filename_format!: string;
+
+  @ApiProperty({ type: AccountEmailTemplateResponseDto })
+  submitter_invitation_email!: AccountEmailTemplateResponseDto;
+
+  @ApiProperty({ type: AccountDocumentsCopyEmailResponseDto })
+  submitter_documents_copy_email!: AccountDocumentsCopyEmailResponseDto;
+
+  @ApiProperty({ type: AccountCompletedEmailResponseDto })
+  submitter_completed_email!: AccountCompletedEmailResponseDto;
+
+  @ApiProperty({ type: CompletedMessageResponseDto })
+  form_completed_message!: CompletedMessageResponseDto;
+
+  @ApiProperty({ type: CompletedButtonResponseDto })
+  form_completed_button!: CompletedButtonResponseDto;
+
+  @ApiProperty({ example: false })
+  form_with_confetti!: boolean;
+
+  @ApiProperty({ example: '[Privacy Policy](https://example.com/privacy)' })
+  policy_links!: string;
 }

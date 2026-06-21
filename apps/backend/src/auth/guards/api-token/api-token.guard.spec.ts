@@ -49,6 +49,8 @@ describe('ApiTokenGuard', () => {
       accountId: 'account-1',
       userId: 'user-1',
       accessTokenId: 'token-1',
+      role: 'admin',
+      apiTokenPermissions: ['templates:read'],
     });
 
     const guard = new ApiTokenGuard(authService as unknown as AuthService);
@@ -64,6 +66,8 @@ describe('ApiTokenGuard', () => {
       accountId: 'account-1',
       userId: 'user-1',
       accessTokenId: 'token-1',
+      role: 'admin',
+      apiTokenPermissions: ['templates:read'],
     });
   });
 });

@@ -1,53 +1,55 @@
-"use client"
+"use client";
 
-import { useRef, useState } from "react"
-import { useRouter } from "next/navigation"
-import { CheckIcon, UploadCloudIcon } from "lucide-react"
-import { toast } from "sonner"
+import { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { CheckIcon, UploadCloudIcon } from "lucide-react";
+import { toast } from "sonner";
 
 import {
   Dropzone,
   DropzoneContent,
   DropzoneEmptyState,
-} from "@/components/kibo-ui/dropzone"
-import { Spinner } from "@/components/ui/spinner"
-import { createTemplateFromPdf } from "@/lib/api/templates"
+} from "@/components/kibo-ui/dropzone";
+import { Spinner } from "@/components/ui/spinner";
+import { createTemplateFromDocument } from "@/lib/api/templates";
 
 const acceptedDocumentTypes = {
   "application/pdf": [".pdf"],
-  "application/msword": [".doc"],
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [
     ".docx",
   ],
-}
+};
 
 export function TemplateUploadDropzone() {
-  const router = useRouter()
-  const [files, setFiles] = useState<File[]>()
-  const [isUploading, setIsUploading] = useState(false)
-  const toastId = useRef<string | number | undefined>(undefined)
+  const router = useRouter();
+  const [files, setFiles] = useState<File[]>();
+  const [isUploading, setIsUploading] = useState(false);
+  const toastId = useRef<string | number | undefined>(undefined);
 
   async function handleDrop(acceptedFiles: File[]) {
-    const file = acceptedFiles.at(0)
+    const file = acceptedFiles.at(0);
 
     if (!file) {
-      return
+      return;
     }
 
-    setFiles(acceptedFiles)
-    setIsUploading(true)
+    setFiles(acceptedFiles);
+    setIsUploading(true);
     toastId.current = toast.custom(
       () => <UploadToast message={`Preparing ${file.name}...`} />,
-      { duration: Infinity }
-    )
+      { duration: Infinity },
+    );
 
     try {
-      toast.custom(() => <UploadToast message={`Uploading ${file.name}...`} />, {
-        duration: Infinity,
-        id: toastId.current,
-      })
+      toast.custom(
+        () => <UploadToast message={`Uploading ${file.name}...`} />,
+        {
+          duration: Infinity,
+          id: toastId.current,
+        },
+      );
 
-      const template = await createTemplateFromPdf(file)
+      const template = await createTemplateFromDocument(file);
 
       toast.custom(
         () => (
@@ -59,20 +61,20 @@ export function TemplateUploadDropzone() {
         {
           duration: 4000,
           id: toastId.current,
-        }
-      )
-      router.push(`/templates/${template.id}/edit`)
+        },
+      );
+      router.push(`/templates/${template.id}/edit`);
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Upload failed. Try again."
+        error instanceof Error ? error.message : "Upload failed. Try again.";
 
       toast.error("Document upload failed", {
         description: message,
         classNames: { icon: "text-destructive" },
-      })
-      setFiles(undefined)
+      });
+      setFiles(undefined);
     } finally {
-      setIsUploading(false)
+      setIsUploading(false);
     }
   }
 
@@ -100,7 +102,7 @@ export function TemplateUploadDropzone() {
       </DropzoneEmptyState>
       <DropzoneContent />
     </Dropzone>
-  )
+  );
 }
 
 function UploadToast({ message }: { message: string }) {
@@ -109,15 +111,15 @@ function UploadToast({ message }: { message: string }) {
       <Spinner className="size-4 opacity-60" />
       <p className="text-xs font-medium">{message}</p>
     </div>
-  )
+  );
 }
 
 function UploadSuccessToast({
   description,
   title,
 }: {
-  description: string
-  title: string
+  description: string;
+  title: string;
 }) {
   return (
     <div className="flex w-[356px] items-start gap-3 rounded-md border border-border bg-popover p-4 text-popover-foreground shadow-lg">
@@ -129,5 +131,5 @@ function UploadSuccessToast({
         <p className="text-xs text-muted-foreground">{description}</p>
       </div>
     </div>
-  )
+  );
 }

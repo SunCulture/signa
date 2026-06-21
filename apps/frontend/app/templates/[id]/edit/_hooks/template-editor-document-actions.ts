@@ -11,7 +11,10 @@ import {
 } from "@/lib/api/templates";
 import {
   removeFieldsForAttachment,
+  normalizeTemplateFields,
   rewriteFieldAttachmentUuid,
+  type TemplateEditorField,
+  type TemplateFieldArea,
 } from "../_lib/template-editor-model";
 
 type Context = {
@@ -232,11 +235,230 @@ export function createTemplateEditorDocumentActions(context: Context) {
     }
   }
 
+  async function updateDocumentConditions(
+    document: TemplateDocument,
+    conditions: unknown,
+  ) {
+    const nextSchema = currentTemplate.schema.map((item) => {
+      if (item.attachment_uuid !== document.uuid) {
+        return item;
+      }
+
+      const nextItem = { ...item };
+
+      if (Array.isArray(conditions) && conditions.length > 0) {
+        nextItem.conditions = conditions;
+      } else {
+        delete nextItem.conditions;
+      }
+
+      return nextItem;
+    });
+
+    try {
+      await updateTemplate(currentTemplate.id, { schema: nextSchema });
+      setTemplate((previousTemplate) =>
+        previousTemplate?.id === currentTemplate.id
+          ? { ...previousTemplate, schema: nextSchema }
+          : previousTemplate,
+      );
+      toast.success("Document condition updated");
+    } catch (error) {
+      toast.error("Document condition update failed", {
+        description:
+          error instanceof Error ? error.message : "Condition was not saved.",
+      });
+    }
+  }
+
+  async function reorderDocumentFields(document: TemplateDocument) {
+    const sortedFields = sortDocumentFieldsByPosition(
+      normalizeTemplateFields(currentTemplate.fields),
+      currentTemplate.schema.map((item) => item.attachment_uuid),
+      document.uuid,
+    );
+
+    if (sortedFields.length !== currentTemplate.fields.length) {
+      toast.error("Fields could not be reordered");
+      return;
+    }
+
+    try {
+      await updateTemplate(currentTemplate.id, { fields: sortedFields });
+      setTemplate((previousTemplate) =>
+        previousTemplate?.id === currentTemplate.id
+          ? { ...previousTemplate, fields: sortedFields }
+          : previousTemplate,
+      );
+      toast.success("Fields reordered");
+    } catch (error) {
+      toast.error("Field reorder failed", {
+        description:
+          error instanceof Error ? error.message : "Field order was not saved.",
+      });
+    }
+  }
+
   return {
     addDocument,
     moveDocument,
     removeDocument,
     renameDocument,
     replaceDocument,
+    reorderDocumentFields,
+    updateDocumentConditions,
   };
+}
+
+function sortDocumentFieldsByPosition(
+  templateFields: TemplateEditorField[],
+  attachmentUuids: Array<string | undefined>,
+  documentUuid: string,
+): TemplateEditorField[] {
+  const fieldsOutsideDocument: TemplateEditorField[] = [];
+  const fieldsInsideDocument: TemplateEditorField[] = [];
+
+  templateFields.forEach((field) => {
+    const firstArea = findFirstAreaByTemplateOrder(field, attachmentUuids);
+
+    if (firstArea?.attachment_uuid === documentUuid) {
+      fieldsInsideDocument.push(field);
+    } else {
+      fieldsOutsideDocument.push(field);
+    }
+  });
+
+  fieldsInsideDocument.sort((firstField, secondField) =>
+    compareFirstAreas(firstField, secondField, attachmentUuids),
+  );
+
+  return insertDocumentFieldsInTemplateOrder(
+    fieldsOutsideDocument,
+    fieldsInsideDocument,
+    attachmentUuids,
+    documentUuid,
+    templateFields,
+  );
+}
+
+function findFirstAreaByTemplateOrder(
+  field: TemplateEditorField,
+  attachmentUuids: Array<string | undefined>,
+): TemplateFieldArea | null {
+  const sortedAreas = [...field.areas].sort((firstArea, secondArea) =>
+    compareAreas(firstArea, secondArea, attachmentUuids),
+  );
+
+  return sortedAreas.at(0) ?? null;
+}
+
+function compareFirstAreas(
+  firstField: TemplateEditorField,
+  secondField: TemplateEditorField,
+  attachmentUuids: Array<string | undefined>,
+): number {
+  const firstArea = findFirstAreaByTemplateOrder(firstField, attachmentUuids);
+  const secondArea = findFirstAreaByTemplateOrder(secondField, attachmentUuids);
+
+  if (!firstArea || !secondArea) {
+    return firstArea ? -1 : secondArea ? 1 : 0;
+  }
+
+  return compareAreas(firstArea, secondArea, attachmentUuids);
+}
+
+function compareAreas(
+  firstArea: TemplateFieldArea,
+  secondArea: TemplateFieldArea,
+  attachmentUuids: Array<string | undefined>,
+): number {
+  if (firstArea.attachment_uuid !== secondArea.attachment_uuid) {
+    return (
+      attachmentUuids.indexOf(firstArea.attachment_uuid) -
+      attachmentUuids.indexOf(secondArea.attachment_uuid)
+    );
+  }
+
+  if (firstArea.page !== secondArea.page) {
+    return firstArea.page - secondArea.page;
+  }
+
+  const firstBottom = firstArea.y + firstArea.h;
+  const secondBottom = secondArea.y + secondArea.h;
+
+  if (Math.abs(firstBottom - secondBottom) < 0.01) {
+    return firstArea.x - secondArea.x;
+  }
+
+  if (isAreaVerticallyNested(firstArea, secondArea)) {
+    return firstArea.x - secondArea.x;
+  }
+
+  return firstBottom - secondBottom;
+}
+
+function isAreaVerticallyNested(
+  firstArea: TemplateFieldArea,
+  secondArea: TemplateFieldArea,
+): boolean {
+  const firstBottom = firstArea.y + firstArea.h;
+  const secondBottom = secondArea.y + secondArea.h;
+
+  return firstArea.h < secondArea.h
+    ? firstArea.y >= secondArea.y && firstBottom <= secondBottom
+    : secondArea.y >= firstArea.y && secondBottom <= firstBottom;
+}
+
+function insertDocumentFieldsInTemplateOrder(
+  fieldsOutsideDocument: TemplateEditorField[],
+  fieldsInsideDocument: TemplateEditorField[],
+  attachmentUuids: Array<string | undefined>,
+  documentUuid: string,
+  originalFields: TemplateEditorField[],
+): TemplateEditorField[] {
+  const nextDocumentUuids = attachmentUuids.slice(
+    attachmentUuids.indexOf(documentUuid) + 1,
+  );
+
+  if (!nextDocumentUuids.length) {
+    return shouldPrependLastDocumentFields(
+      fieldsOutsideDocument,
+      fieldsInsideDocument,
+      originalFields,
+    )
+      ? [...fieldsInsideDocument, ...fieldsOutsideDocument]
+      : [...fieldsOutsideDocument, ...fieldsInsideDocument];
+  }
+
+  const insertIndex = fieldsOutsideDocument.findIndex((field) =>
+    field.areas.some((area) =>
+      nextDocumentUuids.includes(area.attachment_uuid),
+    ),
+  );
+
+  if (insertIndex === -1) {
+    return [...fieldsOutsideDocument, ...fieldsInsideDocument];
+  }
+
+  return [
+    ...fieldsOutsideDocument.slice(0, insertIndex),
+    ...fieldsInsideDocument,
+    ...fieldsOutsideDocument.slice(insertIndex),
+  ];
+}
+
+function shouldPrependLastDocumentFields(
+  fieldsOutsideDocument: TemplateEditorField[],
+  fieldsInsideDocument: TemplateEditorField[],
+  originalFields: TemplateEditorField[],
+): boolean {
+  const firstOutsideField = fieldsOutsideDocument.at(0);
+  const firstInsideField = fieldsInsideDocument.at(0);
+
+  return Boolean(
+    firstOutsideField &&
+      firstInsideField &&
+      originalFields.indexOf(firstOutsideField) >
+        originalFields.indexOf(firstInsideField),
+  );
 }

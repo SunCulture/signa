@@ -2,6 +2,7 @@ export const runtimeJobNames = {
   deliverCompletedEmail: 'deliver-completed-email',
   deliverDeclinedEmail: 'deliver-declined-email',
   deliverDocumentsCopyEmail: 'deliver-documents-copy-email',
+  deliverReminderEmail: 'deliver-reminder-email',
   deliverSignatureRequestEmail: 'deliver-signature-request-email',
   deliverSubmitterVerificationEmail: 'deliver-submitter-verification-email',
   deliverSubmitterSms: 'deliver-submitter-sms',

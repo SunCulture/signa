@@ -5,6 +5,9 @@ import { MailService } from './mail.service';
 
 describe('MailService', () => {
   let config: { get: jest.Mock };
+  let emailEvents: { create: jest.Mock; save: jest.Mock };
+  let emailMessages: { create: jest.Mock; save: jest.Mock };
+  let encryptedConfigs: { findOne: jest.Mock; save: jest.Mock };
   let mailer: { sendMail: jest.Mock };
   let templates: jest.Mocked<
     Pick<MailTemplateResolver, 'assertTemplateExists'>
@@ -31,11 +34,30 @@ describe('MailService', () => {
         response: 'queued',
       }),
     };
+    encryptedConfigs = {
+      findOne: jest.fn().mockResolvedValue(null),
+      save: jest.fn(),
+    };
+    emailMessages = {
+      create: jest.fn((input: Record<string, unknown>) => input),
+      save: jest
+        .fn()
+        .mockImplementation((input: Record<string, unknown>) =>
+          Promise.resolve({ ...input, id: 'message-row-1' }),
+        ),
+    };
+    emailEvents = {
+      create: jest.fn((input: Record<string, unknown>) => input),
+      save: jest.fn().mockResolvedValue(undefined),
+    };
     templates = {
       assertTemplateExists: jest.fn(),
     };
     service = new MailService(
       config as unknown as ConfigService,
+      encryptedConfigs as never,
+      emailMessages as never,
+      emailEvents as never,
       mailer as never,
       templates as unknown as MailTemplateResolver,
     );

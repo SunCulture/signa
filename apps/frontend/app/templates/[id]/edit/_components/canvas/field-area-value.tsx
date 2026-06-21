@@ -96,5 +96,5 @@ export function FieldAreaValue({
     return <CheckSquareIcon className="size-7 opacity-70" />;
   }
 
-  return <Icon className="size-8 opacity-45" />;
+  return <Icon className="h-full w-full max-h-[4.4cqmin] opacity-50" />;
 }

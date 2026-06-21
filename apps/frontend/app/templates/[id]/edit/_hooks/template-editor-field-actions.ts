@@ -107,9 +107,19 @@ export function createTemplateEditorFieldActions(context: Context) {
       return;
     }
 
+    const firstPreview = selectedDocument.preview_images.at(0);
+    const previewWidth = firstPreview?.metadata?.width;
+    const previewHeight = firstPreview?.metadata?.height;
+
     await createField(
       centerDefaultArea({
         attachmentUuid: selectedDocument.uuid,
+        pageAspectRatio:
+          typeof previewWidth === "number" &&
+          typeof previewHeight === "number" &&
+          previewHeight > 0
+            ? previewWidth / previewHeight
+            : undefined,
         pageIndex: 0,
         pointer: { x: 0.5, y: 0.18 },
         type: activeFieldType,
@@ -224,7 +234,10 @@ export function createTemplateEditorFieldActions(context: Context) {
       return;
     }
 
-    const nextArea = normalizeArea(area, existingField.type);
+    const nextArea = {
+      ...normalizeArea(area, existingField.type),
+      ...(payload.optionUuid ? { option_uuid: payload.optionUuid } : null),
+    };
     const nextFields = currentFields.map((field) =>
       field.uuid === existingField.uuid
         ? {
@@ -347,7 +360,7 @@ export function createTemplateEditorFieldActions(context: Context) {
     if (
       currentIndex < 0 ||
       targetIndex < 0 ||
-      targetIndex >= currentFields.length ||
+      targetIndex > currentFields.length ||
       currentIndex === targetIndex
     ) {
       return;
@@ -360,7 +373,14 @@ export function createTemplateEditorFieldActions(context: Context) {
       return;
     }
 
-    nextFields.splice(targetIndex, 0, field);
+    const normalizedTargetIndex =
+      currentIndex < targetIndex ? targetIndex - 1 : targetIndex;
+
+    if (currentIndex === normalizedTargetIndex) {
+      return;
+    }
+
+    nextFields.splice(normalizedTargetIndex, 0, field);
     await persistTemplateStructure({
       fields: nextFields,
       successMessage: "Field order updated",

@@ -61,6 +61,7 @@
     "dotenv": "^17.4.2",
     "express-basic-auth": "^1.2.1",
     "file-type": "^22.0.1",
+    "fflate": "^0.8.3",
     "handlebars": "^4.7.9",
     "helmet": "^8.2.0",
     "joi": "^18.2.3",

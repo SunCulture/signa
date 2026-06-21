@@ -45,11 +45,17 @@ export class MailDeliveryBuilder {
     );
     const templatePreferences =
       submitter.submission.template?.preferences ?? {};
+    const submitterMessage = isRecord(submitter.preferences.message)
+      ? submitter.preferences.message
+      : {};
     const customBody =
-      stringValue(submitter.preferences.message) ??
+      stringValue(submitter.preferences.request_email_body) ??
+      stringValue(submitterMessage.body) ??
       stringValue(templatePreferences.request_email_body) ??
       stringValue(accountConfig?.body);
     const customSubject =
+      stringValue(submitter.preferences.request_email_subject) ??
+      stringValue(submitterMessage.subject) ??
       stringValue(templatePreferences.request_email_subject) ??
       stringValue(accountConfig?.subject);
     const defaultTemplate = this.templates.renderDefault(
@@ -62,9 +68,10 @@ export class MailDeliveryBuilder {
       : defaultTemplate.subject;
 
     return {
+      accountId: submitter.accountId,
       to: this.submitterAddress(submitter),
       subject: subject ?? defaultTemplate.subject,
-      template: 'submitter-invitation',
+      template: 'submitter-invitation-reminder',
       replyTo: this.buildReplyTo(submitter, accountConfig),
       context: {
         ...this.branding.getBaseContext(),
@@ -84,6 +91,55 @@ export class MailDeliveryBuilder {
     };
   }
 
+  async buildInvitationReminder(
+    submitter: Submitter,
+  ): Promise<SendTemplateMailInput | null> {
+    if (!submitter.email || !canInviteSubmitter(submitter)) {
+      return null;
+    }
+
+    const context = this.buildSubmitterContext(submitter, {
+      trackEmailClick: true,
+    });
+    const accountConfig = await this.getAccountConfigValue(
+      submitter.accountId,
+      accountMailConfigKeys.submitterInvitationReminderEmail,
+    );
+    const defaultTemplate = this.templates.renderDefault(
+      'submitter-invitation-reminder',
+      context,
+    );
+    const custom = this.templates.renderCustom(
+      stringValue(accountConfig?.body),
+      context,
+    );
+    const customSubject = stringValue(accountConfig?.subject);
+    const subject = customSubject
+      ? this.templates.renderCustom(customSubject, context)?.markdown
+      : defaultTemplate.subject;
+
+    return {
+      accountId: submitter.accountId,
+      to: this.submitterAddress(submitter),
+      subject: subject ?? defaultTemplate.subject,
+      template: 'submitter-invitation',
+      replyTo: this.buildReplyTo(submitter, accountConfig),
+      context: {
+        ...this.branding.getBaseContext(),
+        ...context,
+        actionLabel: submitterHasSignatureFields(submitter)
+          ? 'Review and Sign'
+          : 'Review and Submit',
+        actionUrl: context.submitterLink,
+        contentHtml: custom?.contentHtml ?? defaultTemplate.contentHtml,
+        headline: 'Reminder to sign',
+        preheader: subject ?? defaultTemplate.subject,
+        recipientName: context.submitterFirstName ?? 'there',
+        subject: subject ?? defaultTemplate.subject,
+      },
+    };
+  }
+
   buildVerification(
     submitter: Submitter,
     otpCode: string,
@@ -95,6 +151,7 @@ export class MailDeliveryBuilder {
     const context = this.buildSubmitterContext(submitter);
 
     return {
+      accountId: submitter.accountId,
       to: this.submitterAddress(submitter),
       subject: 'Email verification',
       template: 'submitter-otp-verification',
@@ -155,6 +212,7 @@ export class MailDeliveryBuilder {
 
     return [
       {
+        accountId: submitter.accountId,
         to: userAddress(recipient),
         subject: subject ?? defaultTemplate.subject,
         template: 'submitter-completed',
@@ -218,6 +276,7 @@ export class MailDeliveryBuilder {
         accountConfig?.attach_audit_log !== false,
     });
     const input: SendTemplateMailInput = {
+      accountId: submitter.accountId,
       to: recipients,
       subject: subject ?? defaultTemplate.subject,
       template: 'submitter-documents-copy',
@@ -254,6 +313,7 @@ export class MailDeliveryBuilder {
 
     return [
       {
+        accountId: submitter.accountId,
         to: userAddress(recipient),
         subject,
         template: 'submitter-declined',

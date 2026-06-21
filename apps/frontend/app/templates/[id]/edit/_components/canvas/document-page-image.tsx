@@ -6,6 +6,7 @@ import type {
 } from "react";
 import { useRef, useState } from "react";
 import type { TemplateDocumentPreviewImage } from "@/lib/api/templates";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { FieldAreaOverlay } from "./field-area-overlay";
 import {
@@ -87,6 +88,7 @@ export function DocumentPageImage({
   const [drawDraft, setDrawDraft] = useState<DrawDraft | null>(null);
   const width = getPreviewDimension(previewImage.metadata.width, 1400);
   const height = getPreviewDimension(previewImage.metadata.height, 1812);
+  const pageAspectRatio = width / height;
   const pageFields = fields.flatMap((field) =>
     field.areas.flatMap((area, areaIndex) =>
       area.attachment_uuid === documentUuid && area.page === pageIndex
@@ -187,6 +189,7 @@ export function DocumentPageImage({
       area.w < 0.008 && area.h < 0.008
         ? centerDefaultArea({
             attachmentUuid: documentUuid,
+            pageAspectRatio,
             pageIndex,
             pointer,
             type: activeFieldType,
@@ -227,6 +230,7 @@ export function DocumentPageImage({
       payload,
       centerDefaultArea({
         attachmentUuid: documentUuid,
+        pageAspectRatio,
         pageIndex,
         pointer,
         type,
@@ -270,34 +274,37 @@ export function DocumentPageImage({
         src={previewImage.url}
         width={width}
       />
-      <div className="absolute inset-0" data-page-layer>
-        {pageFields.map(({ area, areaIndex, field }) => (
-          <FieldAreaOverlay
-            area={area}
-            areaIndex={areaIndex}
-            field={field}
-            isSelected={field.uuid === selectedFieldUuid}
-            isMultiSelected={selectedFieldUuids.includes(field.uuid)}
-            isSaving={isSavingFields}
-            key={`${field.uuid}-${areaIndex}`}
-            onCopySelectedFields={onCopySelectedFields}
-            onDeleteField={onDeleteField}
-            onDeleteSelectedFields={onDeleteSelectedFields}
-            onNudgeSelectedFields={onNudgeSelectedFields}
-            onPasteCopiedFields={onPasteCopiedFields}
-            onSelectField={onSelectField}
-            onUpdateField={onUpdateField}
-            onUpdateFieldArea={onUpdateFieldArea}
-            submitters={submitters}
-          />
-        ))}
-        {drawDraft ? (
-          <div
-            className="pointer-events-none absolute rounded border-2 border-dashed border-red-500 bg-red-500/10"
-            style={areaToStyle(drawDraft.area)}
-          />
-        ) : null}
-      </div>
+      <TooltipProvider>
+        <div className="absolute inset-0" data-page-layer>
+          {pageFields.map(({ area, areaIndex, field }) => (
+            <FieldAreaOverlay
+              area={area}
+              areaIndex={areaIndex}
+              field={field}
+              fields={fields}
+              isSelected={field.uuid === selectedFieldUuid}
+              isMultiSelected={selectedFieldUuids.includes(field.uuid)}
+              isSaving={isSavingFields}
+              key={`${field.uuid}-${areaIndex}`}
+              onCopySelectedFields={onCopySelectedFields}
+              onDeleteField={onDeleteField}
+              onDeleteSelectedFields={onDeleteSelectedFields}
+              onNudgeSelectedFields={onNudgeSelectedFields}
+              onPasteCopiedFields={onPasteCopiedFields}
+              onSelectField={onSelectField}
+              onUpdateField={onUpdateField}
+              onUpdateFieldArea={onUpdateFieldArea}
+              submitters={submitters}
+            />
+          ))}
+          {drawDraft ? (
+            <div
+              className="pointer-events-none absolute rounded border-2 border-dashed border-red-500 bg-red-500/10"
+              style={areaToStyle(drawDraft.area)}
+            />
+          ) : null}
+        </div>
+      </TooltipProvider>
     </div>
   );
 }

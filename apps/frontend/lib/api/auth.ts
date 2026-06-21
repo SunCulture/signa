@@ -72,6 +72,16 @@ export type AccountPreferences = {
   require_signing_reason: boolean
   with_file_links: boolean
   with_signature_id: boolean
+  esigning_preference: "single" | "multiple"
+  flatten_result_pdf: boolean
+  document_filename_format: DocumentFilenameFormat
+  submitter_invitation_email: AccountEmailTemplate
+  submitter_documents_copy_email: AccountDocumentsCopyEmailTemplate
+  submitter_completed_email: AccountCompletedEmailTemplate
+  form_completed_message: CompletedFormMessage
+  form_completed_button: CompletedFormButton
+  form_with_confetti: boolean
+  policy_links: string
 }
 
 export type SubmitterReminders = {
@@ -80,14 +90,110 @@ export type SubmitterReminders = {
   third_duration: string | null
 }
 
+export type DocumentFilenameFormat =
+  | "{document.name}"
+  | "{document.name} - {submission.status}"
+  | "{document.name} - {submission.submitters}"
+  | "{document.name} - {submission.submitters} - {submission.completed_at}"
+
+export type AccountEmailTemplate = {
+  subject: string
+  body: string
+  reply_to?: string | null
+}
+
+export type AccountDocumentsCopyEmailTemplate = AccountEmailTemplate & {
+  attach_audit_log: boolean
+  attach_documents: boolean
+  enabled: boolean
+}
+
+export type AccountCompletedEmailTemplate = AccountEmailTemplate & {
+  attach_audit_log: boolean
+  attach_documents: boolean
+}
+
+export type CompletedFormMessage = {
+  title?: string
+  body?: string
+}
+
+export type CompletedFormButton = {
+  title?: string
+  url?: string
+}
+
+export type AccountLogo = {
+  uuid: string
+  filename: string
+  content_type: string | null
+  url: string
+}
+
+export type SigningCertificate = {
+  name: string
+  filename?: string
+  status: "active" | "default"
+  valid_to: string | null
+}
+
+export type AccountEmailIntegrationProvider = "gmail" | "microsoft"
+
+export type AccountEmailIntegration = {
+  provider: AccountEmailIntegrationProvider
+  name: string
+  connected: boolean
+  configured: boolean
+  email: string | null
+  connected_at: string | null
+}
+
+export type AccountEmailIntegrationConnectResponse = {
+  provider: AccountEmailIntegrationProvider
+  connected: boolean
+  configured: boolean
+  url: string | null
+}
+
+export const apiTokenPermissions = [
+  "templates:read",
+  "templates:write",
+  "submissions:read",
+  "submissions:write",
+  "submitters:read",
+  "submitters:write",
+  "webhooks:read",
+  "webhooks:write",
+  "tools:use",
+  "users:read",
+  "users:write",
+] as const
+
+export type ApiTokenPermission = (typeof apiTokenPermissions)[number]
+
+export type ApiToken = {
+  id: string
+  token: string
+  role: SignaRole | "unknown"
+  permissions: ApiTokenPermission[]
+  permissions_note: string
+  created_at: string
+  updated_at: string
+  last_used_at: string | null
+}
+
+export type RevealedApiToken = ApiToken & {
+  revealed_token: string
+}
+
 export type UpdateAccountPreferencesInput = Partial<AccountPreferences>
 
 export type UserStatus = "active" | "archived"
 
 export type CreateUserInput = {
   email: string
-  first_name: string
-  last_name: string
+  first_name?: string
+  last_name?: string
   password?: string
   role?: SignaRole
 }
@@ -98,8 +204,8 @@ export type UpdateUserInput = Partial<CreateUserInput> & {
 
 export type ImportUserInput = {
   email: string
-  first_name: string
-  last_name: string
+  first_name?: string
+  last_name?: string
   role?: SignaRole
   team?: string
 }
@@ -228,6 +334,150 @@ export function updateAccountPreferences(
 ): Promise<AccountPreferences> {
   return authenticatedApiFetch<AccountPreferences>("/account/preferences", {
     body: JSON.stringify(input),
+    method: "PATCH",
+  })
+}
+
+export function getAccountLogo(): Promise<AccountLogo | null> {
+  return authenticatedApiFetch<AccountLogo | null>("/account/logo")
+}
+
+export function uploadAccountLogo(file: File): Promise<AccountLogo> {
+  const formData = new FormData()
+
+  formData.set("file", file, file.name)
+
+  return authenticatedApiFetch<AccountLogo>("/account/logo", {
+    body: formData,
+    method: "POST",
+  })
+}
+
+export function deleteAccountLogo(): Promise<AccountLogo | null> {
+  return authenticatedApiFetch<AccountLogo | null>("/account/logo", {
+    method: "DELETE",
+  })
+}
+
+export async function listSigningCertificates(): Promise<
+  SigningCertificate[]
+> {
+  const response = await authenticatedApiFetch<{ data: SigningCertificate[] }>(
+    "/account/signing-certificates"
+  )
+
+  return response.data
+}
+
+export function uploadSigningCertificate(
+  file: File,
+  name: string
+): Promise<SigningCertificate> {
+  const formData = new FormData()
+
+  formData.set("name", name)
+  formData.set("file", file, file.name)
+
+  return authenticatedApiFetch<SigningCertificate>(
+    "/account/signing-certificates",
+    {
+      body: formData,
+      method: "POST",
+    }
+  )
+}
+
+export function makeDefaultSigningCertificate(
+  name: string
+): Promise<SigningCertificate> {
+  return authenticatedApiFetch<SigningCertificate>(
+    "/account/signing-certificates/default",
+    {
+      body: JSON.stringify({ name }),
+      method: "PATCH",
+    }
+  )
+}
+
+export function deleteSigningCertificate(
+  name: string
+): Promise<SigningCertificate> {
+  return authenticatedApiFetch<SigningCertificate>(
+    "/account/signing-certificates",
+    {
+      body: JSON.stringify({ name }),
+      method: "DELETE",
+    }
+  )
+}
+
+export async function listAccountEmailIntegrations(): Promise<
+  AccountEmailIntegration[]
+> {
+  const response = await authenticatedApiFetch<{
+    data: AccountEmailIntegration[]
+  }>("/account/integrations")
+
+  return response.data
+}
+
+export function connectAccountEmailIntegration(
+  provider: AccountEmailIntegrationProvider
+): Promise<AccountEmailIntegrationConnectResponse> {
+  return authenticatedApiFetch<AccountEmailIntegrationConnectResponse>(
+    `/account/integrations/${provider}/connect`,
+    { method: "POST" }
+  )
+}
+
+export function completeAccountEmailIntegration(
+  provider: AccountEmailIntegrationProvider,
+  input: { code: string; state?: string | null }
+): Promise<AccountEmailIntegration> {
+  return authenticatedApiFetch<AccountEmailIntegration>(
+    `/account/integrations/${provider}/callback`,
+    {
+      body: JSON.stringify(input),
+      method: "POST",
+    }
+  )
+}
+
+export function disconnectAccountEmailIntegration(
+  provider: AccountEmailIntegrationProvider
+): Promise<AccountEmailIntegration> {
+  return authenticatedApiFetch<AccountEmailIntegration>(
+    `/account/integrations/${provider}`,
+    { method: "DELETE" }
+  )
+}
+
+export function getApiToken(): Promise<ApiToken> {
+  return authenticatedApiFetch<ApiToken>("/auth/api-token")
+}
+
+export function revealApiToken(password: string): Promise<RevealedApiToken> {
+  return authenticatedApiFetch<RevealedApiToken>("/auth/api-token/reveal", {
+    body: JSON.stringify({ password }),
+    method: "POST",
+  })
+}
+
+export function rotateApiToken(input: {
+  password: string
+  permissions?: ApiTokenPermission[]
+}): Promise<RevealedApiToken> {
+  return authenticatedApiFetch<RevealedApiToken>("/auth/api-token/rotate", {
+    body: JSON.stringify(input),
+    method: "POST",
+  })
+}
+
+export function updateApiTokenPermissions(
+  permissions: ApiTokenPermission[]
+): Promise<ApiToken> {
+  return authenticatedApiFetch<ApiToken>("/auth/api-token/permissions", {
+    body: JSON.stringify({ permissions }),
     method: "PATCH",
   })
 }

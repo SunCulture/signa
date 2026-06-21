@@ -1,15 +1,22 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { AuthService } from './auth.service';
 import { AccessToken } from './entities/access-token.entity';
 
-type MockRepository<T extends object> = Pick<Repository<T>, 'findOne'>;
+type MockRepository<T extends object> = Pick<
+  Repository<T>,
+  'create' | 'findOne' | 'save' | 'update'
+>;
 
 function createRepository<T extends object>(): jest.Mocked<MockRepository<T>> {
   return {
+    create: jest.fn((value: T) => value),
     findOne: jest.fn(),
+    save: jest.fn((value: T) => Promise.resolve(value)),
+    update: jest.fn(),
   };
 }
 
@@ -39,6 +46,12 @@ describe('AuthService', () => {
           useValue: accessTokens,
         },
         {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn().mockReturnValue('test-secret'),
+          },
+        },
+        {
           provide: DataSource,
           useValue: dataSource,
         },
@@ -62,10 +75,12 @@ describe('AuthService', () => {
   it('returns tenant context for a valid token', async () => {
     accessTokens.findOne.mockResolvedValue({
       id: 'token-1',
+      permissions: ['templates:read'],
       userId: 'user-1',
       user: {
         accountId: 'account-1',
         archivedAt: null,
+        role: 'admin',
         account: {
           archivedAt: null,
         },
@@ -76,6 +91,8 @@ describe('AuthService', () => {
       accountId: 'account-1',
       userId: 'user-1',
       accessTokenId: 'token-1',
+      role: 'admin',
+      apiTokenPermissions: ['templates:read'],
     });
   });
 

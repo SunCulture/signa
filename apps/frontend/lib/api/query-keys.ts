@@ -27,4 +27,10 @@ export const queryKeys = {
       ["submitters", "list", params] as const,
     detail: (id: string) => ["submitters", "detail", id] as const,
   },
+  webhooks: {
+    all: ["webhooks"] as const,
+    list: () => ["webhooks", "list"] as const,
+    events: (id: string, status: string) =>
+      ["webhooks", "events", id, status] as const,
+  },
 } as const

@@ -39,7 +39,17 @@ export async function apiFetch<TResponse>(
     throw new ApiError(message, response.status, details)
   }
 
-  return response.json() as Promise<TResponse>
+  if (response.status === 204 || response.status === 205) {
+    return undefined as TResponse
+  }
+
+  const text = await response.text()
+
+  if (!text) {
+    return undefined as TResponse
+  }
+
+  return JSON.parse(text) as TResponse
 }
 
 function normalizePath(path: string): string {

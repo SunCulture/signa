@@ -7,6 +7,7 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
@@ -19,15 +20,18 @@ import {
   ApiSecurity,
   ApiTags,
 } from '@nestjs/swagger';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { ApiOrJwtGuard } from '../auth/guards/api-or-jwt/api-or-jwt.guard';
 import { UserHydrationGuard } from '../auth/guards/user-hydration/user-hydration.guard';
 import { CurrentUser } from '../common/decorators/user.decorator';
 import { UploadedBufferFile } from '../storage/storage.types';
 import type { SubmissionRequestMetadata } from './submission-event-data';
 import { User } from '../users/entities/user.entity';
+import { CreateSubmissionFromDocxDto } from './dto/create-submission-from-docx.dto';
+import { CreateSubmissionFromHtmlDto } from './dto/create-submission-from-html.dto';
 import { CreateSubmissionFromPdfDto } from './dto/create-submission-from-pdf.dto';
 import {
+  CreateSubmissionBatchDto,
   CreateSubmissionAliasDto,
   CreateSubmissionDto,
 } from './dto/create-submission.dto';
@@ -44,6 +48,7 @@ import {
   SubmissionsListResponseDto,
 } from './dto/submission-response.dto';
 import { SubmissionEventLogResponseDto } from './dto/submission-event-log-response.dto';
+import { SubmissionExportService } from './submission-export.service';
 import { SubmissionsService } from './submissions.service';
 
 @Controller('submissions')
@@ -113,7 +118,11 @@ export class SubmissionsController {
   @ApiOkResponse({ type: [SubmissionSubmitterResponseDto] })
   createSubmission(
     @CurrentUser() user: User,
-    @Body() body: CreateSubmissionDto,
+    @Body()
+    body:
+      | CreateSubmissionDto
+      | CreateSubmissionBatchDto
+      | CreateSubmissionDto[],
     @Req() request: Request,
   ): Promise<SubmissionSubmitterResponseDto[]> {
     return this.submissionsService.createSubmission(
@@ -175,6 +184,34 @@ export class SubmissionsController {
     );
   }
 
+  @Post('html')
+  @ApiOkResponse({ type: [SubmissionSubmitterResponseDto] })
+  createSubmissionFromHtml(
+    @CurrentUser() user: User,
+    @Body() body: CreateSubmissionFromHtmlDto,
+    @Req() request: Request,
+  ): Promise<SubmissionSubmitterResponseDto[]> {
+    return this.submissionsService.createSubmissionFromHtml(
+      user,
+      body,
+      getSubmissionRequestMetadata(request),
+    );
+  }
+
+  @Post('docx')
+  @ApiOkResponse({ type: [SubmissionSubmitterResponseDto] })
+  createSubmissionFromDocx(
+    @CurrentUser() user: User,
+    @Body() body: CreateSubmissionFromDocxDto,
+    @Req() request: Request,
+  ): Promise<SubmissionSubmitterResponseDto[]> {
+    return this.submissionsService.createSubmissionFromDocx(
+      user,
+      body,
+      getSubmissionRequestMetadata(request),
+    );
+  }
+
   @Delete(':id')
   @ApiOkResponse({ type: SubmissionDeleteResponseDto })
   deleteSubmission(
@@ -192,7 +229,31 @@ export class SubmissionsController {
 @ApiBearerAuth()
 @ApiSecurity('X-Auth-Token')
 export class TemplateSubmissionsController {
-  constructor(private readonly submissionsService: SubmissionsService) {}
+  constructor(
+    private readonly submissionsService: SubmissionsService,
+    private readonly submissionExportService: SubmissionExportService,
+  ) {}
+
+  @Get('export')
+  async exportTemplateSubmissions(
+    @CurrentUser() user: User,
+    @Param('templateId') templateId: string,
+    @Query() query: ListSubmissionsQueryDto & { format?: string },
+    @Res() response: Response,
+  ): Promise<void> {
+    const file = await this.submissionExportService.exportTemplateSubmissions(
+      user.accountId,
+      templateId,
+      query,
+    );
+
+    response.setHeader('Content-Type', file.contentType);
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${file.filename}"`,
+    );
+    response.send(file.content);
+  }
 
   @Get()
   @ApiOkResponse({ type: SubmissionsListResponseDto })
