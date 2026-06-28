@@ -1,5 +1,6 @@
 import { InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { MailBrandingService } from './mail-branding.service';
 import { MailTemplateResolver } from './mail-template-resolver.service';
 import { MailService } from './mail.service';
 
@@ -9,6 +10,7 @@ describe('MailService', () => {
   let emailMessages: { create: jest.Mock; save: jest.Mock };
   let encryptedConfigs: { findOne: jest.Mock; save: jest.Mock };
   let mailer: { sendMail: jest.Mock };
+  let branding: jest.Mocked<Pick<MailBrandingService, 'getBaseContext'>>;
   let templates: jest.Mocked<
     Pick<MailTemplateResolver, 'assertTemplateExists'>
   >;
@@ -20,7 +22,7 @@ describe('MailService', () => {
         const values: Record<string, unknown> = {
           MAIL_ENABLED: true,
           MAIL_FROM_NAME: 'Signa',
-          MAIL_FROM_ADDRESS: 'no-reply@signa.local',
+          MAIL_FROM_ADDRESS: 'no-reply@signa.com',
         };
 
         return values[key] ?? fallback;
@@ -50,6 +52,9 @@ describe('MailService', () => {
       create: jest.fn((input: Record<string, unknown>) => input),
       save: jest.fn().mockResolvedValue(undefined),
     };
+    branding = {
+      getBaseContext: jest.fn().mockReturnValue({ productName: 'Signa' }),
+    };
     templates = {
       assertTemplateExists: jest.fn(),
     };
@@ -58,6 +63,7 @@ describe('MailService', () => {
       encryptedConfigs as never,
       emailMessages as never,
       emailEvents as never,
+      branding as unknown as MailBrandingService,
       mailer as never,
       templates as unknown as MailTemplateResolver,
     );
@@ -76,7 +82,7 @@ describe('MailService', () => {
     );
     expect(mailer.sendMail).toHaveBeenCalledWith(
       expect.objectContaining({
-        from: '"Signa" <no-reply@signa.local>',
+        from: '"Signa" <no-reply@signa.com>',
         to: ['"Ada Lovelace" <ada@example.com>'],
         subject: 'Hello',
         template: 'submitter-invitation',

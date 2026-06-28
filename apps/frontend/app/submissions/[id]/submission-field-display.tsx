@@ -13,13 +13,26 @@ export function SubmissionFieldValue({
   field: SigningField
   submission: SubmissionResponse
 }) {
-  const value = findSubmissionFieldValue(field, submission)
+  const fieldValue = findSubmissionFieldValue(field, submission)
+  const value = fieldValue?.value
+  const attachment = fieldValue?.attachment
 
   if (field.type === "checkbox") {
     return <span className="text-lg font-bold">{value ? "✓" : ""}</span>
   }
 
   if (field.type === "signature" || field.type === "initials") {
+    if (attachment) {
+      return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt={attachment.filename}
+          className="max-h-20 w-full object-contain"
+          src={attachment.url}
+        />
+      )
+    }
+
     return (
       <span className="text-sm font-bold">
         {isBlank(value) ? field.name ?? "Sign Here" : "Signed"}
@@ -28,6 +41,30 @@ export function SubmissionFieldValue({
   }
 
   if (field.type === "file" || field.type === "image") {
+    if (attachment && isImageContentType(attachment.content_type)) {
+      return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt={attachment.filename}
+          className="max-h-28 w-full rounded-sm object-contain"
+          src={attachment.url}
+        />
+      )
+    }
+
+    if (attachment) {
+      return (
+        <a
+          className="truncate text-sm font-semibold underline underline-offset-4"
+          href={attachment.url}
+          rel="noreferrer"
+          target="_blank"
+        >
+          {attachment.filename}
+        </a>
+      )
+    }
+
     return (
       <span className="truncate text-sm font-semibold">
         {isBlank(value) ? field.name ?? "Upload" : "Uploaded"}
@@ -73,18 +110,26 @@ export function compareFieldsByDocumentPosition(
 function findSubmissionFieldValue(
   field: SigningField,
   submission: SubmissionResponse,
-): unknown {
+): SubmissionFieldValueRecord | null {
   for (const submitter of submission.submitters) {
     const match = submitter.values?.find(
       (item) => item.field === field.name || item.field === field.uuid,
     )
 
     if (match) {
-      return match.value
+      return match
     }
   }
 
   return null
+}
+
+type SubmissionFieldValueRecord = NonNullable<
+  SubmissionResponse["submitters"][number]["values"]
+>[number]
+
+function isImageContentType(contentType: string | null | undefined): boolean {
+  return typeof contentType === "string" && contentType.startsWith("image/")
 }
 
 function isBlank(value: unknown): boolean {

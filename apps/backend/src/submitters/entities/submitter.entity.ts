@@ -9,6 +9,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { v4 as uuidv4 } from 'uuid';
 import { Account } from '../../accounts/entities/account.entity';
 import type {
   SubmitterMetadata,
@@ -21,7 +22,7 @@ import { Submission } from '../../submissions/entities/submission.entity';
 @Entity('submitters')
 @Index(['accountId', 'id'])
 export class Submitter {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Index()
@@ -36,17 +37,15 @@ export class Submitter {
   @Column({
     type: 'varchar',
     length: 255,
-    default: () => '(gen_random_uuid())',
   })
-  uuid!: string;
+  uuid: string = uuidv4();
 
   @Index({ unique: true })
   @Column({
     type: 'varchar',
     length: 255,
-    default: () => '(gen_random_uuid())',
   })
-  slug!: string;
+  slug: string = uuidv4();
 
   @Index()
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -71,16 +70,16 @@ export class Submitter {
   @Column({ type: 'simple-json' })
   values!: SubmitterValues;
 
-  @Column({ name: 'sent_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'sent_at', type: Date, nullable: true })
   sentAt!: Date | null;
 
-  @Column({ name: 'opened_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'opened_at', type: Date, nullable: true })
   openedAt!: Date | null;
 
-  @Column({ name: 'completed_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'completed_at', type: Date, nullable: true })
   completedAt!: Date | null;
 
-  @Column({ name: 'declined_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'declined_at', type: Date, nullable: true })
   declinedAt!: Date | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -92,10 +91,10 @@ export class Submitter {
   @Column({ type: 'varchar', length: 255, nullable: true })
   ua!: string | null;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => Account, { onDelete: 'CASCADE' })

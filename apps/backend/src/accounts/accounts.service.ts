@@ -7,6 +7,15 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
 import { throwDatabaseErrors, throwIfNotFound } from '../common/utils/error';
+import { MailService } from '../mail/mail.service';
+import {
+  buildStoredSigningCertificate,
+  defaultSigningCertificateKey,
+  parseStoredSigningCertificate,
+  signaDefaultCertificateName,
+  signingCertificatePrefix,
+} from '../pdf-signatures/pdf-signature-certificate';
+import { PdfSignatureService } from '../pdf-signatures/pdf-signature.service';
 import { StorageAttachment } from '../storage/entities/storage-attachment.entity';
 import { StorageService } from '../storage/storage.service';
 import { UploadedBufferFile } from '../storage/storage.types';
@@ -34,9 +43,8 @@ import { AccountLinkedAccount } from './entities/account-linked-account.entity';
 import { Account } from './entities/account.entity';
 import { EncryptedConfig } from './entities/encrypted-config.entity';
 
-const signingCertificatePrefix = 'signing_certificate:';
-const defaultSigningCertificateKey = 'default_signing_certificate';
 const emailIntegrationProviders = ['gmail', 'microsoft'] as const;
+const templateCustomFieldsKey = 'template_custom_fields';
 
 type EmailIntegrationProvider = (typeof emailIntegrationProviders)[number];
 
@@ -55,6 +63,8 @@ export class AccountsService {
     private readonly encryptedConfigs: Repository<EncryptedConfig>,
     private readonly storageService: StorageService,
     private readonly configService: ConfigService,
+    private readonly mailService: MailService,
+    private readonly pdfSignatureService: PdfSignatureService,
   ) {}
 
   findActiveAccount(accountId: string): Promise<Account | null> {
@@ -95,6 +105,23 @@ export class AccountsService {
     );
   }
 
+  async sendMailTransportTest(options: {
+    accountId: string;
+    userId: string;
+  }): Promise<{ ok: true }> {
+    const user = await this.users.findOneByOrFail({
+      accountId: options.accountId,
+      id: options.userId,
+    });
+
+    await this.mailService.sendSmtpSuccessfulSetup({
+      accountId: options.accountId,
+      email: user.email,
+    });
+
+    return { ok: true };
+  }
+
   async getAccountPreferences(
     accountId: string,
   ): Promise<AccountPreferencesResponseDto> {
@@ -108,6 +135,52 @@ export class AccountsService {
         },
       }),
     );
+  }
+
+  async getTemplateCustomFields(
+    accountId: string,
+  ): Promise<Record<string, unknown>[]> {
+    await this.findActiveAccountOrFail(accountId);
+
+    const config = await this.accountConfigs.findOne({
+      where: {
+        accountId,
+        key: templateCustomFieldsKey,
+      },
+    });
+
+    return normalizeCustomFields(config?.value);
+  }
+
+  async updateTemplateCustomFields(
+    accountId: string,
+    value: unknown,
+  ): Promise<Record<string, unknown>[]> {
+    await this.findActiveAccountOrFail(accountId);
+
+    const customFields = normalizeCustomFields(value);
+    const existingConfig = await this.accountConfigs.findOne({
+      where: {
+        accountId,
+        key: templateCustomFieldsKey,
+      },
+    });
+    const config =
+      existingConfig ??
+      this.accountConfigs.create({
+        accountId,
+        key: templateCustomFieldsKey,
+      });
+
+    config.value = customFields;
+
+    try {
+      return normalizeCustomFields(
+        (await this.accountConfigs.save(config)).value,
+      );
+    } catch (error) {
+      throwDatabaseErrors(error);
+    }
   }
 
   async updateAccount(
@@ -277,8 +350,9 @@ export class AccountsService {
     accountId: string,
   ): Promise<SigningCertificateListResponseDto> {
     await this.findActiveAccountOrFail(accountId);
+    await this.pdfSignatureService.ensureDefaultCertificate(accountId);
 
-    const [configs, defaultConfig] = await Promise.all([
+    const [configs, defaultConfig, timestampServerUrl] = await Promise.all([
       this.encryptedConfigs.find({
         where: { accountId },
         order: { createdAt: 'ASC' },
@@ -286,8 +360,9 @@ export class AccountsService {
       this.encryptedConfigs.findOne({
         where: { accountId, key: defaultSigningCertificateKey },
       }),
+      this.pdfSignatureService.getTimestampServerUrl(accountId),
     ]);
-    const defaultName = defaultConfig?.value ?? null;
+    const defaultName = defaultConfig?.value ?? signaDefaultCertificateName;
 
     return {
       data: configs
@@ -295,6 +370,7 @@ export class AccountsService {
         .map((config) =>
           this.toSigningCertificateResponse(config, defaultName),
         ),
+      timestamp_server_url: timestampServerUrl,
     };
   }
 
@@ -302,18 +378,21 @@ export class AccountsService {
     accountId: string,
     name: string | undefined,
     file: UploadedBufferFile,
+    password?: string,
   ): Promise<SigningCertificateResponseDto> {
     await this.findActiveAccountOrFail(accountId);
     this.assertUploadedFile(file, 'Signing certificate file is required');
     const certificateName = this.normalizeCertificateName(
       name || file.originalname,
     );
-    const value = JSON.stringify({
-      filename: file.originalname || `${certificateName}.p12`,
-      content_type: file.mimetype ?? 'application/octet-stream',
-      data: file.buffer.toString('base64'),
-      valid_to: null,
-    });
+    const value = JSON.stringify(
+      buildStoredSigningCertificate({
+        buffer: file.buffer,
+        contentType: file.mimetype,
+        filename: file.originalname || `${certificateName}.p12`,
+        password,
+      }),
+    );
     const config = await this.upsertEncryptedConfig(
       accountId,
       `${signingCertificatePrefix}${certificateName}`,
@@ -348,6 +427,16 @@ export class AccountsService {
       await this.findSigningCertificateOrFail(accountId, name),
       this.normalizeCertificateName(name),
     );
+  }
+
+  async updateTimestampServerUrl(
+    accountId: string,
+    value: string | null,
+  ): Promise<SigningCertificateListResponseDto> {
+    await this.findActiveAccountOrFail(accountId);
+    await this.pdfSignatureService.upsertTimestampServerUrl(accountId, value);
+
+    return this.listSigningCertificates(accountId);
   }
 
   async deleteSigningCertificate(
@@ -874,12 +963,16 @@ export class AccountsService {
     defaultName: string | null,
   ): SigningCertificateResponseDto {
     const name = config.key.replace(signingCertificatePrefix, '');
-    const metadata = parseCertificateConfig(config.value);
+    const metadata = parseStoredSigningCertificate(config.value);
 
     return {
       name,
-      filename: metadata.filename,
-      valid_to: metadata.valid_to ?? null,
+      filename: metadata?.filename,
+      issuer: metadata?.issuer ?? null,
+      serial_number: metadata?.serial_number ?? null,
+      subject: metadata?.subject ?? null,
+      valid_from: metadata?.valid_from ?? null,
+      valid_to: metadata?.valid_to ?? null,
       status: defaultName === name ? 'default' : 'active',
     };
   }
@@ -901,23 +994,162 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-function parseCertificateConfig(value: string): {
-  filename?: string;
-  valid_to?: string | null;
-} {
-  try {
-    const parsed = JSON.parse(value) as unknown;
+function normalizeCustomFields(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
 
-    return isPlainRecord(parsed)
-      ? {
-          filename:
-            typeof parsed.filename === 'string' ? parsed.filename : undefined,
-          valid_to:
-            typeof parsed.valid_to === 'string' ? parsed.valid_to : null,
-        }
-      : {};
-  } catch {
-    return {};
+  return value
+    .map((field) => normalizeCustomField(field))
+    .filter((field): field is Record<string, unknown> => field !== null);
+}
+
+function normalizeCustomField(value: unknown): Record<string, unknown> | null {
+  if (!isPlainRecord(value)) {
+    return null;
+  }
+
+  const field: Record<string, unknown> = {};
+
+  copyString(value, field, 'uuid');
+  copyString(value, field, 'name');
+  copyString(value, field, 'type');
+  copyBoolean(value, field, 'required');
+  copyBoolean(value, field, 'readonly');
+  copyUnknown(value, field, 'default_value');
+  copyString(value, field, 'title');
+  copyString(value, field, 'description');
+
+  if (isPlainRecord(value.preferences)) {
+    field.preferences = value.preferences;
+  }
+
+  const options = normalizeCustomFieldOptions(value.options);
+  if (options.length > 0) {
+    field.options = options;
+  }
+
+  const validation = normalizeCustomFieldValidation(value.validation);
+  if (validation) {
+    field.validation = validation;
+  }
+
+  const areas = normalizeCustomFieldAreas(value.areas);
+  if (areas.length > 0) {
+    field.areas = areas;
+  }
+
+  return Object.keys(field).length > 0 ? field : null;
+}
+
+function normalizeCustomFieldOptions(value: unknown): Record<string, string>[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((option) => {
+    if (!isPlainRecord(option)) {
+      return [];
+    }
+
+    const normalized: Record<string, string> = {};
+    copyString(option, normalized, 'value');
+    copyString(option, normalized, 'uuid');
+
+    return Object.keys(normalized).length ? [normalized] : [];
+  });
+}
+
+function normalizeCustomFieldValidation(
+  value: unknown,
+): Record<string, string | number> | null {
+  if (!isPlainRecord(value)) {
+    return null;
+  }
+
+  const validation: Record<string, string | number> = {};
+
+  copyString(value, validation, 'message');
+  copyString(value, validation, 'pattern');
+  copyStringOrNumber(value, validation, 'min');
+  copyStringOrNumber(value, validation, 'max');
+  copyStringOrNumber(value, validation, 'step');
+
+  return Object.keys(validation).length > 0 ? validation : null;
+}
+
+function normalizeCustomFieldAreas(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((area) => {
+    if (!isPlainRecord(area)) {
+      return [];
+    }
+
+    const normalized: Record<string, unknown> = {};
+    copyNumber(area, normalized, 'x');
+    copyNumber(area, normalized, 'y');
+    copyNumber(area, normalized, 'w');
+    copyNumber(area, normalized, 'h');
+    copyNumber(area, normalized, 'cell_w');
+    copyString(area, normalized, 'option_uuid');
+
+    return Object.keys(normalized).length ? [normalized] : [];
+  });
+}
+
+function copyString(
+  source: Record<string, unknown>,
+  target: Record<string, unknown>,
+  key: string,
+): void {
+  if (typeof source[key] === 'string') {
+    target[key] = source[key];
+  }
+}
+
+function copyBoolean(
+  source: Record<string, unknown>,
+  target: Record<string, unknown>,
+  key: string,
+): void {
+  if (typeof source[key] === 'boolean') {
+    target[key] = source[key];
+  }
+}
+
+function copyNumber(
+  source: Record<string, unknown>,
+  target: Record<string, unknown>,
+  key: string,
+): void {
+  if (typeof source[key] === 'number' && Number.isFinite(source[key])) {
+    target[key] = source[key];
+  }
+}
+
+function copyStringOrNumber(
+  source: Record<string, unknown>,
+  target: Record<string, string | number>,
+  key: string,
+): void {
+  if (
+    typeof source[key] === 'string' ||
+    (typeof source[key] === 'number' && Number.isFinite(source[key]))
+  ) {
+    target[key] = source[key];
+  }
+}
+
+function copyUnknown(
+  source: Record<string, unknown>,
+  target: Record<string, unknown>,
+  key: string,
+): void {
+  if (Object.hasOwn(source, key)) {
+    target[key] = source[key];
   }
 }
 

@@ -1,9 +1,19 @@
 "use client";
 
+import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import {
+  AsYouType,
+  getExampleNumber,
+  parsePhoneNumberFromString,
+  type CountryCode,
+} from "libphonenumber-js";
+import examples from "libphonenumber-js/mobile/examples";
 import {
   CheckIcon,
   CalendarCheckIcon,
+  ChevronDownIcon,
   Maximize2Icon,
   ImageUpIcon,
   Minimize2Icon,
@@ -11,11 +21,12 @@ import {
   PenLineIcon,
   QrCodeIcon,
   RotateCcwIcon,
+  SearchIcon,
   TypeIcon,
   Trash2Icon,
   XIcon,
 } from "lucide-react";
-import SignatureCanvas from "react-signature-canvas";
+import type SignatureCanvasType from "react-signature-canvas";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -28,6 +39,11 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -44,34 +60,68 @@ import {
   type SigningAttachment,
   type SigningField,
   type SigningForm,
+  validateSigningPhoneNumber,
   verifySigningPhoneCode,
 } from "@/lib/api/signing";
 import phoneData from "@/lib/phone-data";
 import { cn } from "@/lib/utils";
 
+type SignatureCanvasProps = {
+  canvasProps?: React.CanvasHTMLAttributes<HTMLCanvasElement>;
+  penColor?: string;
+  ref?: React.Ref<SignatureCanvasType>;
+  throttle?: number;
+};
+
+const SignatureCanvas = dynamic(() => import("react-signature-canvas"), {
+  ssr: false,
+}) as React.ComponentType<SignatureCanvasProps>;
+
 type SignatureMode = "draw" | "phone" | "type" | "upload";
+type SavedSignatureAsset = {
+  uuid: string;
+  filename: string;
+  content_type: string | null;
+  url: string;
+};
 
 export function SignaturePanel({
   activeField,
   fields,
   form,
+  onFormChange,
   onComplete,
   onSaveField,
   onSelectField,
   onUploadAttachment,
+  savedAssets,
 }: {
   activeField?: SigningField | null;
   fields: SigningField[];
   form: SigningForm;
-  onComplete: (field: SigningField, value: unknown) => Promise<void>;
-  onSaveField: (field: SigningField, value: unknown) => Promise<void>;
+  onFormChange: (form: SigningForm) => void;
+  onComplete: (
+    field: SigningField,
+    value: unknown,
+    extraValues?: Record<string, unknown>,
+  ) => Promise<void>;
+  onSaveField: (
+    field: SigningField,
+    value: unknown,
+    extraValues?: Record<string, unknown>,
+  ) => Promise<void>;
   onSelectField: (field: SigningField) => void;
   onUploadAttachment: (file: File, type: string) => Promise<string>;
+  savedAssets?: {
+    initials: SavedSignatureAsset | null;
+    signature: SavedSignatureAsset | null;
+  };
 }) {
   const [mode, setMode] = useState<SignatureMode>("draw");
   const [typedSignature, setTypedSignature] = useState(
     form.submitter.name ?? "",
   );
+  const [signingReason, setSigningReason] = useState("");
   const [fieldValue, setFieldValue] = useState("");
   const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
   const [attachmentValueUuids, setAttachmentValueUuids] = useState<string[]>(
@@ -80,9 +130,10 @@ export function SignaturePanel({
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+  const [isSavedAssetDismissed, setIsSavedAssetDismissed] = useState(false);
   const [remoteSignatureAttachment, setRemoteSignatureAttachment] =
     useState<SigningAttachment | null>(null);
-  const signaturePadRef = useRef<SignatureCanvas | null>(null);
+  const signaturePadRef = useRef<SignatureCanvasType | null>(null);
   const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const incompleteFields = useMemo(
@@ -93,6 +144,17 @@ export function SignaturePanel({
   const activeFieldKey = activeField ? getFieldKey(activeField) : "";
   const isSignatureField =
     activeField?.type === "signature" || activeField?.type === "initials";
+  const canTypeSignature = form.configs.with_typed_signature;
+  const savedSignatureAsset =
+    activeField?.type === "initials"
+      ? savedAssets?.initials
+      : savedAssets?.signature;
+  const shouldUseSavedSignature =
+    isSignatureField &&
+    mode === "draw" &&
+    !!savedSignatureAsset &&
+    !isSavedAssetDismissed &&
+    !remoteSignatureAttachment;
   const attachmentsIndex = useMemo(
     () =>
       Object.fromEntries(
@@ -112,11 +174,13 @@ export function SignaturePanel({
       setFieldValue(getStringFieldValue(value));
       setSelectedOptions(getStringArrayFieldValue(value));
       setAttachmentValueUuids(getStringArrayFieldValue(value));
+      setSigningReason(getSigningReasonValue(form, activeField));
       setUploadedFiles([]);
       setRemoteSignatureAttachment(null);
+      setIsSavedAssetDismissed(false);
       setIsMinimized(false);
     });
-  }, [activeField, activeFieldKey, form.values]);
+  }, [activeField, activeFieldKey, form]);
 
   useEffect(() => {
     if (!activeField || mode !== "phone" || !isSignatureField) {
@@ -191,14 +255,15 @@ export function SignaturePanel({
     setIsSaving(true);
 
     try {
+      const extraValues = collectExtraFieldValues(selectedField);
       const value = await collectActiveFieldValue(selectedField);
 
       const isLastRequiredField = incompleteFields.length <= 1;
 
       if (isLastRequiredField) {
-        await onComplete(selectedField, value);
+        await onComplete(selectedField, value, extraValues);
       } else {
-        await onSaveField(selectedField, value);
+        await onSaveField(selectedField, value, extraValues);
         toast.success("Field saved");
       }
     } catch (saveError) {
@@ -213,9 +278,41 @@ export function SignaturePanel({
     }
   }
 
+  function collectExtraFieldValues(
+    field: SigningField,
+  ): Record<string, unknown> {
+    if (
+      !form.configs.require_signing_reason ||
+      (field.type !== "signature" && field.type !== "initials")
+    ) {
+      return {};
+    }
+
+    if (!field.uuid) {
+      throw new Error("Signing reason cannot be saved without a field ID.");
+    }
+
+    const reason = signingReason.trim();
+
+    if (!reason) {
+      throw new Error("Enter a signing reason before completing.");
+    }
+
+    return { [getSigningReasonValueKey(field.uuid)]: reason };
+  }
+
   async function collectSignatureValue(): Promise<string> {
     if (remoteSignatureAttachment?.uuid) {
       return remoteSignatureAttachment.uuid;
+    }
+
+    const signingType =
+      selectedField.type === "initials" ? "initials" : "signature";
+
+    if (shouldUseSavedSignature && savedSignatureAsset) {
+      const file = await remoteImageToFile(savedSignatureAsset);
+
+      return onUploadAttachment(file, signingType);
     }
 
     if (mode === "draw") {
@@ -226,9 +323,9 @@ export function SignaturePanel({
       }
 
       const dataUrl = pad.getTrimmedCanvas().toDataURL("image/png");
-      const file = dataUrlToFile(dataUrl, "signature.png");
+      const file = dataUrlToFile(dataUrl, `${signingType}.png`);
 
-      return onUploadAttachment(file, "signature");
+      return onUploadAttachment(file, signingType);
     }
 
     if (mode === "upload") {
@@ -238,7 +335,7 @@ export function SignaturePanel({
         throw new Error("Upload a signature image before completing.");
       }
 
-      return onUploadAttachment(uploadedFile, "signature");
+      return onUploadAttachment(uploadedFile, signingType);
     }
 
     if (mode === "phone") {
@@ -253,7 +350,7 @@ export function SignaturePanel({
 
     const file = await typedSignatureToFile(typedSignature.trim());
 
-    return onUploadAttachment(file, "signature");
+    return onUploadAttachment(file, signingType);
   }
 
   async function collectActiveFieldValue(
@@ -293,6 +390,13 @@ export function SignaturePanel({
       return selectedOptions;
     }
 
+    if (
+      field.type === "phone" &&
+      !isPhoneFieldAccepted(form, field, fieldValue)
+    ) {
+      throw new Error("Enter a valid phone number before continuing.");
+    }
+
     return collectSimpleFieldValue(field, fieldValue);
   }
 
@@ -305,33 +409,63 @@ export function SignaturePanel({
           </h2>
           <div className="flex flex-none items-center justify-end gap-2">
             {isSignatureField ? (
-              <>
-                <ModeButton
-                  active={mode === "draw"}
-                  icon={<PenLineIcon data-icon="inline-start" />}
-                  label="Draw"
-                  onClick={() => setMode("draw")}
-                />
-                <ModeButton
-                  active={mode === "type"}
-                  icon={<TypeIcon data-icon="inline-start" />}
-                  label="Type"
-                  onClick={() => setMode("type")}
-                />
-                <ModeButton
-                  active={mode === "upload"}
-                  icon={<ImageUpIcon data-icon="inline-start" />}
-                  label="Upload"
-                  onClick={() => setMode("upload")}
-                />
-                <ModeButton
-                  active={mode === "phone"}
-                  className="hidden md:inline-flex"
-                  icon={<QrCodeIcon data-icon="inline-start" />}
-                  label="Phone"
-                  onClick={() => setMode("phone")}
-                />
-              </>
+              shouldUseSavedSignature ? (
+                <>
+                  {canTypeSignature ? (
+                    <ModeButton
+                      active={false}
+                      icon={<TypeIcon data-icon="inline-start" />}
+                      label="Type"
+                      onClick={() => setMode("type")}
+                    />
+                  ) : null}
+                  <ModeButton
+                    active={false}
+                    icon={<ImageUpIcon data-icon="inline-start" />}
+                    label="Upload"
+                    onClick={() => setMode("upload")}
+                  />
+                  <ModeButton
+                    active={false}
+                    icon={<RotateCcwIcon data-icon="inline-start" />}
+                    label="Redraw"
+                    onClick={() => {
+                      setIsSavedAssetDismissed(true);
+                      queueMicrotask(() => signaturePadRef.current?.clear());
+                    }}
+                  />
+                </>
+              ) : (
+                <>
+                  <ModeButton
+                    active={mode === "draw"}
+                    icon={<PenLineIcon data-icon="inline-start" />}
+                    label="Draw"
+                    onClick={() => setMode("draw")}
+                  />
+                  {canTypeSignature ? (
+                    <ModeButton
+                      active={mode === "type"}
+                      icon={<TypeIcon data-icon="inline-start" />}
+                      label="Type"
+                      onClick={() => setMode("type")}
+                    />
+                  ) : null}
+                  <ModeButton
+                    active={mode === "upload"}
+                    icon={<ImageUpIcon data-icon="inline-start" />}
+                    label="Upload"
+                    onClick={() => setMode("upload")}
+                  />
+                  <ModeButton
+                    active={mode === "phone"}
+                    className="hidden md:inline-flex"
+                    icon={<QrCodeIcon data-icon="inline-start" />}
+                    label="Phone"
+                    onClick={() => setMode("phone")}
+                  />
+                </>
+              )
             ) : null}
             <Button
               aria-label="Minimize"
@@ -367,23 +501,40 @@ export function SignaturePanel({
         ) : null}
 
         {isSignatureField ? (
-          <SignatureInput
-            mode={mode}
-            mobileUrl={
-              selectedField.uuid
-                ? getMobileSignatureUrl(form.submitter.slug, selectedField.uuid)
-                : ""
-            }
-            onClear={() => signaturePadRef.current?.clear()}
-            onHideQr={() => setMode("draw")}
-            onFileChange={(file) => setUploadedFiles(file ? [file] : [])}
-            padRef={signaturePadRef}
-            qrCanvasRef={qrCanvasRef}
-            remoteAttachment={remoteSignatureAttachment}
-            typedSignature={typedSignature}
-            uploadedFile={uploadedFiles[0] ?? null}
-            onTypedSignatureChange={setTypedSignature}
-          />
+          <div className="flex flex-col gap-3">
+            <SignatureInput
+              mode={mode}
+              mobileUrl={
+                selectedField.uuid
+                  ? getMobileSignatureUrl(
+                      form.submitter.slug,
+                      selectedField.uuid,
+                    )
+                  : ""
+              }
+              onClear={() => signaturePadRef.current?.clear()}
+              onHideQr={() => setMode("draw")}
+              onFileChange={(file) => setUploadedFiles(file ? [file] : [])}
+              padRef={signaturePadRef}
+              qrCanvasRef={qrCanvasRef}
+              remoteAttachment={remoteSignatureAttachment}
+              savedAsset={shouldUseSavedSignature ? savedSignatureAsset : null}
+              typedSignature={typedSignature}
+              uploadedFile={uploadedFiles[0] ?? null}
+              onTypedSignatureChange={setTypedSignature}
+            />
+            {form.configs.require_signing_reason ? (
+              <Field>
+                <FieldLabel>Signing reason</FieldLabel>
+                <Textarea
+                  className="min-h-20 rounded-2xl border-[var(--auth-input-border)] bg-white px-4 py-3 shadow-none focus-visible:ring-0"
+                  onChange={(event) => setSigningReason(event.target.value)}
+                  placeholder="Reason for signing"
+                  value={signingReason}
+                />
+              </Field>
+            ) : null}
+          </div>
         ) : (
           <SignerFieldInput
             field={selectedField}
@@ -394,6 +545,7 @@ export function SignaturePanel({
             uploadedFiles={uploadedFiles}
             value={fieldValue}
             onAttachmentValueUuidsChange={setAttachmentValueUuids}
+            onFormChange={onFormChange}
             onFilesChange={setUploadedFiles}
             onChange={setFieldValue}
             onSelectedOptionsChange={setSelectedOptions}
@@ -436,6 +588,7 @@ function SignatureInput({
   padRef,
   qrCanvasRef,
   remoteAttachment,
+  savedAsset,
   typedSignature,
   uploadedFile,
 }: {
@@ -445,9 +598,10 @@ function SignatureInput({
   onFileChange: (file: File | null) => void;
   onHideQr: () => void;
   onTypedSignatureChange: (value: string) => void;
-  padRef: React.MutableRefObject<SignatureCanvas | null>;
+  padRef: React.MutableRefObject<SignatureCanvasType | null>;
   qrCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
   remoteAttachment: SigningAttachment | null;
+  savedAsset: SavedSignatureAsset | null;
   typedSignature: string;
   uploadedFile: File | null;
 }) {
@@ -533,6 +687,19 @@ function SignatureInput({
     );
   }
 
+  if (savedAsset) {
+    return (
+      <div className="relative h-44 overflow-hidden rounded-2xl border border-[var(--auth-input-border)] bg-white sm:h-48">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          alt={savedAsset.filename}
+          className="h-full w-full object-contain px-4 py-3"
+          src={savedAsset.url}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="relative h-44 overflow-hidden rounded-2xl border border-[var(--auth-input-border)] bg-white sm:h-48">
       <SignatureCanvas
@@ -562,6 +729,7 @@ function SignerFieldInput({
   form,
   onAttachmentValueUuidsChange,
   onChange,
+  onFormChange,
   onFilesChange,
   onSelectedOptionsChange,
   selectedOptions,
@@ -574,6 +742,7 @@ function SignerFieldInput({
   form: SigningForm;
   onAttachmentValueUuidsChange: (value: string[]) => void;
   onChange: (value: string) => void;
+  onFormChange: (form: SigningForm) => void;
   onFilesChange: (files: File[]) => void;
   onSelectedOptionsChange: (value: string[]) => void;
   selectedOptions: string[];
@@ -648,6 +817,7 @@ function SignerFieldInput({
       field={field}
       form={form}
       value={value}
+      onFormChange={onFormChange}
       onChange={onChange}
     />
   );
@@ -869,11 +1039,13 @@ function TextLikeFieldInput({
   field,
   form,
   onChange,
+  onFormChange,
   value,
 }: {
   field: SigningField;
   form: SigningForm;
   onChange: (value: string) => void;
+  onFormChange: (form: SigningForm) => void;
   value: string;
 }) {
   const [isMultiline, setIsMultiline] = useState(false);
@@ -902,6 +1074,7 @@ function TextLikeFieldInput({
         field={field}
         form={form}
         value={value}
+        onFormChange={onFormChange}
         onChange={onChange}
       />
     );
@@ -959,38 +1132,93 @@ function PhoneFieldInput({
   field,
   form,
   onChange,
+  onFormChange,
   value,
 }: {
   field: SigningField;
   form: SigningForm;
   onChange: (value: string) => void;
+  onFormChange: (form: SigningForm) => void;
   value: string;
 }) {
   const [code, setCode] = useState("");
+  const [isAccepting, setIsAccepting] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationSentTo, setVerificationSentTo] = useState<string | null>(
     null,
   );
-  const detectedCountry = getPhoneCountry(value);
+  const fixedCountry = getPhoneFieldCountry(field);
+  const detectedCountry = fixedCountry ?? getPhoneCountry(value);
+  const [countryIso, setCountryIso] = useState(
+    detectedCountry?.iso ?? getDefaultPhoneCountry().iso,
+  );
   const [countryDialCode, setCountryDialCode] = useState(
     detectedCountry?.dial ?? getDefaultPhoneCountry().dial,
   );
   const selectedCountry =
+    fixedCountry ??
+    phoneCountries.find((country) => country.iso === countryIso) ??
     phoneCountries.find((country) => country.dial === countryDialCode) ??
     phoneCountries[0];
-  const nationalValue = value.startsWith(`+${selectedCountry.dial}`)
-    ? value.replace(`+${selectedCountry.dial}`, "")
-    : value;
+  const selectedCountryCode = selectedCountry.iso.toUpperCase() as CountryCode;
+  const phoneValidation = getPhoneValidationState(value, selectedCountryCode);
+  const nationalValue = getNationalPhoneValue(value, selectedCountry.dial);
+  const examplePlaceholder = getPhonePlaceholder(selectedCountryCode);
+  const isPhoneAccepted = isPhoneFieldAccepted(form, field, value);
 
   function updatePhone(nextCountryDialCode: string, nextNationalValue: string) {
     const cleanedNationalValue = nextNationalValue.replace(/^\+/, "");
+    const nextCountry =
+      phoneCountries.find((country) => country.dial === nextCountryDialCode) ??
+      selectedCountry;
+    const formatter = new AsYouType(nextCountry.iso.toUpperCase() as CountryCode);
+    const formattedValue = formatter.input(
+      cleanedNationalValue.replace(/[^\d]/g, ""),
+    );
 
     onChange(
       cleanedNationalValue
-        ? `+${nextCountryDialCode}${cleanedNationalValue}`
+        ? `+${nextCountryDialCode}${formattedValue.replace(/[^\d]/g, "")}`
         : "",
     );
+  }
+
+  async function acceptValidatedPhone() {
+    if (!phoneValidation.isValid || !phoneValidation.e164) {
+      toast.error("Phone number is invalid", {
+        description: `Enter a valid ${selectedCountry.name} phone number.`,
+      });
+      return;
+    }
+
+    setIsAccepting(true);
+
+    try {
+      const result = await validateSigningPhoneNumber(form.submitter.slug, {
+        field_uuid: field.uuid,
+        phone: phoneValidation.e164,
+      });
+
+      onChange(result.phone);
+      onFormChange({
+        ...form,
+        values: {
+          ...form.values,
+          [getFieldKey(field)]: result.phone,
+        },
+      });
+      toast.success("Phone number accepted");
+    } catch (error) {
+      toast.error("Phone number is invalid", {
+        description:
+          error instanceof Error
+            ? error.message
+            : `Enter a valid ${selectedCountry.name} phone number.`,
+      });
+    } finally {
+      setIsAccepting(false);
+    }
   }
 
   async function sendCode() {
@@ -1018,11 +1246,12 @@ function PhoneFieldInput({
     setIsVerifying(true);
 
     try {
-      await verifySigningPhoneCode(form.submitter.slug, {
+      const verifiedForm = await verifySigningPhoneCode(form.submitter.slug, {
         code,
         field_uuid: field.uuid,
         phone: value,
       });
+      onFormChange(verifiedForm);
       toast.success("Phone verified");
     } catch (error) {
       toast.error("Phone verification failed", {
@@ -1042,42 +1271,74 @@ function PhoneFieldInput({
         {field.description ? (
           <FieldDescription>{field.description}</FieldDescription>
         ) : null}
-        <div className="flex rounded-full border border-[var(--auth-input-border)] bg-white focus-within:ring-2 focus-within:ring-[var(--auth-ring)]">
-          <Select
-            value={countryDialCode}
-            onValueChange={(nextDialCode) => {
-              setCountryDialCode(nextDialCode);
-              updatePhone(nextDialCode, nationalValue);
+        <div
+          className={cn(
+            "flex h-14 items-stretch overflow-hidden rounded-full border bg-white focus-within:ring-2 focus-within:ring-[var(--auth-ring)]",
+            value && !phoneValidation.isValid
+              ? "border-red-300"
+              : "border-[var(--auth-input-border)]",
+          )}
+        >
+          <PhoneCountryPicker
+            disabled={Boolean(fixedCountry)}
+            onChange={(country) => {
+              setCountryIso(country.iso);
+              setCountryDialCode(country.dial);
+              updatePhone(country.dial, nationalValue);
             }}
-          >
-            <SelectTrigger className="h-14 w-32 rounded-l-full rounded-r-none border-0 border-r border-[var(--auth-input-border)] bg-[var(--auth-muted)] px-4 text-lg shadow-none focus:ring-0">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {phoneCountries.map((country) => (
-                  <SelectItem key={country.iso} value={country.dial}>
-                    {country.flag} +{country.dial} {country.name}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+            selectedCountry={selectedCountry}
+          />
           <Input
-            className="h-14 rounded-l-none rounded-r-full border-0 px-5 text-xl shadow-none focus-visible:ring-0"
+            className="h-full rounded-none border-0 px-5 text-xl shadow-none focus-visible:ring-0"
             inputMode="tel"
             onChange={(event) =>
               updatePhone(countryDialCode, event.target.value)
             }
-            placeholder="234 567-8900"
+            placeholder={examplePlaceholder}
             type="tel"
             value={nationalValue}
           />
         </div>
+        <FieldDescription
+          className={cn(
+            "flex items-center gap-1.5",
+            value && !phoneValidation.isValid ? "text-red-600" : "",
+            isPhoneAccepted ? "text-emerald-700" : "",
+          )}
+        >
+          {isPhoneAccepted ? (
+            <>
+              <CheckIcon className="size-4" />
+              Phone number is valid{isPhoneFieldVerified(form, field, value)
+                ? " and verified"
+                : ""}
+              .
+            </>
+          ) : value && !phoneValidation.isValid ? (
+            `Enter a valid ${selectedCountry.name} number, for example ${examplePlaceholder}.`
+          ) : fixedCountry ? (
+            `Use a valid ${selectedCountry.name} number.`
+          ) : (
+            `Use a ${selectedCountry.name} number in local format.`
+          )}
+        </FieldDescription>
         <div className="flex flex-col gap-3 rounded-2xl border border-[var(--auth-input-border)] bg-[var(--auth-muted)] p-3 sm:flex-row">
           <Button
             className="h-11 rounded-full px-5 font-bold"
-            disabled={!value || isSending}
+            disabled={!phoneValidation.isValid || isPhoneAccepted || isAccepting}
+            onClick={() => void acceptValidatedPhone()}
+            type="button"
+            variant="outline"
+          >
+            {isAccepting
+              ? "Checking..."
+              : isPhoneAccepted
+                ? "Accepted"
+                : "Use valid number"}
+          </Button>
+          <Button
+            className="h-11 rounded-full px-5 font-bold"
+            disabled={!phoneValidation.isValid || isSending}
             onClick={() => void sendCode()}
             type="button"
             variant="outline"
@@ -1319,7 +1580,7 @@ async function typedSignatureToFile(signature: string): Promise<File> {
 
   const canvas = document.createElement("canvas");
   canvas.width = 900;
-  canvas.height = 240;
+  canvas.height = 180;
 
   const context = canvas.getContext("2d");
 
@@ -1331,8 +1592,8 @@ async function typedSignatureToFile(signature: string): Promise<File> {
   context.fillStyle = "#16304f";
   context.font = '112px "Dancing Script", cursive';
   context.textAlign = "center";
-  context.textBaseline = "middle";
-  context.fillText(signature, canvas.width / 2, canvas.height / 2);
+  context.textBaseline = "alphabetic";
+  context.fillText(signature, canvas.width / 2, 142);
 
   return dataUrlToFile(canvas.toDataURL("image/png"), "typed-signature.png");
 }
@@ -1349,6 +1610,19 @@ function dataUrlToFile(dataUrl: string, filename: string): File {
   }
 
   return new File([buffer], filename, { type: mimeType });
+}
+
+async function remoteImageToFile(asset: SavedSignatureAsset): Promise<File> {
+  const response = await fetch(asset.url);
+
+  if (!response.ok) {
+    throw new Error("Saved signature could not be loaded.");
+  }
+
+  const blob = await response.blob();
+  const contentType = asset.content_type || blob.type || "image/png";
+
+  return new File([blob], asset.filename, { type: contentType });
 }
 
 function collectSimpleFieldValue(field: SigningField, value: string): unknown {
@@ -1371,6 +1645,82 @@ function hasFieldValue(form: SigningForm, field: SigningField): boolean {
   }
 
   return value !== null && value !== undefined && value !== "";
+}
+
+function isPhoneFieldVerified(
+  form: SigningForm,
+  field: SigningField,
+  value: string,
+): boolean {
+  const verifiedValue = form.values[getFieldKey(field)];
+
+  return (
+    typeof verifiedValue === "string" &&
+    verifiedValue !== "" &&
+    normalizePhoneValue(verifiedValue) === normalizePhoneValue(value)
+  );
+}
+
+function isPhoneFieldAccepted(
+  form: SigningForm,
+  field: SigningField,
+  value: string,
+): boolean {
+  if (isPhoneFieldVerified(form, field, value)) {
+    return true;
+  }
+
+  const savedValue = form.values[getFieldKey(field)];
+
+  return (
+    typeof savedValue === "string" &&
+    savedValue !== "" &&
+    normalizePhoneValue(savedValue) === normalizePhoneValue(value) &&
+    getPhoneValidationState(savedValue).isValid
+  );
+}
+
+function getPhoneValidationState(
+  value: string,
+  country?: CountryCode,
+): {
+  e164: string;
+  isPossible: boolean;
+  isValid: boolean;
+} {
+  const phone = parsePhoneNumberFromString(value, country);
+
+  return {
+    e164: phone?.number ?? "",
+    isPossible: phone?.isPossible() ?? false,
+    isValid: phone?.isValid() ?? false,
+  };
+}
+
+function getNationalPhoneValue(value: string, dialCode: string): string {
+  if (!value) {
+    return "";
+  }
+
+  const phone = parsePhoneNumberFromString(value);
+
+  if (phone?.nationalNumber) {
+    return new AsYouType(phone.country).input(phone.nationalNumber);
+  }
+
+  return value.startsWith(`+${dialCode}`)
+    ? value.replace(`+${dialCode}`, "")
+    : value;
+}
+
+function getPhonePlaceholder(country: CountryCode): string {
+  const example = getExampleNumber(country, examples);
+
+  return example?.formatNational() ?? "234 567 8900";
+}
+
+function normalizePhoneValue(value: string): string {
+  return value.replace(/[^+\d]/g, "");
 }
 
 function getFieldKey(field: SigningField): string {
@@ -1414,14 +1764,17 @@ function getFieldOptions(field: SigningField): Array<{
   uuid: string;
   value: string;
 }> {
-  if (!Array.isArray(field.options)) {
-    return [];
+  const rawOptions = getRawFieldOptions(field);
+
+  if (!rawOptions.length) {
+    return getAreaFieldOptions(field);
   }
 
-  return field.options.map((option, index) => {
+  return rawOptions.map((option, index) => {
     const fallbackUuid = `${field.uuid ?? field.name ?? "field"}-${index}`;
     const optionRecord = isOptionRecord(option) ? option : {};
     const label =
+      getOptionString(option) ||
       getOptionString(optionRecord.value) ||
       getOptionString(optionRecord.label) ||
       getOptionString(optionRecord.name) ||
@@ -1433,6 +1786,28 @@ function getFieldOptions(field: SigningField): Array<{
       value: label || `Option ${index + 1}`,
     };
   });
+}
+
+function getRawFieldOptions(field: SigningField): unknown[] {
+  if (Array.isArray(field.options)) {
+    return field.options;
+  }
+
+  const preferencesOptions = field.preferences?.options;
+
+  return Array.isArray(preferencesOptions) ? preferencesOptions : [];
+}
+
+function getAreaFieldOptions(field: SigningField): Array<{
+  uuid: string;
+  value: string;
+}> {
+  return (field.areas ?? [])
+    .filter((area) => typeof area.option_uuid === "string")
+    .map((area, index) => ({
+      uuid: area.option_uuid ?? `${field.uuid ?? field.name ?? "field"}-${index}`,
+      value: `Option ${index + 1}`,
+    }));
 }
 
 function isOptionRecord(value: unknown): value is Record<string, unknown> {
@@ -1551,6 +1926,107 @@ const phoneCountries = phoneData.map(([iso, name, dial, flag, timezones]) => ({
   timezones,
 }));
 
+type PhoneCountry = (typeof phoneCountries)[number];
+
+function PhoneCountryPicker({
+  disabled,
+  onChange,
+  selectedCountry,
+}: {
+  disabled: boolean;
+  onChange: (country: PhoneCountry) => void;
+  selectedCountry: PhoneCountry;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const filteredCountries = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+
+    if (!normalizedQuery) {
+      return phoneCountries;
+    }
+
+    return phoneCountries.filter((country) => {
+      const searchable = `${country.name} ${country.iso} +${country.dial}`;
+
+      return searchable.toLowerCase().includes(normalizedQuery);
+    });
+  }, [query]);
+
+  return (
+    <Popover onOpenChange={setOpen} open={open && !disabled}>
+      <PopoverTrigger asChild>
+        <button
+          aria-label="Select phone country"
+          className="flex h-full w-32 shrink-0 items-center justify-between gap-2 border-0 border-r border-[var(--auth-input-border)] bg-[var(--auth-muted)] px-4 text-base text-[var(--auth-primary)] disabled:cursor-default"
+          disabled={disabled}
+          type="button"
+        >
+          <span className="flex min-w-0 items-center gap-2 leading-none">
+            <span className="text-lg leading-none">{selectedCountry.flag}</span>
+            <span className="truncate leading-none">+{selectedCountry.dial}</span>
+          </span>
+          <ChevronDownIcon className="size-4 shrink-0 opacity-70" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-80 gap-2 rounded-2xl p-2"
+        sideOffset={8}
+      >
+        <div className="flex h-11 items-center gap-2 rounded-full border border-[var(--auth-input-border)] bg-background px-4">
+          <SearchIcon className="size-4 shrink-0 text-muted-foreground" />
+          <Input
+            autoFocus
+            className="h-full rounded-none border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search country or code"
+            value={query}
+          />
+        </div>
+        <div className="max-h-72 overflow-y-auto pr-1">
+          {filteredCountries.length ? (
+            filteredCountries.map((country) => {
+              const isSelected = country.iso === selectedCountry.iso;
+
+              return (
+                <button
+                  className={cn(
+                    "flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm hover:bg-[var(--auth-muted)]",
+                    isSelected ? "bg-[var(--auth-muted)] font-semibold" : "",
+                  )}
+                  key={country.iso}
+                  onClick={() => {
+                    onChange(country);
+                    setOpen(false);
+                    setQuery("");
+                  }}
+                  type="button"
+                >
+                  <span className="flex min-w-0 items-center gap-3">
+                    <span className="text-lg">{country.flag}</span>
+                    <span className="min-w-0">
+                      <span className="block truncate">{country.name}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {country.iso} +{country.dial}
+                      </span>
+                    </span>
+                  </span>
+                  {isSelected ? <CheckIcon className="size-4 shrink-0" /> : null}
+                </button>
+              );
+            })
+          ) : (
+            <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+              No country found.
+            </div>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function getPhoneCountry(value: string) {
   const digits = value.replace(/[^\d+]/g, "");
   const dialCodes = [...phoneCountries].sort(
@@ -1559,6 +2035,20 @@ function getPhoneCountry(value: string) {
   );
 
   return dialCodes.find((country) => digits.startsWith(`+${country.dial}`));
+}
+
+function getPhoneFieldCountry(field: SigningField) {
+  const country = field.validation?.phone_country;
+
+  if (typeof country !== "string" || !country) {
+    return null;
+  }
+
+  return (
+    phoneCountries.find(
+      (phoneCountry) => phoneCountry.iso.toUpperCase() === country.toUpperCase(),
+    ) ?? null
+  );
 }
 
 function getDefaultPhoneCountry() {
@@ -1702,4 +2192,18 @@ function canSetToday(
   const max = getDateValidationValue(field, "max", inputType);
 
   return (!min || min <= today) && (!max || today <= max);
+}
+
+function getSigningReasonValue(form: SigningForm, field: SigningField): string {
+  if (!field.uuid) {
+    return "";
+  }
+
+  const value = form.values[getSigningReasonValueKey(field.uuid)];
+
+  return typeof value === "string" ? value : "";
+}
+
+function getSigningReasonValueKey(fieldUuid: string): string {
+  return `${fieldUuid}_reason`;
 }

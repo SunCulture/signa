@@ -12,7 +12,7 @@ import { WebhookEvent } from './webhook-event.entity';
 @Entity('webhook_attempts')
 @Index(['webhookEventId', 'id'])
 export class WebhookAttempt {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Column({ name: 'webhook_event_id', type: 'bigint' })
@@ -27,7 +27,7 @@ export class WebhookAttempt {
   @Column({ name: 'response_body', type: 'text', nullable: true })
   responseBody!: string | null;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
   @ManyToOne(() => WebhookEvent, (event) => event.attempts, {

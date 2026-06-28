@@ -1,28 +1,43 @@
 "use client"
 
 import type React from "react"
+import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
-import { UserPlusIcon, UsersIcon } from "lucide-react"
+import { signaRoleLabels, signaRoles, type SignaRole } from "@repo/shared"
+import {
+  ArchiveIcon,
+  EditIcon,
+  EyeIcon,
+  KeyRoundIcon,
+  LinkIcon,
+  type LucideIcon,
+  PlusIcon,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty"
-import { type AuthUser, listUsers } from "@/lib/api/auth"
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  type AuthUser,
+  listUsers,
+  updateUser,
+  type UserStatus,
+} from "@/lib/api/auth"
 import { ApiError } from "@/lib/api/http"
 import {
   addTeamMember,
@@ -38,15 +53,23 @@ import {
   updateTeamMember,
 } from "@/lib/api/teams"
 import { SettingsSidebar } from "./settings-sidebar"
-import {
-  TeamDetails,
-  TeamForm,
-  type TeamFormState,
-  TeamList,
-  TeamsHeader,
-} from "./team-settings-sections"
 
-const emptyTeamForm = { description: "", name: "" }
+type TeamFormState = {
+  description: string
+  name: string
+}
+
+type TeamUserFormState = {
+  email: string
+  firstName: string
+  lastName: string
+  role: SignaRole
+  teamId: string
+  teamRole: TeamRole
+}
+
+const emptyTeamForm: TeamFormState = { description: "", name: "" }
+const teamRoles: TeamRole[] = ["manager", "member", "viewer"]
 
 export function TeamsSettingsBody() {
   return (
@@ -60,94 +83,102 @@ export function TeamsSettingsBody() {
 function TeamsPanel() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const status = searchParams.get("status") === "archived" ? "archived" : "active"
-  const [activeUsers, setActiveUsers] = useState<AuthUser[]>([])
-  const [editingTeam, setEditingTeam] = useState<Team | null>(null)
-  const [form, setForm] = useState<TeamFormState>(emptyTeamForm)
-  const [isSavingTeam, setIsSavingTeam] = useState(false)
-  const [isTeamDialogOpen, setIsTeamDialogOpen] = useState(false)
-  const [members, setMembers] = useState<TeamMember[]>([])
-  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null)
+  const status = getStatus(searchParams.get("status"))
+  const viewedTeamId = searchParams.get("team")
+  const [users, setUsers] = useState<AuthUser[]>([])
   const [teams, setTeams] = useState<Team[]>([])
+  const [members, setMembers] = useState<TeamMember[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [editingTeam, setEditingTeam] = useState<Team | null>(null)
+  const [teamForm, setTeamForm] = useState<TeamFormState>(emptyTeamForm)
+  const [editingMember, setEditingMember] = useState<TeamMember | null>(null)
+  const [userForm, setUserForm] = useState<TeamUserFormState | null>(null)
 
-  const selectedTeam = useMemo(
-    () => teams.find((team) => team.id === selectedTeamId) ?? teams[0] ?? null,
-    [selectedTeamId, teams]
+  const viewedTeam = useMemo(
+    () => teams.find((team) => team.id === viewedTeamId) ?? null,
+    [teams, viewedTeamId]
   )
 
   useEffect(() => {
-    Promise.all([listTeams(status), listUsers("active")])
-      .then(([loadedTeams, loadedUsers]) => {
-        setTeams(loadedTeams)
-        setActiveUsers(loadedUsers)
-        setSelectedTeamId((current) => current ?? loadedTeams[0]?.id ?? null)
-      })
-      .catch((error: unknown) => {
-        if (error instanceof ApiError && error.status === 401) {
-          router.push("/auth/login")
-          return
-        }
-
-        toast.error("Teams could not be loaded", {
-          description: getErrorMessage(error),
-          classNames: { icon: "text-destructive" },
-        })
-      })
-  }, [router, status])
+    void loadTeams()
+  }, [status])
 
   useEffect(() => {
-    if (!selectedTeam) {
+    if (!viewedTeam) {
+      setMembers([])
       return
     }
 
-    listTeamMembers(selectedTeam.id)
-      .then((loadedMembers) => {
-        setMembers(loadedMembers)
+    void loadViewedTeamMembers(viewedTeam.id)
+  }, [viewedTeam])
+
+  async function loadTeams() {
+    setIsLoading(true)
+
+    try {
+      const [loadedTeams, loadedUsers] = await Promise.all([
+        listTeams(status),
+        listUsers("active"),
+      ])
+
+      setTeams(loadedTeams)
+      setUsers(loadedUsers)
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        router.push("/auth/login")
+        return
+      }
+
+      toast.error("Teams could not be loaded", {
+        description: getErrorMessage(error),
       })
-      .catch((error) =>
-        toast.error("Team details could not be loaded", {
-          description: getErrorMessage(error),
-          classNames: { icon: "text-destructive" },
-        })
-      )
-  }, [selectedTeam])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  async function loadViewedTeamMembers(teamId: string) {
+    try {
+      setMembers(await listTeamMembers(teamId))
+    } catch (error) {
+      toast.error("Team users could not be loaded", {
+        description: getErrorMessage(error),
+      })
+    }
+  }
 
   function openCreateDialog() {
     setEditingTeam(null)
-    setForm(emptyTeamForm)
-    setIsTeamDialogOpen(true)
+    setTeamForm(emptyTeamForm)
+    setIsDialogOpen(true)
   }
 
-  function openEditDialog(team: Team) {
+  function openEditTeamDialog(team: Team) {
     setEditingTeam(team)
-    setForm({ description: team.description ?? "", name: team.name })
-    setIsTeamDialogOpen(true)
+    setTeamForm({ description: team.description ?? "", name: team.name })
+    setIsDialogOpen(true)
   }
 
   async function submitTeam(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setIsSavingTeam(true)
 
     try {
       const input = {
-        description: form.description || undefined,
-        name: form.name,
+        description: teamForm.description || undefined,
+        name: teamForm.name,
       }
       const savedTeam = editingTeam
         ? await updateTeam(editingTeam.id, input)
         : await createTeam(input)
 
       setTeams((current) => upsertTeam(current, savedTeam))
-      setSelectedTeamId(savedTeam.id)
-      setIsTeamDialogOpen(false)
+      setIsDialogOpen(false)
       toast.success(editingTeam ? "Team updated" : "Team created")
     } catch (error) {
       toast.error("Team could not be saved", {
         description: getErrorMessage(error),
-        classNames: { icon: "text-destructive" },
       })
-    } finally {
-      setIsSavingTeam(false)
     }
   }
 
@@ -155,177 +186,487 @@ function TeamsPanel() {
     try {
       await archiveTeam(team.id)
       setTeams((current) => current.filter((item) => item.id !== team.id))
-      setMembers([])
-      setSelectedTeamId(null)
-      toast.success("Team archived")
+      toast.success("Team removed")
+
+      if (viewedTeamId === team.id) {
+        router.push("/settings/teams")
+      }
     } catch (error) {
-      toast.error("Team could not be archived", {
+      toast.error("Team could not be removed", {
         description: getErrorMessage(error),
-        classNames: { icon: "text-destructive" },
       })
     }
   }
 
-  async function addMember(userId: string) {
-    if (!selectedTeam) return
-
-    try {
-      const member = await addTeamMember(selectedTeam.id, {
-        role: "member",
-        user_id: userId,
-      })
-      setMembers((current) => upsertMember(current, member))
-      toast.success("Member added")
-    } catch (error) {
-      toast.error("Member could not be added", {
-        description: getErrorMessage(error),
-        classNames: { icon: "text-destructive" },
-      })
-    }
+  function openEditUserDialog(member: TeamMember) {
+    setEditingMember(member)
+    setUserForm({
+      email: member.user.email,
+      firstName: member.user.first_name ?? "",
+      lastName: member.user.last_name ?? "",
+      role: member.user.account_role as SignaRole,
+      teamId: member.team_id,
+      teamRole: member.role,
+    })
   }
 
-  async function changeMemberRole(member: TeamMember, role: TeamRole) {
-    if (!selectedTeam) return
+  async function submitTeamUser(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
 
-    try {
-      const updatedMember = await updateTeamMember(selectedTeam.id, member.id, {
-        role,
-      })
-      setMembers((current) => upsertMember(current, updatedMember))
-    } catch (error) {
-      toast.error("Member role could not be updated", {
-        description: getErrorMessage(error),
-        classNames: { icon: "text-destructive" },
-      })
+    if (!editingMember || !userForm || !viewedTeam) {
+      return
     }
-  }
-
-  async function removeMember(member: TeamMember) {
-    if (!selectedTeam) return
 
     try {
-      await removeTeamMember(selectedTeam.id, member.id)
-      setMembers((current) => current.filter((item) => item.id !== member.id))
-      toast.success("Member removed")
+      await updateUser(editingMember.user_id, {
+        email: userForm.email,
+        first_name: userForm.firstName || undefined,
+        last_name: userForm.lastName || undefined,
+        role: userForm.role,
+      })
+
+      if (userForm.teamId === editingMember.team_id) {
+        await updateTeamMember(viewedTeam.id, editingMember.id, {
+          role: userForm.teamRole,
+        })
+      } else {
+        await removeTeamMember(viewedTeam.id, editingMember.id)
+        await addTeamMember(userForm.teamId, {
+          role: userForm.teamRole,
+          user_id: editingMember.user_id,
+        })
+      }
+
+      setEditingMember(null)
+      setUserForm(null)
+      await Promise.all([loadTeams(), loadViewedTeamMembers(viewedTeam.id)])
+      toast.success("User updated")
     } catch (error) {
-      toast.error("Member could not be removed", {
+      toast.error("User could not be updated", {
         description: getErrorMessage(error),
-        classNames: { icon: "text-destructive" },
       })
     }
   }
 
   return (
     <section className="min-w-0 flex-1">
-      <TeamsHeader
-        isDialogOpen={isTeamDialogOpen}
-        onDialogOpenChange={setIsTeamDialogOpen}
-        onOpenCreateDialog={openCreateDialog}
-      >
-        <TeamForm
-          form={form}
-          isSaving={isSavingTeam}
-          mode={editingTeam ? "edit" : "create"}
-          onChange={setForm}
-          onSubmit={submitTeam}
-        />
-      </TeamsHeader>
+      <TeamHeader
+        isViewingTeam={Boolean(viewedTeam)}
+        onCreate={openCreateDialog}
+        teamName={viewedTeam?.name}
+      />
 
-      {teams.length ? (
-        <div className="mt-5 grid gap-5">
-          <TeamList
-            selectedTeamId={selectedTeam?.id ?? null}
-            status={status}
-            teams={teams}
-            onSelectTeam={setSelectedTeamId}
-          />
-          {selectedTeam ? (
-            <TeamDetails
-              activeUsers={activeUsers}
-              members={members}
-              team={selectedTeam}
-              onAddMember={addMember}
-              onArchiveTeam={archiveSelectedTeam}
-              onChangeMemberRole={changeMemberRole}
-              onOpenEditDialog={openEditDialog}
-              onRemoveMember={removeMember}
-            />
-          ) : null}
-        </div>
+      {viewedTeam ? (
+        <TeamUsersView
+          members={members}
+          team={viewedTeam}
+          onBack={() => router.push("/settings/teams")}
+          onEditMember={openEditUserDialog}
+          onRemoveTeam={() => void archiveSelectedTeam(viewedTeam)}
+        />
       ) : (
-        <TeamsEmptyState
+        <TeamsTable
+          isLoading={isLoading}
           status={status}
-          onCreate={openCreateDialog}
-          onViewActive={() => router.push("/settings/teams")}
+          teams={teams}
+          onArchiveTeam={(team) => void archiveSelectedTeam(team)}
+          onEditTeam={openEditTeamDialog}
         />
       )}
+
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="border-[var(--auth-input-border)] bg-[var(--auth-background)] text-[var(--auth-foreground)]">
+          <DialogHeader>
+            <DialogTitle>
+              {editingTeam ? "Edit Team" : "Create Team"}
+            </DialogTitle>
+          </DialogHeader>
+          <form className="flex flex-col gap-4" onSubmit={submitTeam}>
+            <FieldInput
+              label="Name"
+              onChange={(name) => setTeamForm({ ...teamForm, name })}
+              required
+              value={teamForm.name}
+            />
+            <FieldInput
+              label="Description"
+              onChange={(description) =>
+                setTeamForm({ ...teamForm, description })
+              }
+              value={teamForm.description}
+            />
+            <Button
+              className="h-12 rounded-full bg-[var(--auth-primary)] font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
+              type="submit"
+            >
+              SUBMIT
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(editingMember)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingMember(null)
+            setUserForm(null)
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl border-[var(--auth-input-border)] bg-[var(--auth-background)] text-[var(--auth-foreground)]">
+          <DialogHeader>
+            <DialogTitle>Edit User</DialogTitle>
+          </DialogHeader>
+          {userForm ? (
+            <form className="flex flex-col gap-6" onSubmit={submitTeamUser}>
+              <div className="grid gap-4 md:grid-cols-2">
+                <FieldInput
+                  label="First name"
+                  onChange={(firstName) =>
+                    setUserForm({ ...userForm, firstName })
+                  }
+                  value={userForm.firstName}
+                />
+                <FieldInput
+                  label="Last name"
+                  onChange={(lastName) =>
+                    setUserForm({ ...userForm, lastName })
+                  }
+                  value={userForm.lastName}
+                />
+              </div>
+              <FieldInput
+                label="Email"
+                onChange={(email) => setUserForm({ ...userForm, email })}
+                required
+                type="email"
+                value={userForm.email}
+              />
+              <p className="-mt-3 text-sm text-muted-foreground">
+                {userForm.email} email address is awaiting confirmation. Follow
+                the link in the email to confirm.
+              </p>
+              <SelectField
+                label="Role"
+                onValueChange={(role) =>
+                  setUserForm({ ...userForm, role: role as SignaRole })
+                }
+                value={userForm.role}
+              >
+                {signaRoles.map((role) => (
+                  <SelectItem key={role} value={role}>
+                    {signaRoleLabels[role]}
+                  </SelectItem>
+                ))}
+              </SelectField>
+              <Link
+                className="-mt-4 text-sm underline"
+                href="/settings/users"
+              >
+                Click here to learn more about user roles and permissions.
+              </Link>
+              <SelectField
+                label="Team account"
+                onValueChange={(teamId) =>
+                  setUserForm({ ...userForm, teamId })
+                }
+                value={userForm.teamId}
+              >
+                {teams.map((team) => (
+                  <SelectItem key={team.id} value={team.id}>
+                    {team.name}
+                  </SelectItem>
+                ))}
+              </SelectField>
+              <SelectField
+                label="Team role"
+                onValueChange={(teamRole) =>
+                  setUserForm({ ...userForm, teamRole: teamRole as TeamRole })
+                }
+                value={userForm.teamRole}
+              >
+                {teamRoles.map((role) => (
+                  <SelectItem key={role} value={role}>
+                    {role}
+                  </SelectItem>
+                ))}
+              </SelectField>
+              <Button
+                className="h-12 rounded-full bg-[var(--auth-primary)] font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
+                type="submit"
+              >
+                SUBMIT
+              </Button>
+            </form>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }
 
-function TeamsEmptyState({
+function TeamHeader({
+  isViewingTeam,
   onCreate,
-  onViewActive,
-  status,
+  teamName,
 }: {
+  isViewingTeam: boolean
   onCreate: () => void
-  onViewActive: () => void
-  status: "active" | "archived"
+  teamName?: string
 }) {
-  const isArchived = status === "archived"
-
   return (
-    <Card className="mt-5 w-full">
-      <CardHeader>
-        <CardTitle>Teams</CardTitle>
-        <CardDescription>
-          Organize users by workspace, department, or signing workflow.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Empty className="min-h-80">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <UsersIcon />
-            </EmptyMedia>
-            <EmptyTitle>
-              {isArchived ? "No archived teams" : "No teams yet"}
-            </EmptyTitle>
-            <EmptyDescription>
-              {isArchived
-                ? "Archived teams will appear here when you remove them from active use."
-                : "Create your first team to group members and manage collaboration cleanly."}
-            </EmptyDescription>
-          </EmptyHeader>
-          <EmptyContent>
-            <Button
-              onClick={isArchived ? onViewActive : onCreate}
-              size="sm"
-              type="button"
-            >
-              <UserPlusIcon data-icon="inline-start" />
-              {isArchived ? "View active teams" : "Create team"}
-            </Button>
-          </EmptyContent>
-        </Empty>
-      </CardContent>
-    </Card>
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <h1 className="text-4xl font-bold tracking-normal">
+        {isViewingTeam ? teamName : "Team Accounts"}
+      </h1>
+      {!isViewingTeam ? (
+        <Button
+          className="h-12 rounded-full bg-[var(--auth-muted)] px-6 text-sm font-bold text-[var(--auth-primary)] hover:bg-[color-mix(in_srgb,var(--auth-muted),var(--auth-primary)_8%)]"
+          onClick={onCreate}
+          type="button"
+          variant="ghost"
+        >
+          <PlusIcon data-icon="inline-start" />
+          New Team
+        </Button>
+      ) : null}
+    </div>
   )
+}
+
+function TeamsTable({
+  isLoading,
+  status,
+  teams,
+  onArchiveTeam,
+  onEditTeam,
+}: {
+  isLoading: boolean
+  status: UserStatus
+  teams: Team[]
+  onArchiveTeam: (team: Team) => void
+  onEditTeam: (team: Team) => void
+}) {
+  return (
+    <div className="mt-5 overflow-hidden">
+      <div className="grid grid-cols-[1fr_auto] rounded-t-2xl bg-[var(--auth-muted)] px-6 py-4 text-xs font-bold uppercase tracking-normal text-[var(--auth-primary)]">
+        <span>Name</span>
+        <span className="text-right">Actions</span>
+      </div>
+      {isLoading ? (
+        <p className="border-b border-border px-6 py-6 text-sm text-muted-foreground">
+          Loading...
+        </p>
+      ) : teams.length === 0 ? (
+        <p className="border-b border-border px-6 py-6 text-sm text-muted-foreground">
+          No {status} teams.
+        </p>
+      ) : (
+        teams.map((team) => (
+          <div
+            className="grid min-h-16 grid-cols-[1fr_auto] items-center gap-4 border-b border-border px-6 py-3"
+            key={team.id}
+          >
+            <span className="text-lg">{team.name}</span>
+            <div className="flex flex-wrap justify-end gap-2">
+              {team.members_count > 1 ? (
+                <>
+                  <ActionButton icon={KeyRoundIcon}>Impersonate</ActionButton>
+                  <ActionButton icon={LinkIcon}>API Key</ActionButton>
+                </>
+              ) : null}
+              <ActionButton>Logo</ActionButton>
+              <ActionButton onClick={() => onEditTeam(team)}>Edit</ActionButton>
+              <ActionButton asChild>
+                <Link href={`/settings/teams?team=${team.id}`}>View</Link>
+              </ActionButton>
+              {status === "active" ? (
+                <ActionButton onClick={() => onArchiveTeam(team)}>
+                  Remove
+                </ActionButton>
+              ) : null}
+            </div>
+          </div>
+        ))
+      )}
+      {status === "active" ? (
+        <Link
+          className="mt-5 inline-flex text-sm underline"
+          href="/settings/teams?status=archived"
+        >
+          View Archived
+        </Link>
+      ) : (
+        <Link className="mt-5 inline-flex text-sm underline" href="/settings/teams">
+          View Active
+        </Link>
+      )}
+    </div>
+  )
+}
+
+function TeamUsersView({
+  members,
+  team,
+  onBack,
+  onEditMember,
+  onRemoveTeam,
+}: {
+  members: TeamMember[]
+  team: Team
+  onBack: () => void
+  onEditMember: (member: TeamMember) => void
+  onRemoveTeam: () => void
+}) {
+  return (
+    <div className="mt-5">
+      <button className="mb-4 text-sm underline" onClick={onBack} type="button">
+        Back to Team Accounts
+      </button>
+      <div className="grid grid-cols-[1fr_auto] rounded-t-2xl bg-[var(--auth-muted)] px-6 py-4 text-xs font-bold uppercase tracking-normal text-[var(--auth-primary)]">
+        <span>{team.name}</span>
+        <span className="text-right">Actions</span>
+      </div>
+      {members.length ? (
+        members.map((member) => (
+          <div
+            className="grid min-h-16 grid-cols-[1fr_auto] items-center gap-4 border-b border-border px-6 py-3"
+            key={member.id}
+          >
+            <div className="min-w-0">
+              <p className="truncate text-lg">{getMemberName(member)}</p>
+              <p className="truncate text-sm text-muted-foreground">
+                {member.user.email}
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <ActionButton onClick={() => onEditMember(member)}>
+                Edit
+              </ActionButton>
+              <ActionButton asChild>
+                <Link href="/templates">View</Link>
+              </ActionButton>
+            </div>
+          </div>
+        ))
+      ) : (
+        <p className="border-b border-border px-6 py-6 text-sm text-muted-foreground">
+          No users in this team.
+        </p>
+      )}
+      <Button
+        className="mt-8 h-11 rounded-full border-destructive px-5 font-bold text-destructive"
+        onClick={onRemoveTeam}
+        type="button"
+        variant="outline"
+      >
+        <ArchiveIcon data-icon="inline-start" />
+        Remove Team
+      </Button>
+    </div>
+  )
+}
+
+function ActionButton({
+  asChild,
+  children,
+  icon: Icon,
+  onClick,
+}: {
+  asChild?: boolean
+  children: React.ReactNode
+  icon?: LucideIcon
+  onClick?: () => void
+}) {
+  return (
+    <Button
+      asChild={asChild}
+      className="h-8 rounded-full border-[var(--auth-primary)] px-4 text-xs font-bold uppercase"
+      onClick={onClick}
+      size="sm"
+      type="button"
+      variant={Icon ? "default" : "outline"}
+    >
+      {asChild ? (
+        children
+      ) : (
+        <>
+          {Icon ? <Icon data-icon="inline-start" /> : null}
+          {children}
+        </>
+      )}
+    </Button>
+  )
+}
+
+function FieldInput({
+  label,
+  onChange,
+  required,
+  type = "text",
+  value,
+}: {
+  label: string
+  onChange: (value: string) => void
+  required?: boolean
+  type?: string
+  value: string
+}) {
+  return (
+    <div className="grid gap-2">
+      <Label>{label}</Label>
+      <Input
+        className="h-12 rounded-full px-5"
+        onChange={(event) => onChange(event.target.value)}
+        required={required}
+        type={type}
+        value={value}
+      />
+    </div>
+  )
+}
+
+function SelectField({
+  children,
+  label,
+  onValueChange,
+  value,
+}: {
+  children: React.ReactNode
+  label: string
+  onValueChange: (value: string) => void
+  value: string
+}) {
+  return (
+    <div className="grid gap-2">
+      <Label>{label}</Label>
+      <Select onValueChange={onValueChange} value={value}>
+        <SelectTrigger className="!h-12 min-h-12 w-full rounded-full px-5 py-0">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>{children}</SelectContent>
+      </Select>
+    </div>
+  )
+}
+
+function getStatus(status: string | null): UserStatus {
+  return status === "archived" ? "archived" : "active"
+}
+
+function getMemberName(member: TeamMember): string {
+  const name = [member.user.first_name, member.user.last_name]
+    .filter(Boolean)
+    .join(" ")
+
+  return name || member.user.email
 }
 
 function upsertTeam(teams: Team[], team: Team): Team[] {
   return teams.some((item) => item.id === team.id)
     ? teams.map((item) => (item.id === team.id ? team : item))
     : [team, ...teams]
-}
-
-function upsertMember(
-  members: TeamMember[],
-  member: TeamMember
-): TeamMember[] {
-  return members.some((item) => item.id === member.id)
-    ? members.map((item) => (item.id === member.id ? member : item))
-    : [...members, member]
 }
 
 function getErrorMessage(error: unknown): string {

@@ -13,7 +13,7 @@ import { Account } from './account.entity';
 @Entity('account_configs')
 @Index(['accountId', 'key'], { unique: true })
 export class AccountConfig {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Column({ name: 'account_id', type: 'bigint' })
@@ -22,13 +22,13 @@ export class AccountConfig {
   @Column({ type: 'varchar', length: 255 })
   key!: string;
 
-  @Column({ type: 'jsonb' })
+  @Column({ type: 'simple-json' })
   value!: unknown;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => Account, (account) => account.configs, {

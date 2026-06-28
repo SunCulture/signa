@@ -45,17 +45,23 @@ export class MailDeliveryBuilder {
     );
     const templatePreferences =
       submitter.submission.template?.preferences ?? {};
+    const templateSubmitterPreferences = findTemplateSubmitterPreferences(
+      templatePreferences,
+      submitter.uuid,
+    );
     const submitterMessage = isRecord(submitter.preferences.message)
       ? submitter.preferences.message
       : {};
     const customBody =
       stringValue(submitter.preferences.request_email_body) ??
       stringValue(submitterMessage.body) ??
+      stringValue(templateSubmitterPreferences?.request_email_body) ??
       stringValue(templatePreferences.request_email_body) ??
       stringValue(accountConfig?.body);
     const customSubject =
       stringValue(submitter.preferences.request_email_subject) ??
       stringValue(submitterMessage.subject) ??
+      stringValue(templateSubmitterPreferences?.request_email_subject) ??
       stringValue(templatePreferences.request_email_subject) ??
       stringValue(accountConfig?.subject);
     const defaultTemplate = this.templates.renderDefault(
@@ -71,7 +77,7 @@ export class MailDeliveryBuilder {
       accountId: submitter.accountId,
       to: this.submitterAddress(submitter),
       subject: subject ?? defaultTemplate.subject,
-      template: 'submitter-invitation-reminder',
+      template: 'submitter-invitation',
       replyTo: this.buildReplyTo(submitter, accountConfig),
       context: {
         ...this.branding.getBaseContext(),
@@ -105,15 +111,20 @@ export class MailDeliveryBuilder {
       submitter.accountId,
       accountMailConfigKeys.submitterInvitationReminderEmail,
     );
+    const templatePreferences =
+      submitter.submission.template?.preferences ?? {};
     const defaultTemplate = this.templates.renderDefault(
       'submitter-invitation-reminder',
       context,
     );
     const custom = this.templates.renderCustom(
-      stringValue(accountConfig?.body),
+      stringValue(templatePreferences.invitation_reminder_email_body) ??
+        stringValue(accountConfig?.body),
       context,
     );
-    const customSubject = stringValue(accountConfig?.subject);
+    const customSubject =
+      stringValue(templatePreferences.invitation_reminder_email_subject) ??
+      stringValue(accountConfig?.subject);
     const subject = customSubject
       ? this.templates.renderCustom(customSubject, context)?.markdown
       : defaultTemplate.subject;
@@ -122,7 +133,7 @@ export class MailDeliveryBuilder {
       accountId: submitter.accountId,
       to: this.submitterAddress(submitter),
       subject: subject ?? defaultTemplate.subject,
-      template: 'submitter-invitation',
+      template: 'submitter-invitation-reminder',
       replyTo: this.buildReplyTo(submitter, accountConfig),
       context: {
         ...this.branding.getBaseContext(),
@@ -341,20 +352,23 @@ export class MailDeliveryBuilder {
     const submitterLink = options.trackEmailClick
       ? this.buildTrackedSubmitterLink(submitter)
       : this.branding.getFrontendUrl(`/s/${submitter.slug}`);
+    const submissionLink = this.branding.getFrontendUrl(
+      `/submissions/${submission.id}`,
+    );
 
     return {
       accountName: submitter.account?.name ?? 'Signa',
       documentsLink: submitterLink,
+      documentsUrl: submitterLink,
       senderEmail: submission.createdByUser?.email ?? null,
       senderFirstName: submission.createdByUser?.firstName ?? null,
       senderName: fullName(submission.createdByUser),
       submissionExpireAt: submission.expireAt?.toISOString() ?? null,
       submissionId: submission.id,
-      submissionLink: this.branding.getFrontendUrl(
-        `/submissions/${submission.id}`,
-      ),
+      submissionLink,
       submissionName: submission.name,
       submissionSubmitters: formatSubmitterNames(submission.submitters ?? []),
+      submissionUrl: submissionLink,
       submitterEmail: submitter.email,
       submitterFirstName: firstName(submitter.name),
       submitterId: submitter.id,
@@ -501,6 +515,23 @@ function stringValue(value: unknown): string | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function findTemplateSubmitterPreferences(
+  templatePreferences: Record<string, unknown>,
+  submitterUuid: string,
+): Record<string, unknown> | null {
+  const submitters = templatePreferences.submitters;
+
+  if (!Array.isArray(submitters)) {
+    return null;
+  }
+
+  const match = (submitters as unknown[]).find(
+    (item) => isRecord(item) && item.uuid === submitterUuid,
+  );
+
+  return isRecord(match) ? match : null;
 }
 
 function userAddress(user: User): MailAddress {

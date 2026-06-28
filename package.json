@@ -10,6 +10,7 @@
     "start:frontend": "pnpm --filter frontend start",
     "start:backend:prod": "pnpm --filter backend start:prod",
     "build": "turbo run build",
+    "build:deploy": "NEXT_PUBLIC_API_BASE_URL= pnpm build",
     "build:backend": "pnpm --filter backend build",
     "build:frontend": "pnpm --filter frontend build",
     "lint": "turbo run lint",

@@ -6,11 +6,12 @@ import {
   OneToMany,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import { v4 as uuidv4 } from 'uuid';
 import { StorageAttachment } from './storage-attachment.entity';
 
 @Entity('active_storage_blobs')
 export class StorageBlob {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Index({ unique: true })
@@ -44,11 +45,10 @@ export class StorageBlob {
   @Column({
     type: 'varchar',
     length: 255,
-    default: () => '(gen_random_uuid())',
   })
-  uuid!: string;
+  uuid: string = uuidv4();
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
   @OneToMany(() => StorageAttachment, (attachment) => attachment.blob)

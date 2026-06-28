@@ -18,7 +18,7 @@ import { Template } from './template.entity';
 export class TemplateFolder {
   static readonly DEFAULT_NAME = 'Default';
 
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Index()
@@ -36,17 +36,13 @@ export class TemplateFolder {
   @Column({ type: 'varchar', length: 255 })
   name!: string;
 
-  @DeleteDateColumn({
-    name: 'archived_at',
-    type: 'timestamptz',
-    nullable: true,
-  })
+  @DeleteDateColumn({ name: 'archived_at', type: Date, nullable: true })
   archivedAt!: Date | null;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => Account, { onDelete: 'CASCADE' })

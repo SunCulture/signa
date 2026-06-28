@@ -4,8 +4,17 @@ import { InfoIcon, MessageSquareTextIcon } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  EmailMarkdownEditor,
+  type EmailTemplateVariable,
+} from "../../email-markdown-editor";
 import { CheckRow } from "./send-recipient-controls";
+
+const signatureRequestEmailVariables = [
+  { label: "Template name", value: "template.name" },
+  { label: "Submitter link", value: "submitter.link" },
+  { label: "Account name", value: "account.name" },
+] satisfies EmailTemplateVariable[];
 
 export function SendRecipientMessagePanel({
   messageBody,
@@ -39,15 +48,12 @@ export function SendRecipientMessagePanel({
           value={messageSubject}
         />
       </div>
-      <div className="grid gap-2">
-        <Label htmlFor="send-message-body">Body</Label>
-        <Textarea
-          className="min-h-36 rounded-3xl border-[var(--auth-input-border)] bg-white px-5 py-4 shadow-none focus-visible:ring-0"
-          id="send-message-body"
-          onChange={(event) => onBodyChange(event.target.value)}
-          value={messageBody}
-        />
-      </div>
+      <EmailMarkdownEditor
+        label="Body"
+        onChange={onBodyChange}
+        value={messageBody}
+        variables={signatureRequestEmailVariables}
+      />
       <CheckRow
         checked={saveMessage}
         label="Save as default template message"

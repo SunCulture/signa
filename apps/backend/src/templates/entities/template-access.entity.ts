@@ -16,7 +16,7 @@ import { Template } from './template.entity';
 export class TemplateAccess {
   static readonly ADMIN_USER_ID = '-1';
 
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Column({ name: 'template_id', type: 'bigint' })
@@ -25,10 +25,10 @@ export class TemplateAccess {
   @Column({ name: 'user_id', type: 'bigint' })
   userId!: string;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => Template, (template) => template.accesses, {

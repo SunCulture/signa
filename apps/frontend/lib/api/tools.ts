@@ -2,6 +2,8 @@ import { authenticatedApiFetch } from "./auth"
 
 export type VerifyPdfResponse = {
   checksum_status: "verified" | "not_found"
+  cryptographic_verification: boolean
+  sha256: string
   signatures: Array<{
     verification_result: string[]
     signer_name: string | null
@@ -12,20 +14,11 @@ export type VerifyPdfResponse = {
 }
 
 export async function verifyPdfFile(file: File): Promise<VerifyPdfResponse> {
+  const formData = new FormData()
+  formData.set("file", file, file.name)
+
   return authenticatedApiFetch<VerifyPdfResponse>("/tools/verify", {
-    body: JSON.stringify({ file: await fileToBase64(file) }),
+    body: formData,
     method: "POST",
   })
-}
-
-async function fileToBase64(file: File): Promise<string> {
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-
-    reader.addEventListener("load", () => resolve(String(reader.result)))
-    reader.addEventListener("error", () => reject(reader.error))
-    reader.readAsDataURL(file)
-  })
-
-  return dataUrl.split(",").at(1) ?? ""
 }

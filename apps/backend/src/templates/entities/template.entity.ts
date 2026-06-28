@@ -10,6 +10,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { v4 as uuidv4 } from 'uuid';
 import { Account } from '../../accounts/entities/account.entity';
 import { User } from '../../users/entities/user.entity';
 import { TemplateAccess } from './template-access.entity';
@@ -27,7 +28,7 @@ import type {
 
 @Entity('templates')
 export class Template {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Index()
@@ -65,9 +66,8 @@ export class Template {
   @Column({
     type: 'varchar',
     length: 255,
-    default: () => '(gen_random_uuid())',
   })
-  slug!: string;
+  slug: string = uuidv4();
 
   @Column({ type: 'text', default: 'native' })
   source!: string;
@@ -78,17 +78,13 @@ export class Template {
   @Column({ name: 'variables_schema', type: 'simple-json', nullable: true })
   variablesSchema!: TemplateVariablesSchema | null;
 
-  @DeleteDateColumn({
-    name: 'archived_at',
-    type: 'timestamptz',
-    nullable: true,
-  })
+  @DeleteDateColumn({ name: 'archived_at', type: Date, nullable: true })
   archivedAt!: Date | null;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => Account, { onDelete: 'CASCADE' })

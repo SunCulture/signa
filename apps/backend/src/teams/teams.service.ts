@@ -11,6 +11,7 @@ import {
   throwDatabaseErrors,
   throwIfUniqueConstraint,
 } from '../common/utils/error';
+import { MailService } from '../mail/mail.service';
 import { User } from '../users/entities/user.entity';
 import { CreateTeamInvitationDto } from './dto/create-team-invitation.dto';
 import { CreateTeamMemberDto } from './dto/create-team-member.dto';
@@ -42,6 +43,7 @@ export class TeamsService {
     private readonly invitations: Repository<TeamInvitation>,
     @InjectRepository(User)
     private readonly users: Repository<User>,
+    private readonly mail: MailService,
   ) {}
 
   async createDefaultTeam(options: {
@@ -280,7 +282,7 @@ export class TeamsService {
     teamId: string;
   }): Promise<TeamInvitationResponseDto> {
     await this.ensureCanManageTeam(options.actor, options.teamId);
-    await this.findAccountTeamOrFail(options);
+    const team = await this.findAccountTeamOrFail(options);
 
     const token = randomBytes(32).toString('base64url');
     const invitation = this.invitations.create({
@@ -295,7 +297,20 @@ export class TeamsService {
     });
 
     try {
-      return toInvitationResponse(await this.invitations.save(invitation), {
+      const savedInvitation = await this.invitations.save(invitation);
+
+      await this.mail.sendTeamInvitation({
+        accountId: options.accountId,
+        accountName: options.actor.account?.name ?? team.name,
+        email: savedInvitation.email,
+        expiresAt: savedInvitation.expiresAt,
+        inviterName: this.formatUserName(options.actor),
+        role: savedInvitation.role,
+        teamName: team.name,
+        token,
+      });
+
+      return toInvitationResponse(savedInvitation, {
         acceptToken: token,
       });
     } catch (error) {
@@ -350,6 +365,15 @@ export class TeamsService {
     await this.invitations.save(invitation);
 
     return member;
+  }
+
+  async assertCanUseTeamAction(options: {
+    accountId: string;
+    actor: User;
+    teamId: string;
+  }): Promise<void> {
+    await this.findAccountTeamOrFail(options);
+    await this.ensureCanManageTeam(options.actor, options.teamId);
   }
 
   private async createUniqueSlug(
@@ -512,5 +536,13 @@ export class TeamsService {
 
   private normalizeRole(role: string | undefined): TeamRole {
     return isTeamRole(role) ? role : 'member';
+  }
+
+  private formatUserName(user: User): string {
+    const name = [user.firstName, user.lastName]
+      .filter((part): part is string => !!part?.trim())
+      .join(' ');
+
+    return name || user.email;
   }
 }

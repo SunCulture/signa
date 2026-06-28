@@ -10,7 +10,7 @@ import {
 @Entity('email_events')
 @Index(['accountId', 'id'])
 export class EmailEvent {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Index()
@@ -27,7 +27,7 @@ export class EmailEvent {
   @Column({ name: 'event_type', type: 'varchar', length: 64 })
   eventType!: string;
 
-  @Column({ name: 'event_datetime', type: 'timestamptz' })
+  @Column({ name: 'event_datetime' })
   eventDatetime!: Date;
 
   @Column({ name: 'message_id', type: 'varchar', length: 255, nullable: true })
@@ -44,12 +44,12 @@ export class EmailEvent {
   @Column({ name: 'emailable_id', type: 'bigint', nullable: true })
   emailableId!: string | null;
 
-  @Column({ type: 'jsonb' })
+  @Column({ type: 'simple-json' })
   data!: Record<string, unknown>;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 }

@@ -37,6 +37,11 @@ Signa is a TypeScript recreation of DocuSeal. Keep backend endpoints compatible 
 - Feature modules that own entities must import `TypeOrmModule.forFeature([...])` locally.
 - Use `jsonb` for DocuSeal JSON-serialized fields such as template fields, schema, preferences, values, metadata, variables, and event data.
 - Use tenant-scoped indexes for list/query paths, especially `(account_id, id)`, `(account_id, template_id, id)`, and `(account_id, folder_id, id)`.
+- Prevent TypeORM default-drift migrations:
+  - Do not put PostgreSQL cast-normalized defaults in entity decorators for JSON/UUID columns when TypeORM can compare them unstably. Example: for a `jsonb` empty array default, use `default: () => "'[]'"`, not `default: () => "'[]'::jsonb"`.
+  - Before accepting a generated migration, inspect it for repeated no-op `ALTER COLUMN ... SET DEFAULT`, `DROP DEFAULT`/`SET DEFAULT`, or UUID default churn that already appeared in the last migration.
+  - If a newly generated migration only repeats a default/index alteration from a previous migration, stop and fix the entity decorator or naming/default expression. Do not keep stacking duplicate migrations.
+  - After running a generated migration, run the migration check command before adding new entities: `pnpm db:migration:check`. A clean check is the guard that TypeORM and Postgres agree on metadata.
 - Global backend setup lives in `AppModule`: `ConfigModule`, global cache, and global throttling.
 - Database wiring lives in the generated `DatabaseModule` and must use `TypeOrmModule.forRootAsync` with `ConfigService`.
 

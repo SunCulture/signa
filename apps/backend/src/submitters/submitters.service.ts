@@ -10,6 +10,7 @@ import { StorageService } from '../storage/storage.service';
 import { SubmissionEvent } from '../submissions/entities/submission-event.entity';
 import { Submission } from '../submissions/entities/submission.entity';
 import { SubmissionDocumentsService } from '../submissions/submission-documents.service';
+import { DocumentGenerationQueueService } from '../submissions/document-generation-queue.service';
 import {
   buildSubmissionEventData,
   type SubmissionRequestMetadata,
@@ -40,6 +41,7 @@ export class SubmittersService {
     private readonly config: ConfigService,
     private readonly events: EventEmitter2,
     private readonly submissionDocumentsService: SubmissionDocumentsService,
+    private readonly documentGenerationQueue: DocumentGenerationQueueService,
     private readonly submitterValueNormalizer: SubmitterValueNormalizer,
   ) {}
 
@@ -177,6 +179,15 @@ export class SubmittersService {
         submitterId: submitter.id,
         accountId: submitter.accountId,
       });
+    }
+
+    if (normalized.input.completed) {
+      await this.submissionDocumentsService.processSubmitterCompletion(
+        submitter,
+      );
+      await this.documentGenerationQueue.enqueueSubmitterCompletion(
+        submitter.id,
+      );
     }
 
     return this.toSubmitterResponse(submitter, {

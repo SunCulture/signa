@@ -17,7 +17,7 @@ import { Submission } from './submission.entity';
 @Index(['accountId', 'completedAt'])
 @Index(['submitterId'], { unique: true })
 export class CompletedSubmitter {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Index()
@@ -35,7 +35,7 @@ export class CompletedSubmitter {
   @Column({ name: 'template_id', type: 'bigint', nullable: true })
   templateId!: string | null;
 
-  @Column({ name: 'completed_at', type: 'timestamptz' })
+  @Column({ name: 'completed_at' })
   completedAt!: Date;
 
   @Column({ name: 'is_first', type: 'boolean', nullable: true })
@@ -55,10 +55,10 @@ export class CompletedSubmitter {
   })
   verificationMethod!: string | null;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => Account, { onDelete: 'CASCADE' })

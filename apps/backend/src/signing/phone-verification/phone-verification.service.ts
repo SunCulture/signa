@@ -4,7 +4,10 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { parsePhoneNumberFromString } from 'libphonenumber-js';
+import {
+  parsePhoneNumberFromString,
+  type CountryCode,
+} from 'libphonenumber-js';
 import twilio, { Twilio } from 'twilio';
 
 @Injectable()
@@ -25,8 +28,9 @@ export class PhoneVerificationService {
         : null;
   }
 
-  normalizePhone(input: string): string {
-    const phone = parsePhoneNumberFromString(input);
+  normalizePhone(input: string, country?: string | null): string {
+    const countryCode = normalizeCountryCode(country);
+    const phone = parsePhoneNumberFromString(input, countryCode);
 
     if (!phone?.isValid()) {
       throw new UnprocessableEntityException({
@@ -34,11 +38,20 @@ export class PhoneVerificationService {
       });
     }
 
+    if (countryCode && phone.country !== countryCode) {
+      throw new UnprocessableEntityException({
+        error: `${input} must be a valid ${countryCode} phone number`,
+      });
+    }
+
     return phone.number;
   }
 
-  async sendCode(input: string): Promise<{ status: string; to: string }> {
-    const to = this.normalizePhone(input);
+  async sendCode(
+    input: string,
+    country?: string | null,
+  ): Promise<{ status: string; to: string }> {
+    const to = this.normalizePhone(input, country);
     const client = this.getClient();
     const verification = await client.verify.v2
       .services(this.verifyServiceSid!)
@@ -50,8 +63,9 @@ export class PhoneVerificationService {
   async checkCode(
     input: string,
     code: string,
+    country?: string | null,
   ): Promise<{ status: string; valid: boolean }> {
-    const to = this.normalizePhone(input);
+    const to = this.normalizePhone(input, country);
     const client = this.getClient();
     const verificationCheck = await client.verify.v2
       .services(this.verifyServiceSid!)
@@ -72,4 +86,12 @@ export class PhoneVerificationService {
 
     return this.client;
   }
+}
+
+function normalizeCountryCode(country: string | null | undefined) {
+  const normalized = country?.trim().toUpperCase();
+
+  return normalized && /^[A-Z]{2}$/.test(normalized)
+    ? (normalized as CountryCode)
+    : undefined;
 }

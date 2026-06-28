@@ -9,11 +9,12 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { v4 as uuidv4 } from 'uuid';
 import { Account } from '../../accounts/entities/account.entity';
 
 @Entity('users')
 export class User {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Index()
@@ -28,9 +29,8 @@ export class User {
   @Column({
     type: 'varchar',
     length: 255,
-    default: () => '(gen_random_uuid())',
   })
-  uuid!: string;
+  uuid: string = uuidv4();
 
   @Column({ name: 'first_name', type: 'varchar', length: 255, nullable: true })
   firstName!: string | null;
@@ -48,19 +48,19 @@ export class User {
   })
   encryptedPassword!: string;
 
-  @Column({ name: 'confirmation_sent_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'confirmation_sent_at', type: Date, nullable: true })
   confirmationSentAt!: Date | null;
 
   @Column({ name: 'confirmation_token', type: 'varchar', nullable: true })
   confirmationToken!: string | null;
 
-  @Column({ name: 'confirmed_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'confirmed_at', type: Date, nullable: true })
   confirmedAt!: Date | null;
 
   @Column({ name: 'consumed_timestep', type: 'integer', nullable: true })
   consumedTimestep!: number | null;
 
-  @Column({ name: 'current_sign_in_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'current_sign_in_at', type: Date, nullable: true })
   currentSignInAt!: Date | null;
 
   @Column({ name: 'current_sign_in_ip', type: 'varchar', nullable: true })
@@ -69,13 +69,13 @@ export class User {
   @Column({ name: 'failed_attempts', type: 'integer', default: 0 })
   failedAttempts!: number;
 
-  @Column({ name: 'last_sign_in_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'last_sign_in_at', type: Date, nullable: true })
   lastSignInAt!: Date | null;
 
   @Column({ name: 'last_sign_in_ip', type: 'varchar', nullable: true })
   lastSignInIp!: string | null;
 
-  @Column({ name: 'locked_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'locked_at', type: Date, nullable: true })
   lockedAt!: Date | null;
 
   @Column({ name: 'otp_required_for_login', type: 'boolean', default: false })
@@ -84,18 +84,14 @@ export class User {
   @Column({ name: 'otp_secret', type: 'varchar', nullable: true })
   otpSecret!: string | null;
 
-  @Column({ name: 'remember_created_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'remember_created_at', type: Date, nullable: true })
   rememberCreatedAt!: Date | null;
 
   @Index({ unique: true })
   @Column({ name: 'reset_password_token', type: 'varchar', nullable: true })
   resetPasswordToken!: string | null;
 
-  @Column({
-    name: 'reset_password_sent_at',
-    type: 'timestamptz',
-    nullable: true,
-  })
+  @Column({ name: 'reset_password_sent_at', type: Date, nullable: true })
   resetPasswordSentAt!: Date | null;
 
   @Column({ name: 'sign_in_count', type: 'integer', default: 0 })
@@ -108,17 +104,13 @@ export class User {
   @Column({ name: 'unlock_token', type: 'varchar', nullable: true })
   unlockToken!: string | null;
 
-  @DeleteDateColumn({
-    name: 'archived_at',
-    type: 'timestamptz',
-    nullable: true,
-  })
+  @DeleteDateColumn({ name: 'archived_at', type: Date, nullable: true })
   archivedAt!: Date | null;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => Account, (account) => account.users, {

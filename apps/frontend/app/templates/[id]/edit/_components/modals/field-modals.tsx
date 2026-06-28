@@ -5,6 +5,7 @@ import { PlusIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import phoneData from "@/lib/phone-data";
 import { cn } from "@/lib/utils";
 import {
   buildDefaultFieldName,
@@ -28,6 +29,13 @@ import {
   type TemplateFieldArea,
   type TemplateFieldCondition,
 } from "../../_lib/template-editor-model";
+
+const phoneCountries = phoneData.map(([iso, name, dial, flag]) => ({
+  dial,
+  flag,
+  iso,
+  name,
+}));
 
 export function FieldDescriptionModal({
   field,
@@ -186,6 +194,9 @@ export function FieldAdvancedSettingsModal({
   const [maxValue, setMaxValue] = useState(() =>
     getFieldStringValue(validation.max),
   );
+  const [phoneCountry, setPhoneCountry] = useState(() =>
+    getFieldStringValue(validation.phone_country),
+  );
   const [options, setOptions] = useState(() => getFieldOptions(field));
   const [areas, setAreas] = useState(() => field.areas);
   const supportsOptions = isChoiceField(field.type);
@@ -193,6 +204,7 @@ export function FieldAdvancedSettingsModal({
   const supportsFormat = field.type === "date" || field.type === "number";
   const supportsTextValidation = ["cells", "text"].includes(field.type);
   const supportsFileConstraints = ["file", "image"].includes(field.type);
+  const supportsPhoneValidation = field.type === "phone";
 
   function saveSettings() {
     const nextPreferences = { ...preferences };
@@ -246,6 +258,18 @@ export function FieldAdvancedSettingsModal({
         nextValidation.max = Number(maxValue);
       } else {
         delete nextValidation.max;
+      }
+
+      patch.validation = Object.keys(nextValidation).length
+        ? nextValidation
+        : undefined;
+    }
+
+    if (supportsPhoneValidation) {
+      if (phoneCountry) {
+        nextValidation.phone_country = phoneCountry;
+      } else {
+        delete nextValidation.phone_country;
       }
 
       patch.validation = Object.keys(nextValidation).length
@@ -466,6 +490,27 @@ export function FieldAdvancedSettingsModal({
                   />
                 </div>
               ) : null}
+            </div>
+          ) : null}
+
+          {supportsPhoneValidation ? (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor={`${field.uuid}-phone-country`}>
+                Phone country
+              </Label>
+              <select
+                className="h-11 rounded-full border border-[var(--auth-input-border)] bg-background px-4 text-sm outline-none focus:border-[var(--auth-primary)]"
+                id={`${field.uuid}-phone-country`}
+                onChange={(event) => setPhoneCountry(event.target.value)}
+                value={phoneCountry}
+              >
+                <option value="">Signer can choose</option>
+                {phoneCountries.map((country) => (
+                  <option key={country.iso} value={country.iso}>
+                    {country.flag} +{country.dial} {country.name}
+                  </option>
+                ))}
+              </select>
             </div>
           ) : null}
 

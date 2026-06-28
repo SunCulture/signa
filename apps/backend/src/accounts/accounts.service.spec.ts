@@ -1,17 +1,28 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
+import { MailService } from '../mail/mail.service';
+import { PdfSignatureService } from '../pdf-signatures/pdf-signature.service';
+import { StorageService } from '../storage/storage.service';
+import { User } from '../users/entities/user.entity';
 import { AccountsService } from './accounts.service';
 import { AccountConfig } from './entities/account-config.entity';
 import { AccountLinkedAccount } from './entities/account-linked-account.entity';
 import { Account } from './entities/account.entity';
-import { User } from '../users/entities/user.entity';
+import { EncryptedConfig } from './entities/encrypted-config.entity';
 
-type MockRepository<T extends object> = Pick<Repository<T>, 'findOne'>;
+type MockRepository<T extends object> = Pick<
+  Repository<T>,
+  'create' | 'findOne' | 'findOneByOrFail' | 'save'
+>;
 
 function createRepository<T extends object>(): jest.Mocked<MockRepository<T>> {
   return {
+    create: jest.fn((input: Partial<T>) => input as T),
     findOne: jest.fn(),
+    findOneByOrFail: jest.fn(),
+    save: jest.fn((input: T) => Promise.resolve(input)),
   };
 }
 
@@ -19,12 +30,14 @@ describe('AccountsService', () => {
   let service: AccountsService;
   let accounts: jest.Mocked<MockRepository<Account>>;
   let accountConfigs: jest.Mocked<MockRepository<AccountConfig>>;
+  let encryptedConfigs: jest.Mocked<MockRepository<EncryptedConfig>>;
   let linkedAccounts: jest.Mocked<MockRepository<AccountLinkedAccount>>;
   let users: jest.Mocked<MockRepository<User>>;
 
   beforeEach(async () => {
     accounts = createRepository<Account>();
     accountConfigs = createRepository<AccountConfig>();
+    encryptedConfigs = createRepository<EncryptedConfig>();
     linkedAccounts = createRepository<AccountLinkedAccount>();
     users = createRepository<User>();
 
@@ -46,6 +59,34 @@ describe('AccountsService', () => {
         {
           provide: getRepositoryToken(User),
           useValue: users,
+        },
+        {
+          provide: getRepositoryToken(EncryptedConfig),
+          useValue: encryptedConfigs,
+        },
+        {
+          provide: StorageService,
+          useValue: {},
+        },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn() },
+        },
+        {
+          provide: MailService,
+          useValue: {
+            sendSmtpSuccessfulSetup: jest
+              .fn()
+              .mockResolvedValue({ status: 'sent' }),
+          },
+        },
+        {
+          provide: PdfSignatureService,
+          useValue: {
+            ensureDefaultCertificate: jest.fn(),
+            getTimestampServerUrl: jest.fn().mockResolvedValue(null),
+            upsertTimestampServerUrl: jest.fn(),
+          },
         },
       ],
     }).compile();
@@ -95,6 +136,67 @@ describe('AccountsService', () => {
         accountId: 'account-1',
         accountType: 'testing',
       },
+    });
+  });
+
+  it('stores normalized template custom fields on account config', async () => {
+    accounts.findOne.mockResolvedValue({ id: 'account-1' } as Account);
+    accountConfigs.findOne.mockResolvedValue(null);
+
+    await expect(
+      service.updateTemplateCustomFields('account-1', [
+        {
+          areas: [
+            {
+              attachment_uuid: 'document-1',
+              h: 3,
+              page: 1,
+              w: 20,
+              x: 10,
+              y: 12,
+            },
+          ],
+          conditions: [{ field: 'ignored' }],
+          name: 'Approval',
+          options: [{ label: 'ignored', uuid: 'option-1', value: 'Yes' }],
+          preferences: { font_size: 12 },
+          required: true,
+          submitter_uuid: 'ignored',
+          type: 'text',
+          uuid: 'field-1',
+        },
+      ]),
+    ).resolves.toEqual([
+      {
+        areas: [{ h: 3, w: 20, x: 10, y: 12 }],
+        name: 'Approval',
+        options: [{ uuid: 'option-1', value: 'Yes' }],
+        preferences: { font_size: 12 },
+        required: true,
+        type: 'text',
+        uuid: 'field-1',
+      },
+    ]);
+    expect(accountConfigs.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: 'account-1',
+        key: 'template_custom_fields',
+      }),
+    );
+    expect(accountConfigs.save).toHaveBeenCalledWith({
+      accountId: 'account-1',
+      key: 'template_custom_fields',
+      value: [
+        {
+          areas: [{ h: 3, w: 20, x: 10, y: 12 }],
+          name: 'Approval',
+          options: [{ uuid: 'option-1', value: 'Yes' }],
+          preferences: { font_size: 12 },
+          required: true,
+          type: 'text',
+          uuid: 'field-1',
+        },
+      ],
     });
   });
 });

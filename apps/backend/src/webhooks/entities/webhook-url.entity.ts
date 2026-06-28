@@ -17,7 +17,7 @@ import { WebhookEvent } from './webhook-event.entity';
 @Index(['accountId'])
 @Index(['sha1'])
 export class WebhookUrl {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Column({ name: 'account_id', type: 'bigint' })
@@ -26,10 +26,10 @@ export class WebhookUrl {
   @Column({ type: 'text' })
   url!: string;
 
-  @Column({ type: 'jsonb' })
+  @Column({ type: 'simple-json' })
   events!: string[];
 
-  @Column({ type: 'jsonb' })
+  @Column({ type: 'simple-json' })
   secret!: Record<string, string>;
 
   @Column({ name: 'hmac_secret', type: 'text' })
@@ -38,10 +38,10 @@ export class WebhookUrl {
   @Column({ type: 'varchar', length: 64 })
   sha1!: string;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @OneToMany(() => WebhookEvent, (event) => event.webhookUrl)

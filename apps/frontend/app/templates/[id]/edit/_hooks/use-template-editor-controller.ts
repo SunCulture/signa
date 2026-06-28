@@ -1,18 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api/http";
 import {
+  getAccountCustomFields,
   getTemplate,
+  saveAccountCustomFields,
   type TemplateResponse,
   updateTemplate,
 } from "@/lib/api/templates";
 import {
+  buildTemplateCustomField,
   normalizeTemplateFields,
+  normalizeTemplateCustomFields,
   normalizeTemplateSubmitters,
   type EditorFieldType,
+  type TemplateCustomField,
   type TemplateEditorField,
   type TemplateSubmitter,
 } from "../_lib/template-editor-model";
@@ -22,10 +27,21 @@ import { createTemplateEditorSigningActions } from "./template-editor-signing-ac
 import { createTemplateEditorSubmitterActions } from "./template-editor-submitter-actions";
 import { createTemplateEditorTemplateActions } from "./template-editor-template-actions";
 
+type TemplateEditorHistoryEntry = {
+  fields: unknown[];
+  schema: TemplateResponse["schema"];
+  selectedFieldUuid: string | null;
+  submitters: TemplateResponse["submitters"];
+};
+
+const MAX_TEMPLATE_EDITOR_HISTORY = 50;
+const TEMPLATE_EDITOR_HISTORY_STORAGE_PREFIX = "signa_template_editor_history";
+
 export function useTemplateEditorController() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const [template, setTemplate] = useState<TemplateResponse | null>(null);
+  const [customFields, setCustomFields] = useState<TemplateCustomField[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [selectedDocumentUuid, setSelectedDocumentUuid] = useState<
     string | null
@@ -50,11 +66,24 @@ export function useTemplateEditorController() {
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false);
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const [isUpdatingSharedLink, setIsUpdatingSharedLink] = useState(false);
+  const undoHistoryRef = useRef<TemplateEditorHistoryEntry[]>([]);
+  const redoHistoryRef = useRef<TemplateEditorHistoryEntry[]>([]);
+  const [historyRevision, setHistoryRevision] = useState(0);
 
   useEffect(() => {
-    getTemplate(params.id)
-      .then((loadedTemplate) => {
+    Promise.all([
+      getTemplate(params.id),
+      getAccountCustomFields().catch(() => ({ value: [] })),
+    ])
+      .then(([loadedTemplate, customFieldsResponse]) => {
         setTemplate(loadedTemplate);
+        setCustomFields(
+          normalizeTemplateCustomFields(customFieldsResponse.value),
+        );
+        const history = loadTemplateEditorHistory(loadedTemplate.id);
+        undoHistoryRef.current = history.undo;
+        redoHistoryRef.current = history.redo;
+        setHistoryRevision((revision) => revision + 1);
         setSelectedDocumentUuid(
           (currentUuid) =>
             currentUuid ?? loadedTemplate.documents.at(0)?.uuid ?? null,
@@ -167,12 +196,137 @@ export function useTemplateEditorController() {
         : [];
   }
 
+  function createHistoryEntry(
+    templateSnapshot = currentTemplate,
+  ): TemplateEditorHistoryEntry {
+    return {
+      fields: cloneTemplateEditorHistoryValue(templateSnapshot.fields),
+      schema: cloneTemplateEditorHistoryValue(templateSnapshot.schema),
+      selectedFieldUuid,
+      submitters: cloneTemplateEditorHistoryValue(templateSnapshot.submitters),
+    };
+  }
+
+  function recordEditorHistory(entry = createHistoryEntry()) {
+    undoHistoryRef.current = [
+      ...undoHistoryRef.current.slice(-(MAX_TEMPLATE_EDITOR_HISTORY - 1)),
+      entry,
+    ];
+    redoHistoryRef.current = [];
+    persistTemplateEditorHistory(currentTemplate.id, {
+      redo: redoHistoryRef.current,
+      undo: undoHistoryRef.current,
+    });
+    setHistoryRevision((revision) => revision + 1);
+  }
+
+  async function applyEditorHistory(
+    entry: TemplateEditorHistoryEntry,
+    direction: "redo" | "undo",
+  ) {
+    const currentEntry = createHistoryEntry();
+
+    if (direction === "undo") {
+      redoHistoryRef.current = [...redoHistoryRef.current, currentEntry];
+    } else {
+      undoHistoryRef.current = [...undoHistoryRef.current, currentEntry];
+    }
+
+    persistTemplateEditorHistory(currentTemplate.id, {
+      redo: redoHistoryRef.current,
+      undo: undoHistoryRef.current,
+    });
+
+    setTemplate((previousTemplate) =>
+      previousTemplate?.id === currentTemplate.id
+        ? {
+            ...previousTemplate,
+            fields: entry.fields,
+            schema: entry.schema,
+            submitters: entry.submitters,
+          }
+        : previousTemplate,
+    );
+    setSelectedFieldUuid(entry.selectedFieldUuid);
+    setSelectedFieldUuids(
+      entry.selectedFieldUuid ? [entry.selectedFieldUuid] : [],
+    );
+    setIsSavingFields(true);
+    setHistoryRevision((revision) => revision + 1);
+
+    try {
+      await updateTemplate(currentTemplate.id, {
+        fields: entry.fields,
+        schema: entry.schema,
+        submitters: entry.submitters,
+      });
+      toast.success(direction === "undo" ? "Change undone" : "Change redone");
+    } catch (historyError) {
+      const message =
+        historyError instanceof Error
+          ? historyError.message
+          : "Template history could not be restored.";
+
+      toast.error(direction === "undo" ? "Undo failed" : "Redo failed", {
+        description: message,
+      });
+      setTemplate((previousTemplate) =>
+        previousTemplate?.id === currentTemplate.id
+          ? {
+              ...previousTemplate,
+              fields: currentEntry.fields,
+              schema: currentEntry.schema,
+              submitters: currentEntry.submitters,
+            }
+          : previousTemplate,
+      );
+      setSelectedFieldUuid(currentEntry.selectedFieldUuid);
+      setSelectedFieldUuids(
+        currentEntry.selectedFieldUuid ? [currentEntry.selectedFieldUuid] : [],
+      );
+    } finally {
+      setIsSavingFields(false);
+    }
+  }
+
+  async function undoTemplateChange() {
+    const entry = undoHistoryRef.current.at(-1);
+
+    if (!entry) {
+      return;
+    }
+
+    undoHistoryRef.current = undoHistoryRef.current.slice(0, -1);
+    persistTemplateEditorHistory(currentTemplate.id, {
+      redo: redoHistoryRef.current,
+      undo: undoHistoryRef.current,
+    });
+    await applyEditorHistory(entry, "undo");
+  }
+
+  async function redoTemplateChange() {
+    const entry = redoHistoryRef.current.at(-1);
+
+    if (!entry) {
+      return;
+    }
+
+    redoHistoryRef.current = redoHistoryRef.current.slice(0, -1);
+    persistTemplateEditorHistory(currentTemplate.id, {
+      redo: redoHistoryRef.current,
+      undo: undoHistoryRef.current,
+    });
+    await applyEditorHistory(entry, "redo");
+  }
+
   async function persistFields(
     nextFields: TemplateEditorField[],
     options: { successMessage?: string } = {},
   ) {
     const serializedFields = nextFields as unknown[];
     const previousFields = currentTemplate.fields;
+
+    recordEditorHistory();
 
     setTemplate((previousTemplate) =>
       previousTemplate?.id === currentTemplate.id
@@ -217,6 +371,8 @@ export function useTemplateEditorController() {
     const previousSubmitters = currentTemplate.submitters;
     const serializedFields = fields as unknown[];
     const serializedSubmitters = submitters;
+
+    recordEditorHistory();
 
     setTemplate((previousTemplate) =>
       previousTemplate?.id === currentTemplate.id
@@ -274,6 +430,7 @@ export function useTemplateEditorController() {
   const fieldActions = createTemplateEditorFieldActions({
     activeFieldType,
     currentFields,
+    customFields,
     currentTemplate,
     getEffectiveSelectedFieldUuids,
     persistFields,
@@ -309,9 +466,35 @@ export function useTemplateEditorController() {
     setIsOpeningSelfSign,
   });
 
+  async function saveFieldAsCustomField(field: TemplateEditorField) {
+    const customField = buildTemplateCustomField(field);
+    const nextCustomFields = [
+      customField,
+      ...customFields.filter((item) => item.uuid !== customField.uuid),
+    ];
+
+    try {
+      const savedFields = await saveAccountCustomFields(
+        nextCustomFields as Record<string, unknown>[],
+      );
+
+      setCustomFields(normalizeTemplateCustomFields(savedFields));
+      toast.success("Custom field saved");
+    } catch (saveError) {
+      const message =
+        saveError instanceof Error
+          ? saveError.message
+          : "Custom field could not be saved.";
+
+      toast.error("Custom field save failed", { description: message });
+    }
+  }
+
   return {
     activeFieldType,
+    addBlankPage: documentActions.addBlankPage,
     addDocument: documentActions.addDocument,
+    addCustomFieldWithoutDrawing: fieldActions.addCustomFieldWithoutDrawing,
     addDroppedField: fieldActions.addDroppedField,
     addFieldWithoutDrawing: fieldActions.addFieldWithoutDrawing,
     addSubmitter: submitterActions.addSubmitter,
@@ -319,6 +502,9 @@ export function useTemplateEditorController() {
     copySelectedFields: fieldActions.copySelectedFields,
     currentFields,
     currentSubmitters,
+    customFields,
+    canRedo: redoHistoryRef.current.length > 0,
+    canUndo: undoHistoryRef.current.length > 0,
     createField: fieldActions.createField,
     currentTemplate,
     deleteField: fieldActions.deleteField,
@@ -348,7 +534,9 @@ export function useTemplateEditorController() {
     replaceDocument: documentActions.replaceDocument,
     reorderDocumentFields: documentActions.reorderDocumentFields,
     resolvePendingImportedFields: templateActions.resolvePendingImportedFields,
+    redoTemplateChange,
     saveTemplateDraft: templateActions.saveTemplateDraft,
+    saveFieldAsCustomField,
     saveTemplatePreferences: templateActions.saveTemplatePreferences,
     selectField,
     selectedDocument,
@@ -366,9 +554,66 @@ export function useTemplateEditorController() {
     updateFieldArea: fieldActions.updateFieldArea,
     updateDocumentConditions: documentActions.updateDocumentConditions,
     updateTemplateSharedLink: templateActions.updateTemplateSharedLink,
+    undoTemplateChange,
     error,
     goBackToTemplates,
+    historyRevision,
     isLoaded: true as const,
     template,
   };
+}
+
+function cloneTemplateEditorHistoryValue<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function getTemplateEditorHistoryStorageKey(templateId: string): string {
+  return `${TEMPLATE_EDITOR_HISTORY_STORAGE_PREFIX}:${templateId}`;
+}
+
+function loadTemplateEditorHistory(templateId: string): {
+  redo: TemplateEditorHistoryEntry[];
+  undo: TemplateEditorHistoryEntry[];
+} {
+  try {
+    const rawValue = sessionStorage.getItem(
+      getTemplateEditorHistoryStorageKey(templateId),
+    );
+
+    if (!rawValue) {
+      return { redo: [], undo: [] };
+    }
+
+    const parsed = JSON.parse(rawValue) as {
+      redo?: TemplateEditorHistoryEntry[];
+      undo?: TemplateEditorHistoryEntry[];
+    };
+
+    return {
+      redo: Array.isArray(parsed.redo) ? parsed.redo : [],
+      undo: Array.isArray(parsed.undo) ? parsed.undo : [],
+    };
+  } catch {
+    return { redo: [], undo: [] };
+  }
+}
+
+function persistTemplateEditorHistory(
+  templateId: string,
+  history: {
+    redo: TemplateEditorHistoryEntry[];
+    undo: TemplateEditorHistoryEntry[];
+  },
+) {
+  try {
+    sessionStorage.setItem(
+      getTemplateEditorHistoryStorageKey(templateId),
+      JSON.stringify({
+        redo: history.redo.slice(-MAX_TEMPLATE_EDITOR_HISTORY),
+        undo: history.undo.slice(-MAX_TEMPLATE_EDITOR_HISTORY),
+      }),
+    );
+  } catch {
+    // Best-effort browser history only. Template persistence is still server-side.
+  }
 }

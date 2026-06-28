@@ -26,9 +26,24 @@ export class SigningCertificateResponseDto {
 
   @ApiProperty({ example: null, nullable: true })
   valid_to!: string | null;
+
+  @ApiProperty({ example: null, nullable: true })
+  valid_from!: string | null;
+
+  @ApiProperty({ example: 'CN=Signa, O=Signa, C=US', nullable: true })
+  subject!: string | null;
+
+  @ApiProperty({ example: 'CN=Signa Sub-CA, O=Signa, C=US', nullable: true })
+  issuer!: string | null;
+
+  @ApiProperty({ example: '4f9d...', nullable: true })
+  serial_number!: string | null;
 }
 
 export class SigningCertificateListResponseDto {
   @ApiProperty({ type: [SigningCertificateResponseDto] })
   data!: SigningCertificateResponseDto[];
+
+  @ApiProperty({ example: 'https://freetsa.org/tsr', nullable: true })
+  timestamp_server_url!: string | null;
 }

@@ -115,9 +115,49 @@ export class SubmissionEventResponseDto {
   data: Record<string, unknown>;
 }
 
+export class SubmissionDocumentPreviewImageResponseDto {
+  @ApiProperty({ example: '22' })
+  id: string;
+
+  @ApiProperty({ example: 'https://api.example.test/storage/blobs/...' })
+  url: string;
+
+  @ApiProperty({ example: '0.png' })
+  filename: string;
+
+  @ApiProperty({ example: { width: 1400, height: 1800 } })
+  metadata: Record<string, unknown>;
+}
+
 export class SubmissionDocumentResponseDto {
+  @ApiPropertyOptional({ example: '21' })
+  id?: string;
+
+  @ApiPropertyOptional({ example: 'a453be1e-ad7c-4001-8521-ca90d0920956' })
+  uuid?: string;
+
+  @ApiPropertyOptional({ example: 'contract.pdf' })
+  filename?: string;
+
   @ApiProperty({ example: 'example' })
   name: string;
+
+  @ApiProperty({ example: 'https://api.example.test/storage/blobs/...' })
+  url: string;
+
+  @ApiPropertyOptional({ type: [SubmissionDocumentPreviewImageResponseDto] })
+  preview_images?: SubmissionDocumentPreviewImageResponseDto[];
+}
+
+export class SubmissionFieldAttachmentValueResponseDto {
+  @ApiProperty({ example: '77d8b59b-1741-4c25-b95e-f8cd7a22a302' })
+  uuid: string;
+
+  @ApiProperty({ example: 'signature.png' })
+  filename: string;
+
+  @ApiPropertyOptional({ example: 'image/png', nullable: true })
+  content_type: string | null;
 
   @ApiProperty({ example: 'https://api.example.test/storage/blobs/...' })
   url: string;

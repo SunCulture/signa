@@ -42,7 +42,7 @@ export default function RootLayout({
         <Providers>{children}</Providers>
         <Toaster
           closeButton
-          position="top-center"
+          position="bottom-center"
           richColors
           toastOptions={{
             classNames: {

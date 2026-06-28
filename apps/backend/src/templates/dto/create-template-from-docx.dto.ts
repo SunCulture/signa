@@ -1,5 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsOptional, IsString } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsObject,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 import { TemplateField } from '../types/template-json';
 
 export class CreateTemplateDocxDocumentDto {
@@ -22,6 +28,15 @@ export class CreateTemplateDocxDocumentDto {
   @IsOptional()
   @IsArray()
   fields?: TemplateField[];
+
+  @ApiPropertyOptional({
+    description:
+      'Dynamic DOCX variables used to replace [[variable_name]] placeholders before rendering.',
+    example: { client_name: 'Ada Lovelace' },
+  })
+  @IsOptional()
+  @IsObject()
+  variables?: Record<string, unknown>;
 }
 
 export class CreateTemplateFromDocxDto {
@@ -48,4 +63,13 @@ export class CreateTemplateFromDocxDto {
   @ApiProperty({ type: [CreateTemplateDocxDocumentDto] })
   @IsArray()
   documents: CreateTemplateDocxDocumentDto[];
+
+  @ApiPropertyOptional({
+    description:
+      'Default variables applied to every DOCX document unless overridden per document.',
+    example: { account: { name: 'Acme Inc.' } },
+  })
+  @IsOptional()
+  @IsObject()
+  variables?: Record<string, unknown>;
 }

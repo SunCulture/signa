@@ -19,7 +19,7 @@ import { Team } from './team.entity';
 @Index(['teamId', 'email'])
 @Index(['tokenHash'], { unique: true })
 export class TeamInvitation {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Column({ name: 'account_id', type: 'bigint' })
@@ -40,19 +40,19 @@ export class TeamInvitation {
   @Column({ type: 'varchar', length: 32, default: 'pending' })
   status!: TeamInvitationStatus;
 
-  @Column({ name: 'expires_at', type: 'timestamptz' })
+  @Column({ name: 'expires_at' })
   expiresAt!: Date;
 
-  @Column({ name: 'accepted_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'accepted_at', type: Date, nullable: true })
   acceptedAt!: Date | null;
 
   @Column({ name: 'created_by_user_id', type: 'bigint' })
   createdByUserId!: string;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => Account, { onDelete: 'CASCADE' })

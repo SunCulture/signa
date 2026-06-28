@@ -41,6 +41,7 @@ import {
   type WebhookUrl,
 } from "@/lib/api/webhooks"
 import { queryKeys } from "@/lib/api/query-keys"
+import { useRealtimeEvents } from "@/lib/realtime/use-realtime-events"
 import { SettingsSidebar } from "./settings-sidebar"
 
 const newWebhookId = "__new_webhook__"
@@ -71,6 +72,17 @@ function WebhooksPanel() {
     : webhooks.find((webhook) => webhook.id === selectedId) ?? webhooks[0] ?? null
   const selectedEventsWebhook =
     webhooks.find((webhook) => webhook.id === selectedId) ?? webhooks[0] ?? null
+
+  useRealtimeEvents({
+    enabled: Boolean(selectedEventsWebhook),
+    onEvent: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.webhooks.all,
+      })
+    },
+    scope: "webhook",
+    webhookUrlId: selectedEventsWebhook?.id,
+  })
 
   return (
     <section className="min-w-0 flex-1 pb-12">

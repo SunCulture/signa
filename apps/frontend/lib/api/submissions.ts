@@ -46,6 +46,12 @@ export type SubmissionSubmitterResponse = {
 };
 
 export type SubmissionFieldValue = {
+  attachment?: {
+    uuid: string;
+    filename: string;
+    content_type: string | null;
+    url: string;
+  };
   field: string;
   value: unknown;
 };
@@ -67,8 +73,17 @@ export type SubmissionUserResponse = {
 };
 
 export type SubmissionDocumentResponse = {
+  id?: string;
+  uuid?: string;
+  filename?: string;
   name: string;
   url: string;
+  preview_images?: Array<{
+    id: string;
+    url: string;
+    filename: string;
+    metadata: Record<string, unknown>;
+  }>;
 };
 
 export type SubmissionResponse = {
@@ -119,6 +134,28 @@ export type SubmissionEventLogResponse = {
   data: SubmissionEventLogItem[];
 };
 
+export type SubmissionMailEventResponse = {
+  id: string;
+  template: string;
+  subject: string;
+  recipients: string;
+  status: "sent" | "skipped" | "failed" | string;
+  message_id: string | null;
+  submitter_id: string | null;
+  attempt: number;
+  job_id: string | null;
+  last_error_message: string | null;
+  provider_response: string | null;
+  sent_at: string | null;
+  skipped_at: string | null;
+  failed_at: string | null;
+  created_at: string;
+};
+
+export type SubmissionMailEventsResponse = {
+  data: SubmissionMailEventResponse[];
+};
+
 export type SubmissionsListResponse = {
   data: SubmissionResponse[];
   pagination: {
@@ -161,6 +198,14 @@ export function createTemplateSubmission(
       body: JSON.stringify(input),
       method: "POST",
     },
+  );
+}
+
+export function getSubmissionMailEvents(
+  submissionId: string,
+): Promise<SubmissionMailEventsResponse> {
+  return authenticatedApiFetch<SubmissionMailEventsResponse>(
+    `/submissions/${submissionId}/mail-events`,
   );
 }
 

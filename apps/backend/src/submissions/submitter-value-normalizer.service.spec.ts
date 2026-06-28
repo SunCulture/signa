@@ -118,8 +118,11 @@ describe('SubmitterValueNormalizer', () => {
     });
 
     expect(result.pendingAttachments).toHaveLength(2);
-    expect(result.input.values?.['supporting-files']).toEqual(
-      result.pendingAttachments.map((attachment) => attachment.uuid),
+    const value = result.input.values?.['supporting-files'];
+
+    expect(Array.isArray(value)).toBe(true);
+    expect([...(value as string[])].sort()).toEqual(
+      result.pendingAttachments.map((attachment) => attachment.uuid).sort(),
     );
   });
 

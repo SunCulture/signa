@@ -34,16 +34,29 @@ export function createTemplateEditorSubmitterActions(context: Context) {
     setSelectedSubmitterUuid,
   } = context;
 
-  async function addSubmitter() {
+  async function addSubmitter(fieldUuid?: string) {
     const submitter = {
       name: getPartyName(currentSubmitters.length),
       uuid: crypto.randomUUID(),
     };
+    const nextFields = fieldUuid
+      ? currentFields.map((field) =>
+          field.uuid === fieldUuid
+            ? { ...field, submitter_uuid: submitter.uuid }
+            : field,
+        )
+      : undefined;
 
     setSelectedSubmitterUuid(submitter.uuid);
+
+    if (fieldUuid) {
+      setSelectedFieldUuid(fieldUuid);
+    }
+
     await persistTemplateStructure({
+      fields: nextFields,
       submitters: [...currentSubmitters, submitter],
-      successMessage: "Role added",
+      successMessage: fieldUuid ? "Role added and assigned" : "Role added",
     });
   }
 

@@ -35,6 +35,35 @@ export type TemplateAuthor = {
   last_name: string | null;
 };
 
+export type TemplateEventUser = TemplateAuthor;
+
+export type TemplateEventResponse = {
+  id: string;
+  template_id: string;
+  event_type: string;
+  summary: string;
+  event_timestamp: string;
+  data: Record<string, unknown>;
+  user: TemplateEventUser | null;
+};
+
+export type TemplateEventsListResponse = {
+  data: TemplateEventResponse[];
+};
+
+export type TemplateVersionResponse = {
+  id: string;
+  template_id: string;
+  sha1: string;
+  created_at: string;
+  data: Record<string, unknown>;
+  author: TemplateEventUser | null;
+};
+
+export type TemplateVersionsListResponse = {
+  data: TemplateVersionResponse[];
+};
+
 export type TemplateSubmitter = {
   email?: string;
   name?: string;
@@ -86,6 +115,7 @@ export type CloneTemplateInput = {
   external_id?: string;
   folder_name?: string;
   name?: string;
+  team_id?: string;
 };
 
 export type TemplateDocumentsUpdateResponse = {
@@ -114,10 +144,72 @@ export type ListTemplatesInput = {
   slug?: string;
 };
 
-export function createTemplateFromPdf(file: File): Promise<TemplateResponse> {
+export type TemplateFolderResponse = {
+  id: string;
+  name: string;
+  full_name: string;
+  parent_folder_id: string | null;
+  templates_count: number;
+  subfolders_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ListTemplateFoldersInput = {
+  parent?: string;
+  q?: string;
+};
+
+export type CreateTemplateFolderInput = {
+  name: string;
+  parent?: string;
+};
+
+export type UpdateTemplateFolderInput = {
+  name?: string;
+  parent?: string;
+};
+
+export type DeleteTemplateFolderMode = "folder_only" | "with_contents";
+
+export type CreateTemplateInput = {
+  external_id?: string;
+  folder_name?: string;
+  name?: string;
+  shared_link?: boolean;
+};
+
+export type BlankTemplatePageSize = "a4" | "legal" | "letter";
+
+export type AddBlankTemplatePageInput = {
+  name?: string;
+  position?: number;
+  size?: BlankTemplatePageSize;
+};
+
+export type AccountCustomFieldsResponse = {
+  value: Record<string, unknown>[];
+};
+
+export function createTemplate(
+  input: CreateTemplateInput,
+): Promise<TemplateResponse> {
+  return authenticatedApiFetch<TemplateResponse>("/templates", {
+    body: JSON.stringify(input),
+    method: "POST",
+  });
+}
+
+export function createTemplateFromPdf(
+  file: File,
+  folderName?: string,
+): Promise<TemplateResponse> {
   const formData = new FormData();
 
   formData.set("name", removeExtension(file.name));
+  if (folderName) {
+    formData.set("folder_name", folderName);
+  }
   formData.append("documents", file, file.name);
 
   return authenticatedApiFetch<TemplateResponse>("/templates/pdf", {
@@ -128,6 +220,7 @@ export function createTemplateFromPdf(file: File): Promise<TemplateResponse> {
 
 export async function createTemplateFromDocx(
   file: File,
+  folderName?: string,
 ): Promise<TemplateResponse> {
   return authenticatedApiFetch<TemplateResponse>("/templates/docx", {
     body: JSON.stringify({
@@ -137,6 +230,7 @@ export async function createTemplateFromDocx(
           name: file.name,
         },
       ],
+      folder_name: folderName,
       name: removeExtension(file.name),
     }),
     method: "POST",
@@ -145,13 +239,14 @@ export async function createTemplateFromDocx(
 
 export function createTemplateFromDocument(
   file: File,
+  folderName?: string,
 ): Promise<TemplateResponse> {
   if (isPdfFile(file)) {
-    return createTemplateFromPdf(file);
+    return createTemplateFromPdf(file, folderName);
   }
 
   if (isDocxFile(file)) {
-    return createTemplateFromDocx(file);
+    return createTemplateFromDocx(file, folderName);
   }
 
   return Promise.reject(
@@ -177,8 +272,96 @@ export function listTemplates(
   );
 }
 
+export function listTemplateFolders(
+  input: ListTemplateFoldersInput = {},
+): Promise<TemplateFolderResponse[]> {
+  const params = new URLSearchParams();
+
+  Object.entries(input).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return;
+    }
+
+    params.set(key, String(value));
+  });
+
+  return authenticatedApiFetch<TemplateFolderResponse[]>(
+    `/templates/folders${params.size ? `?${params.toString()}` : ""}`,
+  );
+}
+
+export function getTemplateEvents(
+  templateId: string,
+): Promise<TemplateEventsListResponse> {
+  return authenticatedApiFetch<TemplateEventsListResponse>(
+    `/templates/${templateId}/events`,
+  );
+}
+
+export function getTemplateVersions(
+  templateId: string,
+): Promise<TemplateVersionsListResponse> {
+  return authenticatedApiFetch<TemplateVersionsListResponse>(
+    `/templates/${templateId}/versions`,
+  );
+}
+
+export function createTemplateFolder(
+  input: CreateTemplateFolderInput,
+): Promise<TemplateFolderResponse> {
+  return authenticatedApiFetch<TemplateFolderResponse>("/templates/folders", {
+    body: JSON.stringify(input),
+    method: "POST",
+  });
+}
+
+export function updateTemplateFolder(
+  id: string,
+  input: UpdateTemplateFolderInput,
+): Promise<TemplateFolderResponse> {
+  return authenticatedApiFetch<TemplateFolderResponse>(
+    `/templates/folders/${id}`,
+    {
+      body: JSON.stringify(input),
+      method: "PUT",
+    },
+  );
+}
+
+export function deleteTemplateFolder(
+  id: string,
+  mode: DeleteTemplateFolderMode,
+): Promise<null> {
+  const params = new URLSearchParams({ mode });
+
+  return authenticatedApiFetch<null>(
+    `/templates/folders/${id}?${params.toString()}`,
+    {
+      method: "DELETE",
+    },
+  );
+}
+
 export function getTemplate(id: string): Promise<TemplateResponse> {
   return authenticatedApiFetch<TemplateResponse>(`/templates/${id}`);
+}
+
+export function getAccountCustomFields(): Promise<AccountCustomFieldsResponse> {
+  return authenticatedApiFetch<AccountCustomFieldsResponse>(
+    "/account_custom_fields",
+  );
+}
+
+export function saveAccountCustomFields(
+  value: Record<string, unknown>[],
+): Promise<Record<string, unknown>[]> {
+  return authenticatedApiFetch<Record<string, unknown>[]>(
+    "/account_custom_fields",
+    {
+      body: JSON.stringify({ value }),
+      method: "POST",
+    },
+  );
 }
 
 export function updateTemplate(
@@ -234,6 +417,29 @@ export function addTemplateDocument(
     `/templates/${id}/documents`,
     {
       body: formData,
+      method: "PUT",
+    },
+  );
+}
+
+export function addBlankTemplatePage(
+  id: string,
+  input: AddBlankTemplatePageInput = {},
+): Promise<TemplateDocumentsUpdateResponse> {
+  return authenticatedApiFetch<TemplateDocumentsUpdateResponse>(
+    `/templates/${id}/documents`,
+    {
+      body: JSON.stringify({
+        documents: [
+          {
+            name: input.name ?? "Blank Page",
+            position: input.position,
+            size: input.size ?? "letter",
+            type: "blank",
+          },
+        ],
+        merge: true,
+      }),
       method: "PUT",
     },
   );

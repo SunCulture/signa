@@ -6,16 +6,18 @@ import {
 } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { randomInt } from 'node:crypto';
 import { Job, Queue } from 'bullmq';
 import { Repository } from 'typeorm';
 import { runtimeJobNames } from '../runtime/runtime-jobs';
 import { queueNames } from '../runtime/queue-options';
+import { RealtimeService } from '../realtime/realtime.service';
 import { SubmissionEvent } from '../submissions/entities/submission-event.entity';
 import { Submitter } from '../submitters/entities/submitter.entity';
+import { EmailVerificationCodeService } from './email-verification-code.service';
 import { MailDeliveryBuilder } from './mail-delivery.builder';
 import { MailService } from './mail.service';
 import type {
+  MailAddress,
   MailJobMap,
   MailJobName,
   SendTemplateMailInput,
@@ -36,7 +38,9 @@ export class MailProcessor extends WorkerHost {
     @InjectQueue(queueNames.mail)
     private readonly mailQueue: Queue,
     private readonly deliveryBuilder: MailDeliveryBuilder,
+    private readonly emailVerificationCodes: EmailVerificationCodeService,
     private readonly mailService: MailService,
+    private readonly realtime: RealtimeService,
   ) {
     super();
   }
@@ -95,12 +99,15 @@ export class MailProcessor extends WorkerHost {
       return;
     }
 
-    const result = await this.send(mail);
+    const result = await this.send(mail, job, submitter);
 
     if (result === 'sent') {
       submitter.sentAt = submitter.sentAt ?? new Date();
       await this.submitters.save(submitter);
-      await this.recordSubmissionEvent(submitter, 'send_email');
+      await this.recordSubmissionEvent(submitter, 'email_sent', {
+        template: mail.template,
+        to: submitter.email,
+      });
     }
   }
 
@@ -115,11 +122,13 @@ export class MailProcessor extends WorkerHost {
       return;
     }
 
-    const result = await this.send(mail);
+    const result = await this.send(mail, job, submitter);
 
     if (result === 'sent') {
-      await this.recordSubmissionEvent(submitter, 'send_reminder_email', {
+      await this.recordSubmissionEvent(submitter, 'email_reminder_sent', {
         reminder_index: job.data.reminderIndex,
+        template: mail.template,
+        to: submitter.email,
       });
     }
   }
@@ -128,7 +137,8 @@ export class MailProcessor extends WorkerHost {
     job: MailJob<typeof runtimeJobNames.deliverSubmitterVerificationEmail>,
   ): Promise<void> {
     const submitter = await this.findSubmitter(job.data.submitterId);
-    const otpCode = String(randomInt(100000, 999999));
+    const otpCode =
+      this.emailVerificationCodes.generateSubmitterCode(submitter);
     const mail = this.deliveryBuilder.buildVerification(submitter, otpCode);
 
     if (!mail) {
@@ -138,11 +148,12 @@ export class MailProcessor extends WorkerHost {
       return;
     }
 
-    const result = await this.send(mail);
+    const result = await this.send(mail, job, submitter);
 
     if (result === 'sent') {
-      await this.recordSubmissionEvent(submitter, 'send_2fa_email', {
+      await this.recordSubmissionEvent(submitter, 'email_2fa_sent', {
         email: submitter.email,
+        template: mail.template,
       });
     }
   }
@@ -163,9 +174,13 @@ export class MailProcessor extends WorkerHost {
 
     await this.sendMany(
       await this.deliveryBuilder.buildCompletedNotifications(submitter),
+      job,
+      submitter,
     );
     await this.sendMany(
       await this.deliveryBuilder.buildDocumentsCopy(submitter),
+      job,
+      submitter,
     );
   }
 
@@ -176,6 +191,8 @@ export class MailProcessor extends WorkerHost {
 
     await this.sendMany(
       await this.deliveryBuilder.buildDocumentsCopy(submitter),
+      job,
+      submitter,
     );
   }
 
@@ -186,21 +203,68 @@ export class MailProcessor extends WorkerHost {
 
     await this.sendMany(
       this.deliveryBuilder.buildDeclined(submitter, job.data.reason),
+      job,
+      submitter,
     );
   }
 
-  private async sendMany(inputs: SendTemplateMailInput[]): Promise<void> {
+  private async sendMany(
+    inputs: SendTemplateMailInput[],
+    job?: MailJob,
+    submitter?: Submitter,
+  ): Promise<void> {
     for (const input of inputs) {
-      await this.send(input);
+      await this.send(input, job, submitter);
     }
   }
 
   private async send(
     input: SendTemplateMailInput,
+    job?: MailJob,
+    submitter?: Submitter,
   ): Promise<'sent' | 'skipped'> {
-    const result = await this.mailService.sendTemplate(input);
+    try {
+      const result = await this.mailService.sendTemplate({
+        ...input,
+        delivery: {
+          attempt: job ? job.attemptsMade + 1 : input.delivery?.attempt,
+          jobId: job?.id ?? input.delivery?.jobId,
+          submissionId:
+            submitter?.submissionId ??
+            input.delivery?.submissionId ??
+            stringOrNull(input.context?.submissionId),
+          submitterId:
+            submitter?.id ??
+            input.delivery?.submitterId ??
+            stringOrNull(input.context?.submitterId),
+        },
+      });
 
-    return result.status;
+      if (result.status === 'skipped' && submitter) {
+        await this.recordSubmissionEvent(submitter, 'email_skipped', {
+          template: input.template,
+          to: formatMailRecipients(input.to),
+        });
+      }
+
+      if (result.status === 'failed') {
+        throw new Error('Mail delivery failed');
+      }
+
+      return result.status;
+    } catch (error) {
+      if (submitter) {
+        await this.recordSubmissionEvent(submitter, 'email_failed', {
+          attempt: job ? job.attemptsMade + 1 : undefined,
+          error: error instanceof Error ? error.message : String(error),
+          job_id: job?.id ?? null,
+          template: input.template,
+          to: formatMailRecipients(input.to),
+        });
+      }
+
+      throw error;
+    }
   }
 
   private async findSubmitter(submitterId: string): Promise<Submitter> {
@@ -231,7 +295,7 @@ export class MailProcessor extends WorkerHost {
     eventType: string,
     data: Record<string, unknown> = {},
   ): Promise<void> {
-    await this.submissionEvents.save(
+    const event = await this.submissionEvents.save(
       this.submissionEvents.create({
         accountId: submitter.accountId,
         submissionId: submitter.submissionId,
@@ -241,6 +305,20 @@ export class MailProcessor extends WorkerHost {
         data,
       }),
     );
+
+    this.realtime.publish({
+      account_id: submitter.accountId,
+      data: {
+        ...data,
+        event_id: event.id,
+      },
+      id: `submission:${submitter.submissionId}:mail:${event.id}`,
+      record_id: event.id,
+      submission_id: submitter.submissionId,
+      submitter_id: submitter.id,
+      template_id: submitter.submission?.templateId ?? undefined,
+      type: `mail.${eventType}`,
+    });
   }
 
   private isSubmissionCompleted(submitter: Submitter): boolean {
@@ -306,4 +384,14 @@ export class MailProcessor extends WorkerHost {
   onCompleted(job: MailJob): void {
     this.logger.log(`Mail job "${job.name}" [${job.id}] completed`);
   }
+}
+
+function formatMailRecipients(input: MailAddress | MailAddress[]): string[] {
+  return (Array.isArray(input) ? input : [input]).map((address) =>
+    address.name ? `${address.name} <${address.email}>` : address.email,
+  );
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
 }

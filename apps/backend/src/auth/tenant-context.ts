@@ -3,5 +3,6 @@ export type TenantContext = {
   userId: string;
   accessTokenId: string;
   role: string;
+  teamId?: string;
   apiTokenPermissions?: string[];
 };

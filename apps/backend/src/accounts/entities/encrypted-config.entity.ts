@@ -13,7 +13,7 @@ import { Account } from './account.entity';
 @Entity('encrypted_configs')
 @Index(['accountId', 'key'], { unique: true })
 export class EncryptedConfig {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Column({ name: 'account_id', type: 'bigint' })
@@ -25,10 +25,10 @@ export class EncryptedConfig {
   @Column({ type: 'text' })
   value!: string;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => Account, (account) => account.encryptedConfigs, {

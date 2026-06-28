@@ -12,7 +12,7 @@ import { Submitter } from '../../submitters/entities/submitter.entity';
 
 @Entity('completed_documents')
 export class CompletedDocument {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Index()
@@ -23,10 +23,10 @@ export class CompletedDocument {
   @Column({ name: 'submitter_id', type: 'bigint' })
   submitterId!: string;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => Submitter, { onDelete: 'CASCADE' })

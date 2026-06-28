@@ -16,7 +16,7 @@ import { Template } from './template.entity';
 export class TemplateSharing {
   static readonly ALL_ID = '-1';
 
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Column({ type: 'varchar', length: 255 })
@@ -28,10 +28,10 @@ export class TemplateSharing {
   @Column({ name: 'template_id', type: 'bigint' })
   templateId!: string;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => Account, {

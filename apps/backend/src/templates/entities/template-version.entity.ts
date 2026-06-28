@@ -15,7 +15,7 @@ import { Template } from './template.entity';
 @Entity('template_versions')
 @Index(['templateId', 'sha1'], { unique: true })
 export class TemplateVersion {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Index()
@@ -35,10 +35,10 @@ export class TemplateVersion {
   @Column({ type: 'varchar', length: 255 })
   sha1!: string;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => Account, { onDelete: 'CASCADE' })

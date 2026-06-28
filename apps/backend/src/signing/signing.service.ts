@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
@@ -13,8 +14,12 @@ import { AccountConfig } from '../accounts/entities/account-config.entity';
 import { StorageAttachment } from '../storage/entities/storage-attachment.entity';
 import { StorageService } from '../storage/storage.service';
 import { UploadedBufferFile } from '../storage/storage.types';
+import { EmailVerificationCodeService } from '../mail/email-verification-code.service';
 import { runtimeEvents } from '../runtime/runtime-events';
 import { SubmissionDocumentsService } from '../submissions/submission-documents.service';
+import { DocumentGenerationQueueService } from '../submissions/document-generation-queue.service';
+import { IdentityVerification } from '../submissions/entities/identity-verification.entity';
+import { PaymentAttempt } from '../submissions/entities/payment-attempt.entity';
 import { SubmissionEvent } from '../submissions/entities/submission-event.entity';
 import { Submission } from '../submissions/entities/submission.entity';
 import { isValidSubmitterEventTrackingParam } from '../submissions/submission-event-tracking';
@@ -24,10 +29,14 @@ import {
 } from '../templates/types/template-json';
 import { Submitter } from '../submitters/entities/submitter.entity';
 import {
+  CreateIdentityVerificationDto,
+  CreatePaymentAttemptDto,
   DeclineSigningDto,
   DelegateSigningDto,
+  SendEmailVerificationDto,
   SendPhoneVerificationDto,
   UpdateSigningValuesDto,
+  VerifyEmailCodeDto,
   VerifyPhoneCodeDto,
 } from './dto/signing-request.dto';
 import {
@@ -50,11 +59,17 @@ export class SigningService {
     private readonly submitters: Repository<Submitter>,
     @InjectRepository(AccountConfig)
     private readonly accountConfigs: Repository<AccountConfig>,
+    @InjectRepository(PaymentAttempt)
+    private readonly paymentAttempts: Repository<PaymentAttempt>,
+    @InjectRepository(IdentityVerification)
+    private readonly identityVerifications: Repository<IdentityVerification>,
     private readonly dataSource: DataSource,
     private readonly storageService: StorageService,
     private readonly submissionDocumentsService: SubmissionDocumentsService,
+    private readonly documentGenerationQueue: DocumentGenerationQueueService,
     private readonly events: EventEmitter2,
     private readonly config: ConfigService,
+    private readonly emailVerificationCodes: EmailVerificationCodeService,
     private readonly phoneVerification: PhoneVerificationService,
   ) {}
 
@@ -181,6 +196,9 @@ export class SigningService {
 
     if (input.completed) {
       this.assertRequiredFieldsComplete(submitter);
+      await this.assertRequiredPaymentFieldsComplete(submitter);
+      await this.assertRequiredIdentityFieldsComplete(submitter);
+      await this.assertSigningReasonsComplete(submitter);
       submitter.completedAt = new Date();
     }
 
@@ -214,10 +232,15 @@ export class SigningService {
       }
     });
 
+    const templateId =
+      submitter.submission?.templateId ?? submitter.submission?.template?.id;
+
     if (shouldRecordStart) {
       this.events.emit(runtimeEvents.formStarted, {
         submitterId: submitter.id,
         accountId: submitter.accountId,
+        submissionId: submitter.submissionId,
+        templateId,
       });
     }
 
@@ -225,14 +248,20 @@ export class SigningService {
       await this.submissionDocumentsService.processSubmitterCompletion(
         submitter,
       );
+      await this.documentGenerationQueue.enqueueSubmitterCompletion(
+        submitter.id,
+      );
       this.events.emit(runtimeEvents.formCompleted, {
         submitterId: submitter.id,
         accountId: submitter.accountId,
+        submissionId: submitter.submissionId,
+        templateId,
       });
       if (isSubmissionComplete(submitter)) {
         this.events.emit(runtimeEvents.submissionCompleted, {
           submissionId: submitter.submissionId,
           accountId: submitter.accountId,
+          templateId,
         });
       }
     }
@@ -346,7 +375,11 @@ export class SigningService {
     this.assertCanUpdate(submitter);
     await this.assertSigningOrderAvailable(submitter);
     const phone = this.resolvePhoneInput(submitter, input);
-    const result = await this.phoneVerification.sendCode(phone);
+    const phoneCountry = this.getPhoneValidationCountry(
+      submitter,
+      input.field_uuid,
+    );
+    const result = await this.phoneVerification.sendCode(phone, phoneCountry);
 
     await this.recordEvent(submitter, 'send_2fa_sms', metadata, {
       field_uuid: input.field_uuid ?? null,
@@ -354,6 +387,25 @@ export class SigningService {
     });
 
     return { phone: result.to, status: result.status };
+  }
+
+  async validatePhoneNumber(
+    slug: string,
+    input: SendPhoneVerificationDto,
+  ): Promise<{ phone: string; valid: boolean }> {
+    const submitter = await this.findSubmitterBySlugOrFail(slug);
+    this.assertCanUpdate(submitter);
+    await this.assertSigningOrderAvailable(submitter);
+    const phone = this.resolvePhoneInput(submitter, input);
+    const phoneCountry = this.getPhoneValidationCountry(
+      submitter,
+      input.field_uuid,
+    );
+
+    return {
+      phone: this.phoneVerification.normalizePhone(phone, phoneCountry),
+      valid: true,
+    };
   }
 
   async verifyPhoneCode(
@@ -365,7 +417,15 @@ export class SigningService {
     this.assertCanUpdate(submitter);
     await this.assertSigningOrderAvailable(submitter);
     const phone = this.resolvePhoneInput(submitter, input);
-    const result = await this.phoneVerification.checkCode(phone, input.code);
+    const phoneCountry = this.getPhoneValidationCountry(
+      submitter,
+      input.field_uuid,
+    );
+    const result = await this.phoneVerification.checkCode(
+      phone,
+      input.code,
+      phoneCountry,
+    );
 
     if (!result.valid) {
       throw new UnprocessableEntityException({
@@ -373,7 +433,10 @@ export class SigningService {
       });
     }
 
-    const normalizedPhone = this.phoneVerification.normalizePhone(phone);
+    const normalizedPhone = this.phoneVerification.normalizePhone(
+      phone,
+      phoneCountry,
+    );
 
     submitter.phone = normalizedPhone;
 
@@ -405,6 +468,166 @@ export class SigningService {
     return this.toSigningResponse(submitter);
   }
 
+  async sendEmailVerification(
+    slug: string,
+    input: SendEmailVerificationDto,
+    metadata?: SigningRequestMetadata,
+  ): Promise<{ email: string; status: string }> {
+    const submitter = await this.findSubmitterBySlugOrFail(slug);
+    this.assertCanUpdate(submitter);
+    await this.assertSigningOrderAvailable(submitter);
+
+    if (!submitter.email) {
+      throw new UnprocessableEntityException({
+        error: 'Submitter email is required',
+      });
+    }
+
+    this.events.emit(runtimeEvents.submitterVerificationRequested, {
+      submitterId: submitter.id,
+      accountId: submitter.accountId,
+      locale: null,
+    });
+
+    if (input.field_uuid) {
+      await this.recordEvent(submitter, 'start_verification', metadata, {
+        email: submitter.email,
+        field_uuid: input.field_uuid,
+        method: 'email',
+      });
+    }
+
+    return { email: submitter.email, status: 'sent' };
+  }
+
+  async verifyEmailCode(
+    slug: string,
+    input: VerifyEmailCodeDto,
+    metadata?: SigningRequestMetadata,
+  ): Promise<SigningResponseDto> {
+    const submitter = await this.findSubmitterBySlugOrFail(slug);
+    this.assertCanUpdate(submitter);
+    await this.assertSigningOrderAvailable(submitter);
+
+    if (
+      !submitter.email ||
+      !this.emailVerificationCodes.verifySubmitterCode(submitter, input.code)
+    ) {
+      throw new UnprocessableEntityException({
+        error: 'Email verification code is invalid',
+      });
+    }
+
+    if (input.field_uuid) {
+      submitter.values = {
+        ...(submitter.values ?? {}),
+        [input.field_uuid]: submitter.email,
+      };
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(Submitter).save(submitter);
+      await manager.getRepository(SubmissionEvent).save(
+        manager.getRepository(SubmissionEvent).create({
+          accountId: submitter.accountId,
+          submissionId: submitter.submissionId,
+          submitterId: submitter.id,
+          eventType: 'email_verified',
+          eventTimestamp: new Date(),
+          data: buildEventData(metadata, {
+            email: submitter.email,
+            field_uuid: input.field_uuid ?? null,
+          }),
+        }),
+      );
+    });
+
+    return this.toSigningResponse(submitter);
+  }
+
+  async createPaymentAttempt(
+    slug: string,
+    input: CreatePaymentAttemptDto,
+    metadata?: SigningRequestMetadata,
+  ): Promise<{ id: string; status: string }> {
+    const submitter = await this.findSubmitterBySlugOrFail(slug);
+    this.assertCanUpdate(submitter);
+    await this.assertSigningOrderAvailable(submitter);
+    const field = this.findSubmitterFieldOrFail(
+      submitter,
+      input.field_uuid,
+      'payment',
+    );
+    const status = normalizePaymentStatus(input.status);
+    const preferences = toRecord(field.preferences);
+
+    const attempt = await this.paymentAttempts.save(
+      this.paymentAttempts.create({
+        accountId: submitter.accountId,
+        amount: numberValue(preferences.price),
+        completedAt: status === 'succeeded' ? new Date() : null,
+        currency: stringValue(preferences.currency),
+        data: input.data ?? {},
+        fieldUuid: field.uuid!,
+        provider: input.provider ?? null,
+        providerReference: input.provider_reference ?? null,
+        status,
+        submissionId: submitter.submissionId,
+        submitterId: submitter.id,
+      }),
+    );
+
+    await this.recordEvent(submitter, 'payment_attempt', metadata, {
+      field_uuid: field.uuid,
+      payment_attempt_id: attempt.id,
+      provider: attempt.provider,
+      status: attempt.status,
+    });
+
+    return { id: attempt.id, status: attempt.status };
+  }
+
+  async createIdentityVerification(
+    slug: string,
+    input: CreateIdentityVerificationDto,
+    metadata?: SigningRequestMetadata,
+  ): Promise<{ id: string; status: string }> {
+    const submitter = await this.findSubmitterBySlugOrFail(slug);
+    this.assertCanUpdate(submitter);
+    await this.assertSigningOrderAvailable(submitter);
+    const field = this.findSubmitterFieldOrFail(
+      submitter,
+      input.field_uuid,
+      'verification',
+    );
+    const status = normalizeIdentityStatus(input.status);
+
+    const verification = await this.identityVerifications.save(
+      this.identityVerifications.create({
+        accountId: submitter.accountId,
+        data: input.data ?? {},
+        fieldUuid: field.uuid!,
+        method: input.method ?? 'kba',
+        provider: input.provider ?? null,
+        providerReference: input.provider_reference ?? null,
+        status,
+        submissionId: submitter.submissionId,
+        submitterId: submitter.id,
+        verifiedAt: status === 'verified' ? new Date() : null,
+      }),
+    );
+
+    await this.recordEvent(submitter, 'complete_verification', metadata, {
+      field_uuid: field.uuid,
+      identity_verification_id: verification.id,
+      method: verification.method,
+      provider: verification.provider,
+      status: verification.status,
+    });
+
+    return { id: verification.id, status: verification.status };
+  }
+
   async decline(
     slug: string,
     input: DeclineSigningDto,
@@ -412,6 +635,9 @@ export class SigningService {
   ): Promise<SigningResponseDto> {
     const submitter = await this.findSubmitterBySlugOrFail(slug);
     this.assertCanUpdate(submitter);
+    await this.assertAllowed(submitter, 'allow_to_decline', {
+      error: 'Declining documents is not allowed',
+    });
 
     submitter.declinedAt = new Date();
 
@@ -432,6 +658,9 @@ export class SigningService {
     this.events.emit(runtimeEvents.formDeclined, {
       submitterId: submitter.id,
       accountId: submitter.accountId,
+      submissionId: submitter.submissionId,
+      templateId:
+        submitter.submission?.templateId ?? submitter.submission?.template?.id,
       reason: input.reason ?? null,
     });
 
@@ -486,11 +715,17 @@ export class SigningService {
 
   async getDownload(slug: string): Promise<SigningDownloadResponseDto> {
     const submitter = await this.findSubmitterBySlugOrFail(slug);
+    const configs = await this.getSigningFormConfigs(submitter.accountId);
+
+    if (submitter.completedAt && configs.download_links_auth) {
+      throw new ForbiddenException({
+        error: 'Authentication is required to download documents',
+      });
+    }
+
+    const ttlSeconds = configs.download_links_expire ? 3600 : null;
     const documents = submitter.completedAt
-      ? await this.submissionDocumentsService.getSubmissionDocuments(
-          submitter.submission,
-          { merge: false },
-        )
+      ? await this.getCompletedDownloadDocuments(submitter, configs)
       : [];
 
     return {
@@ -503,7 +738,7 @@ export class SigningService {
               name: attachment.blob.filename,
               url: this.storageService.createBlobProxyUrl(
                 attachment.blob,
-                3600,
+                ttlSeconds,
               ),
               preview_images: [],
             }))
@@ -585,6 +820,9 @@ export class SigningService {
     this.events.emit(runtimeEvents.formViewed, {
       submitterId: submitter.id,
       accountId: submitter.accountId,
+      submissionId: submitter.submissionId,
+      templateId:
+        submitter.submission?.templateId ?? submitter.submission?.template?.id,
     });
   }
 
@@ -682,7 +920,7 @@ export class SigningService {
 
   private async assertAllowed(
     submitter: Submitter,
-    key: 'allow_to_delegate' | 'allow_to_resubmit',
+    key: 'allow_to_decline' | 'allow_to_delegate' | 'allow_to_resubmit',
     error: { error: string },
   ): Promise<void> {
     const value =
@@ -692,7 +930,7 @@ export class SigningService {
       (await this.getAccountBooleanConfig(
         submitter.accountId,
         key,
-        key === 'allow_to_resubmit',
+        key === 'allow_to_delegate' ? false : true,
       ));
 
     if (!value) {
@@ -731,6 +969,32 @@ export class SigningService {
     }
 
     return phone;
+  }
+
+  private getPhoneValidationCountry(
+    submitter: Submitter,
+    fieldUuid: string | undefined,
+  ): string | null {
+    if (!fieldUuid) {
+      return null;
+    }
+
+    const fields =
+      submitter.submission?.templateFields ??
+      submitter.submission?.template?.fields ??
+      [];
+    const field = fields.find((item) => item.uuid === fieldUuid);
+    const validation = field?.validation;
+
+    if (!validation || typeof validation !== 'object') {
+      return null;
+    }
+
+    const country = (validation as Record<string, unknown>).phone_country;
+
+    return typeof country === 'string' && country.trim()
+      ? country.trim().toUpperCase()
+      : null;
   }
 
   private async recordEvent(
@@ -816,6 +1080,128 @@ export class SigningService {
     }
   }
 
+  private async assertRequiredPaymentFieldsComplete(
+    submitter: Submitter,
+  ): Promise<void> {
+    const missingField = await this.findMissingProviderBackedField(
+      submitter,
+      'payment',
+      async (fieldUuid) =>
+        this.paymentAttempts.existsBy({
+          fieldUuid,
+          status: 'succeeded',
+          submitterId: submitter.id,
+        }),
+    );
+
+    if (missingField?.uuid) {
+      throw new UnprocessableEntityException({
+        field_uuid: missingField.uuid,
+        error: 'Complete payment to finish signing',
+      });
+    }
+  }
+
+  private async assertRequiredIdentityFieldsComplete(
+    submitter: Submitter,
+  ): Promise<void> {
+    const missingField = await this.findMissingProviderBackedField(
+      submitter,
+      'verification',
+      async (fieldUuid) =>
+        this.identityVerifications.existsBy({
+          fieldUuid,
+          status: 'verified',
+          submitterId: submitter.id,
+        }),
+    );
+
+    if (missingField?.uuid) {
+      throw new UnprocessableEntityException({
+        field_uuid: missingField.uuid,
+        error: 'Complete identity verification to finish signing',
+      });
+    }
+  }
+
+  private async findMissingProviderBackedField(
+    submitter: Submitter,
+    type: string,
+    isComplete: (fieldUuid: string) => Promise<boolean>,
+  ): Promise<TemplateField | null> {
+    for (const field of this.getSubmitterFields(submitter)) {
+      if (
+        field.type !== type ||
+        field.required === false ||
+        field.readonly === true ||
+        !field.uuid
+      ) {
+        continue;
+      }
+
+      if (!(await isComplete(field.uuid))) {
+        return field;
+      }
+    }
+
+    return null;
+  }
+
+  private async assertSigningReasonsComplete(
+    submitter: Submitter,
+  ): Promise<void> {
+    const isRequired = await this.getAccountBooleanConfig(
+      submitter.accountId,
+      'require_signing_reason',
+      false,
+    );
+
+    if (!isRequired) {
+      return;
+    }
+
+    const missingField = this.getSubmitterFields(submitter).find((field) => {
+      if (
+        field.readonly === true ||
+        (field.type !== 'signature' && field.type !== 'initials') ||
+        !field.uuid ||
+        isBlankValue(submitter.values?.[field.uuid])
+      ) {
+        return false;
+      }
+
+      return isBlankValue(
+        submitter.values?.[getSigningReasonValueKey(field.uuid)],
+      );
+    });
+
+    if (missingField?.uuid) {
+      throw new UnprocessableEntityException({
+        field_uuid: missingField.uuid,
+        error: 'Signing reason is required',
+      });
+    }
+  }
+
+  private async getCompletedDownloadDocuments(
+    submitter: Submitter,
+    configs: SigningResponseDto['configs'],
+  ): Promise<StorageAttachment[]> {
+    if (configs.combine_pdf_result) {
+      const combined =
+        await this.submissionDocumentsService.getCombinedDocumentAttachment(
+          submitter.submission,
+        );
+
+      return combined ? [combined] : [];
+    }
+
+    return this.submissionDocumentsService.getSubmissionDocuments(
+      submitter.submission,
+      { merge: false },
+    );
+  }
+
   private async toSigningResponse(
     submitter: Submitter,
   ): Promise<SigningResponseDto> {
@@ -852,7 +1238,18 @@ export class SigningService {
         key: In([
           'form_completed_button',
           'form_completed_message',
+          'form_prefill_signature',
           'form_with_confetti',
+          'allow_typed_signature',
+          'allow_to_decline',
+          'allow_to_delegate',
+          'require_signing_reason',
+          'with_signature_id',
+          'download_links_expire',
+          'download_links_auth',
+          'combine_pdf_result_key',
+          'flatten_result_pdf',
+          'force_mfa',
           'policy_links',
         ]),
       },
@@ -867,6 +1264,24 @@ export class SigningService {
         configByKey.get('form_completed_message')?.value,
       ),
       policy_links: toString(configByKey.get('policy_links')?.value),
+      with_typed_signature:
+        configByKey.get('allow_typed_signature')?.value !== false,
+      with_decline: configByKey.get('allow_to_decline')?.value !== false,
+      with_delegate: configByKey.get('allow_to_delegate')?.value === true,
+      require_signing_reason:
+        configByKey.get('require_signing_reason')?.value === true,
+      with_signature_id: configByKey.get('with_signature_id')?.value === true,
+      prefill_signature:
+        configByKey.get('form_prefill_signature')?.value !== false,
+      download_links_expire:
+        configByKey.get('download_links_expire')?.value !== false,
+      download_links_auth:
+        configByKey.get('download_links_auth')?.value === true,
+      combine_pdf_result:
+        configByKey.get('combine_pdf_result_key')?.value === true,
+      flatten_result_pdf:
+        configByKey.get('flatten_result_pdf')?.value !== false,
+      force_mfa: configByKey.get('force_mfa')?.value === true,
       with_confetti: configByKey.get('form_with_confetti')?.value === true,
     };
   }
@@ -971,6 +1386,25 @@ export class SigningService {
     return fields.filter((field) => field.submitter_uuid === submitter.uuid);
   }
 
+  private findSubmitterFieldOrFail(
+    submitter: Submitter,
+    fieldUuid: string,
+    type: string,
+  ): TemplateField {
+    const field = this.getSubmitterFields(submitter).find(
+      (candidate) => candidate.uuid === fieldUuid && candidate.type === type,
+    );
+
+    if (!field) {
+      throw new UnprocessableEntityException({
+        field_uuid: fieldUuid,
+        error: `${type} field was not found`,
+      });
+    }
+
+    return field;
+  }
+
   private getReadonlyValues(submitter: Submitter): Record<string, unknown> {
     return Object.fromEntries(
       (submitter.submission.submitters ?? [])
@@ -1059,8 +1493,57 @@ function toRecord(value: unknown): Record<string, string> {
   return record;
 }
 
+function numberValue(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function normalizePaymentStatus(value: string | undefined) {
+  if (
+    value === 'pending' ||
+    value === 'processing' ||
+    value === 'succeeded' ||
+    value === 'failed' ||
+    value === 'cancelled'
+  ) {
+    return value;
+  }
+
+  return 'requires_provider';
+}
+
+function normalizeIdentityStatus(value: string | undefined) {
+  if (
+    value === 'pending' ||
+    value === 'verified' ||
+    value === 'failed' ||
+    value === 'expired'
+  ) {
+    return value;
+  }
+
+  return 'pending';
+}
+
 function toString(value: unknown): string {
   return typeof value === 'string' ? value : '';
+}
+
+function getSigningReasonValueKey(fieldUuid: string): string {
+  return `${fieldUuid}_reason`;
 }
 
 function booleanOrNull(value: unknown): boolean | null {

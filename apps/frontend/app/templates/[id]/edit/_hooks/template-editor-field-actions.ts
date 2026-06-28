@@ -5,11 +5,13 @@ import { toast } from "sonner";
 import type { TemplateDocument, TemplateResponse } from "@/lib/api/templates";
 import {
   centerDefaultArea,
+  createTemplateFieldFromCustom,
   createTemplateField,
   insertFieldSorted,
   normalizeArea,
   type EditorFieldType,
   type FieldDragPayload,
+  type TemplateCustomField,
   type TemplateEditorField,
   type TemplateFieldArea,
   type TemplateSubmitter,
@@ -19,6 +21,7 @@ import { createTemplateEditorFieldClipboardActions } from "./template-editor-fie
 type Context = {
   activeFieldType: EditorFieldType | null;
   currentFields: TemplateEditorField[];
+  customFields: TemplateCustomField[];
   currentTemplate: TemplateResponse;
   getEffectiveSelectedFieldUuids: (fieldUuid?: string) => string[];
   persistFields: (
@@ -44,6 +47,7 @@ export function createTemplateEditorFieldActions(context: Context) {
   const {
     activeFieldType,
     currentFields,
+    customFields,
     currentTemplate,
     getEffectiveSelectedFieldUuids,
     persistFields,
@@ -125,6 +129,44 @@ export function createTemplateEditorFieldActions(context: Context) {
         type: activeFieldType,
       }),
     );
+  }
+
+  async function addCustomFieldWithoutDrawing(customField: TemplateCustomField) {
+    if (!selectedDocument) {
+      return;
+    }
+
+    if (!selectedSubmitter) {
+      toast.error("Field could not be added", {
+        description: "This template does not have a signer role yet.",
+      });
+      return;
+    }
+
+    const firstPreview = selectedDocument.preview_images.at(0);
+    const previewWidth = firstPreview?.metadata?.width;
+    const previewHeight = firstPreview?.metadata?.height;
+    const field = createTemplateFieldFromCustom({
+      area: centerDefaultArea({
+        attachmentUuid: selectedDocument.uuid,
+        pageAspectRatio:
+          typeof previewWidth === "number" &&
+          typeof previewHeight === "number" &&
+          previewHeight > 0
+            ? previewWidth / previewHeight
+            : undefined,
+        pageIndex: 0,
+        pointer: { x: 0.5, y: 0.18 },
+        type: customField.type,
+      }),
+      customField,
+      fields: currentFields,
+      submitter: selectedSubmitter,
+    });
+    const nextFields = insertFieldSorted(currentFields, field);
+
+    setSelectedFieldUuid(field.uuid);
+    await persistFields(nextFields);
   }
 
   async function updateFieldArea(
@@ -220,6 +262,38 @@ export function createTemplateEditorFieldActions(context: Context) {
     if (payload.kind === "new") {
       await createFieldForType(payload.type, normalizeArea(area, payload.type));
       setActiveFieldType(null);
+      return;
+    }
+
+    if (payload.kind === "custom") {
+      const customField = customFields.find(
+        (field) => field.uuid === payload.customFieldUuid,
+      );
+
+      if (!customField) {
+        toast.error("Custom field could not be dropped", {
+          description: "The dragged custom field is no longer available.",
+        });
+        return;
+      }
+
+      if (!selectedSubmitter) {
+        toast.error("Field could not be added", {
+          description: "This template does not have a signer role yet.",
+        });
+        return;
+      }
+
+      const field = createTemplateFieldFromCustom({
+        area: normalizeArea(area, customField.type),
+        customField,
+        fields: currentFields,
+        submitter: selectedSubmitter,
+      });
+      const nextFields = insertFieldSorted(currentFields, field);
+
+      setSelectedFieldUuid(field.uuid);
+      await persistFields(nextFields);
       return;
     }
 
@@ -415,6 +489,7 @@ export function createTemplateEditorFieldActions(context: Context) {
   return {
     addDroppedField,
     addFieldWithoutDrawing,
+    addCustomFieldWithoutDrawing,
     copyFieldToAllPages,
     copySelectedFields,
     createField,

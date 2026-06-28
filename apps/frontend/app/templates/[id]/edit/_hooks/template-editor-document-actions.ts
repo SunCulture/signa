@@ -3,6 +3,7 @@
 import { toast } from "sonner";
 
 import {
+  addBlankTemplatePage,
   addTemplateDocument,
   getTemplate,
   type TemplateDocument,
@@ -94,6 +95,39 @@ export function createTemplateEditorDocumentActions(context: Context) {
     }
   }
 
+  async function addBlankPage() {
+    const existingUuids = new Set(
+      currentTemplate.documents.map((document) => document.uuid),
+    );
+
+    setIsUploadingDocument(true);
+    toast.loading("Adding blank page", { id: "template-document-upload" });
+
+    try {
+      await addBlankTemplatePage(currentTemplate.id, {
+        name: `Blank Page ${currentTemplate.documents.length + 1}`,
+        size: "letter",
+      });
+      const refreshedTemplate = await getTemplate(currentTemplate.id);
+      const addedDocument =
+        refreshedTemplate.documents.find(
+          (document) => !existingUuids.has(document.uuid),
+        ) ?? refreshedTemplate.documents.at(-1);
+
+      setTemplate(refreshedTemplate);
+      setSelectedDocumentUuid(addedDocument?.uuid ?? null);
+      toast.success("Blank page added", { id: "template-document-upload" });
+    } catch (error) {
+      toast.error("Blank page could not be added", {
+        description:
+          error instanceof Error ? error.message : "Try again or upload a file.",
+        id: "template-document-upload",
+      });
+    } finally {
+      setIsUploadingDocument(false);
+    }
+  }
+
   async function replaceDocument(document: TemplateDocument, file: File) {
     const schemaItem = currentTemplate.schema.find(
       (item) => item.attachment_uuid === document.uuid,
@@ -167,10 +201,6 @@ export function createTemplateEditorDocumentActions(context: Context) {
   async function removeDocument(document: TemplateDocument) {
     if (currentTemplate.documents.length <= 1) {
       toast.error("At least one document is required");
-      return;
-    }
-
-    if (!window.confirm("Remove this document from the template?")) {
       return;
     }
 
@@ -300,6 +330,7 @@ export function createTemplateEditorDocumentActions(context: Context) {
   }
 
   return {
+    addBlankPage,
     addDocument,
     moveDocument,
     removeDocument,

@@ -16,6 +16,16 @@ import {
   UploadIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -39,6 +49,7 @@ import { FieldConditionsModal } from "../modals/field-modals";
 export function TemplateDocumentsPanel({
   editingDocumentUuid,
   isUploadingDocument,
+  onAddBlankPage,
   onAddDocument,
   onEditDocument,
   onMoveDocument,
@@ -53,6 +64,7 @@ export function TemplateDocumentsPanel({
 }: {
   editingDocumentUuid: string | null;
   isUploadingDocument: boolean;
+  onAddBlankPage: () => Promise<void>;
   onAddDocument: (file: File) => Promise<void>;
   onEditDocument: (uuid: string | null) => void;
   onMoveDocument: (
@@ -110,6 +122,7 @@ export function TemplateDocumentsPanel({
       <div className="shrink-0 border-t border-[var(--auth-input-border)] bg-card/95 p-4 shadow-[0_-12px_24px_-24px_var(--auth-primary)]">
         <AddDocumentMenu
           isUploadingDocument={isUploadingDocument}
+          onAddBlankPage={onAddBlankPage}
           onAddDocument={onAddDocument}
         />
       </div>
@@ -157,6 +170,10 @@ export function TemplateDocumentCard({
   templateFields: TemplateEditorField[];
 }) {
   const [isConditionsOpen, setIsConditionsOpen] = useState(false);
+  const [isRemoveDialogOpen, setIsRemoveDialogOpen] = useState(false);
+  const assignedFieldCount = templateFields.filter((field) =>
+    field.areas.some((area) => area.attachment_uuid === document.uuid),
+  ).length;
 
   return (
     <div className="flex flex-col gap-3">
@@ -186,7 +203,7 @@ export function TemplateDocumentCard({
           onEditName={onEditName}
           onMoveDown={onMoveDown}
           onMoveUp={onMoveUp}
-          onRemove={onRemove}
+          onRemove={() => setIsRemoveDialogOpen(true)}
           onReorderFields={onReorderFields}
           onReplace={onReplace}
         />
@@ -208,6 +225,43 @@ export function TemplateDocumentCard({
           template={template}
         />
       ) : null}
+      <AlertDialog
+        onOpenChange={setIsRemoveDialogOpen}
+        open={isRemoveDialogOpen}
+      >
+        <AlertDialogContent className="max-w-md gap-0 overflow-hidden p-0">
+          <div className="grid grid-cols-[44px_1fr] gap-4 p-5">
+            <div className="flex size-10 items-center justify-center rounded-lg bg-red-50 text-red-600">
+              <Trash2Icon className="size-5" />
+            </div>
+            <div className="min-w-0 space-y-2">
+              <AlertDialogTitle className="text-left text-lg font-bold text-[var(--auth-primary)]">
+                Remove this document?
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-left leading-6 text-[var(--auth-label)]">
+                <span className="font-semibold text-[var(--auth-primary)]">
+                  {name}
+                </span>{" "}
+                will be removed from this template.
+                {assignedFieldCount > 0
+                  ? ` ${assignedFieldCount} field${assignedFieldCount === 1 ? "" : "s"} placed on this document will also be removed.`
+                  : " This action cannot be undone."}
+              </AlertDialogDescription>
+            </div>
+          </div>
+          <AlertDialogFooter className="mx-0 mb-0 border-t border-[var(--auth-input-border)] bg-[var(--auth-muted)] p-4 sm:justify-end">
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                void onRemove();
+              }}
+              variant="destructive"
+            >
+              Remove Document
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -497,9 +551,11 @@ export function DocumentNameEditor({
 
 export function AddDocumentMenu({
   isUploadingDocument,
+  onAddBlankPage,
   onAddDocument,
 }: {
   isUploadingDocument: boolean;
+  onAddBlankPage: () => Promise<void>;
   onAddDocument: (file: File) => Promise<void>;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -542,6 +598,10 @@ export function AddDocumentMenu({
         <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
           <UploadIcon />
           Upload from computer
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => void onAddBlankPage()}>
+          <FilePlus2Icon />
+          Add blank page
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem

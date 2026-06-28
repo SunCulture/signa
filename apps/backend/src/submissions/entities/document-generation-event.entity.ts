@@ -19,7 +19,7 @@ export type DocumentGenerationEventName =
 @Entity('document_generation_events')
 @Index(['submitterId', 'eventName'])
 export class DocumentGenerationEvent {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Index()
@@ -29,10 +29,10 @@ export class DocumentGenerationEvent {
   @Column({ name: 'event_name', type: 'varchar', length: 255 })
   eventName!: DocumentGenerationEventName;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => Submitter, { onDelete: 'CASCADE' })

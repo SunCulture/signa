@@ -21,10 +21,14 @@ import {
 import type { Request } from 'express';
 import type { UploadedBufferFile } from '../storage/storage.types';
 import {
+  CreateIdentityVerificationDto,
+  CreatePaymentAttemptDto,
   DeclineSigningDto,
   DelegateSigningDto,
+  SendEmailVerificationDto,
   SendPhoneVerificationDto,
   UpdateSigningValuesDto,
+  VerifyEmailCodeDto,
   VerifyPhoneCodeDto,
 } from './dto/signing-request.dto';
 import {
@@ -190,6 +194,23 @@ export class SigningController {
     );
   }
 
+  @Post(':slug/phone-verification/validate')
+  @ApiOperation({ summary: 'Validate a public signing phone number' })
+  @ApiOkResponse({
+    schema: {
+      properties: {
+        phone: { type: 'string' },
+        valid: { type: 'boolean' },
+      },
+    },
+  })
+  validatePhoneNumber(
+    @Param('slug') slug: string,
+    @Body() body: SendPhoneVerificationDto,
+  ): Promise<{ phone: string; valid: boolean }> {
+    return this.signingService.validatePhoneNumber(slug, body);
+  }
+
   @Post(':slug/phone-verification/check')
   @ApiOperation({ summary: 'Verify public signing phone code' })
   @ApiOkResponse({ type: SigningResponseDto })
@@ -199,6 +220,89 @@ export class SigningController {
     @Req() request: Request,
   ): Promise<SigningResponseDto> {
     return this.signingService.verifyPhoneCode(
+      slug,
+      body,
+      getSigningRequestMetadata(request),
+    );
+  }
+
+  @Post(':slug/email-verification/send')
+  @ApiOperation({ summary: 'Send public signing email verification code' })
+  @ApiOkResponse({
+    schema: {
+      properties: {
+        email: { type: 'string' },
+        status: { type: 'string' },
+      },
+    },
+  })
+  sendEmailVerification(
+    @Param('slug') slug: string,
+    @Body() body: SendEmailVerificationDto,
+    @Req() request: Request,
+  ): Promise<{ email: string; status: string }> {
+    return this.signingService.sendEmailVerification(
+      slug,
+      body,
+      getSigningRequestMetadata(request),
+    );
+  }
+
+  @Post(':slug/email-verification/check')
+  @ApiOperation({ summary: 'Verify public signing email code' })
+  @ApiOkResponse({ type: SigningResponseDto })
+  verifyEmailCode(
+    @Param('slug') slug: string,
+    @Body() body: VerifyEmailCodeDto,
+    @Req() request: Request,
+  ): Promise<SigningResponseDto> {
+    return this.signingService.verifyEmailCode(
+      slug,
+      body,
+      getSigningRequestMetadata(request),
+    );
+  }
+
+  @Post(':slug/payment-attempts')
+  @ApiOperation({ summary: 'Record public signing payment attempt state' })
+  @ApiOkResponse({
+    schema: {
+      properties: {
+        id: { type: 'string' },
+        status: { type: 'string' },
+      },
+    },
+  })
+  createPaymentAttempt(
+    @Param('slug') slug: string,
+    @Body() body: CreatePaymentAttemptDto,
+    @Req() request: Request,
+  ): Promise<{ id: string; status: string }> {
+    return this.signingService.createPaymentAttempt(
+      slug,
+      body,
+      getSigningRequestMetadata(request),
+    );
+  }
+
+  @Post(':slug/identity-verifications')
+  @ApiOperation({
+    summary: 'Record public signing identity verification state',
+  })
+  @ApiOkResponse({
+    schema: {
+      properties: {
+        id: { type: 'string' },
+        status: { type: 'string' },
+      },
+    },
+  })
+  createIdentityVerification(
+    @Param('slug') slug: string,
+    @Body() body: CreateIdentityVerificationDto,
+    @Req() request: Request,
+  ): Promise<{ id: string; status: string }> {
+    return this.signingService.createIdentityVerification(
       slug,
       body,
       getSigningRequestMetadata(request),

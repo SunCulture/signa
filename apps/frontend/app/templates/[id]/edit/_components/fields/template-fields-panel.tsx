@@ -56,6 +56,7 @@ import {
   submitterColors,
   type EditorFieldType,
   type SubmitterRemovalMode,
+  type TemplateCustomField,
   type TemplateEditorField,
   type TemplateFieldArea,
   type TemplateSubmitter,
@@ -71,10 +72,12 @@ import {
 export function TemplateFieldsPanel({
   activeFieldType,
   fields,
+  customFields,
   isSavingFields,
   onAddSubmitter,
   onAddFieldWithoutDrawing,
   onCancelFieldPlacement,
+  onCustomFieldSelect,
   onCopyFieldToAllPages,
   onDeleteField,
   onFieldTypeSelect,
@@ -85,6 +88,7 @@ export function TemplateFieldsPanel({
   onRemoveSubmitter,
   onRenameSubmitter,
   onSelectSubmitter,
+  onSaveCustomField,
   onSelectField,
   onStartDrawNewArea,
   onUpdateField,
@@ -93,11 +97,13 @@ export function TemplateFieldsPanel({
   submitters,
 }: {
   activeFieldType: EditorFieldType | null;
+  customFields: TemplateCustomField[];
   fields: TemplateEditorField[];
   isSavingFields: boolean;
   onAddSubmitter: () => Promise<void>;
   onAddFieldWithoutDrawing: () => Promise<void>;
   onCancelFieldPlacement: () => void;
+  onCustomFieldSelect: (field: TemplateCustomField) => Promise<void>;
   onCopyFieldToAllPages: (field: TemplateEditorField) => Promise<void>;
   onDeleteField: (fieldUuid: string) => Promise<void>;
   onFieldTypeSelect: (type: EditorFieldType) => void;
@@ -114,6 +120,7 @@ export function TemplateFieldsPanel({
   ) => Promise<void>;
   onRenameSubmitter: (submitterUuid: string, name: string) => Promise<void>;
   onSelectSubmitter: (submitterUuid: string) => void;
+  onSaveCustomField: (field: TemplateEditorField) => Promise<void>;
   onSelectField: (fieldUuid: string) => void;
   onStartDrawNewArea: (field: TemplateEditorField) => void;
   onUpdateField: (
@@ -171,6 +178,7 @@ export function TemplateFieldsPanel({
                     onMoveDown={() => onMoveField(field.uuid, 1)}
                     onMoveFieldToIndex={onMoveFieldToIndex}
                     onMoveUp={() => onMoveField(field.uuid, -1)}
+                    onSaveCustomField={onSaveCustomField}
                     onSelect={() => onSelectField(field.uuid)}
                     onStartDrawNewArea={() => onStartDrawNewArea(field)}
                     onUpdateField={onUpdateField}
@@ -180,6 +188,12 @@ export function TemplateFieldsPanel({
               </div>
             </div>
           ) : null}
+
+          <CustomFieldsSection
+            customFields={customFields}
+            isSavingFields={isSavingFields}
+            onCustomFieldSelect={onCustomFieldSelect}
+          />
 
           <div className="grid grid-cols-3">
             {fieldTypes.map((field) => (
@@ -244,6 +258,65 @@ export function TemplateFieldsPanel({
         </Button>
       </aside>
     </TooltipProvider>
+  );
+}
+
+function CustomFieldsSection({
+  customFields,
+  isSavingFields,
+  onCustomFieldSelect,
+}: {
+  customFields: TemplateCustomField[];
+  isSavingFields: boolean;
+  onCustomFieldSelect: (field: TemplateCustomField) => Promise<void>;
+}) {
+  if (customFields.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="border-b border-[var(--auth-input-border)] bg-card p-2">
+      <div className="mb-2 flex items-center justify-between px-1">
+        <p className="text-xs font-bold uppercase tracking-wide text-[var(--auth-label)]">
+          Custom fields
+        </p>
+        <span className="rounded-full bg-[var(--auth-muted)] px-2 py-0.5 text-[10px] font-semibold text-[var(--auth-primary)]">
+          {customFields.length}
+        </span>
+      </div>
+      <div className="flex max-h-40 flex-col gap-1 overflow-y-auto pr-1 [scrollbar-gutter:stable]">
+        {customFields.map((field, index) => {
+          const typeMeta = getFieldTypeDefinition(field.type);
+          const Icon = typeMeta?.icon ?? TypeIcon;
+          const title =
+            field.name || buildDefaultFieldName(field.type, index);
+
+          return (
+            <button
+              className="group/custom flex h-9 w-full cursor-grab items-center gap-2 rounded-md border border-[var(--auth-input-border)] bg-[var(--auth-background)] px-2 text-left text-sm transition-colors hover:border-[var(--auth-primary)] hover:bg-[var(--auth-muted)] active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isSavingFields}
+              draggable={!isSavingFields}
+              key={field.uuid}
+              onClick={() => void onCustomFieldSelect(field)}
+              onDragStart={(event) => {
+                writeFieldDragPayload(event.dataTransfer, {
+                  customFieldUuid: field.uuid,
+                  kind: "custom",
+                  type: field.type,
+                });
+              }}
+              type="button"
+            >
+              <Icon className="size-4 shrink-0 text-[var(--auth-primary)]" />
+              <span className="min-w-0 flex-1 truncate font-medium text-[var(--auth-primary)]">
+                {title}
+              </span>
+              <GripVerticalIcon className="size-4 shrink-0 text-[var(--auth-label)] opacity-70 transition-opacity group-hover/custom:opacity-100" />
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -454,6 +527,7 @@ export function SidebarFieldItem({
   onMoveDown,
   onMoveFieldToIndex,
   onMoveUp,
+  onSaveCustomField,
   onSelect,
   onStartDrawNewArea,
   onUpdateField,
@@ -470,6 +544,7 @@ export function SidebarFieldItem({
   onMoveDown: () => Promise<void>;
   onMoveFieldToIndex: (fieldUuid: string, targetIndex: number) => Promise<void>;
   onMoveUp: () => Promise<void>;
+  onSaveCustomField: (field: TemplateEditorField) => Promise<void>;
   onSelect: () => void;
   onStartDrawNewArea: () => void;
   onUpdateField: (
@@ -678,6 +753,7 @@ export function SidebarFieldItem({
             onOpenConditions={() => setIsConditionsOpen(true)}
             onOpenDescription={() => setIsDescriptionOpen(true)}
             onOpenSettings={() => setIsSettingsOpen(true)}
+            onSaveCustomField={onSaveCustomField}
             onStartDrawNewArea={onStartDrawNewArea}
             onUpdateField={onUpdateField}
             title={title}

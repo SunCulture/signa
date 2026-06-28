@@ -11,14 +11,15 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
+import { v4 as uuidv4 } from 'uuid';
 import { Template } from './template.entity';
 import { DynamicDocumentVersion } from './dynamic-document-version.entity';
 
 @Entity('dynamic_documents')
 @Index(['templateId'])
 export class DynamicDocument {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Column({ name: 'template_id', type: 'bigint' })
@@ -35,12 +36,12 @@ export class DynamicDocument {
 
   @Index()
   @Column({ type: 'varchar', length: 255 })
-  uuid!: string;
+  uuid: string = uuidv4();
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => Template, (template) => template.dynamicDocuments, {
@@ -54,7 +55,6 @@ export class DynamicDocument {
 
   @BeforeInsert()
   setInitialValues(): void {
-    this.uuid ||= randomUUID();
     this.setSha1();
   }
 

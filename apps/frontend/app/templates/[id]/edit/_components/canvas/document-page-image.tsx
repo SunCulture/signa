@@ -32,6 +32,7 @@ export function DocumentPageImage({
   filename,
   isSelected,
   isSavingFields,
+  onAddSubmitter,
   onCopySelectedFields,
   onCreateField,
   onDeleteField,
@@ -54,6 +55,7 @@ export function DocumentPageImage({
   filename: string;
   isSelected?: boolean;
   isSavingFields: boolean;
+  onAddSubmitter: (fieldUuid?: string) => Promise<void>;
   onCopySelectedFields: (fieldUuid?: string) => void;
   onCreateField: (area: TemplateFieldArea) => Promise<void>;
   onDeleteField: (fieldUuid: string) => Promise<void>;
@@ -223,8 +225,10 @@ export function DocumentPageImage({
     const type =
       payload.kind === "new"
         ? payload.type
-        : (fields.find((field) => field.uuid === payload.fieldUuid)?.type ??
-          "text");
+        : payload.kind === "custom"
+          ? payload.type
+          : (fields.find((field) => field.uuid === payload.fieldUuid)?.type ??
+            "text");
 
     void onDropField(
       payload,
@@ -285,6 +289,7 @@ export function DocumentPageImage({
               isSelected={field.uuid === selectedFieldUuid}
               isMultiSelected={selectedFieldUuids.includes(field.uuid)}
               isSaving={isSavingFields}
+              onAddSubmitter={onAddSubmitter}
               key={`${field.uuid}-${areaIndex}`}
               onCopySelectedFields={onCopySelectedFields}
               onDeleteField={onDeleteField}

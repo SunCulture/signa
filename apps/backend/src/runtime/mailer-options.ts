@@ -10,10 +10,7 @@ export function createMailerOptions(config: ConfigService): MailerOptions {
     defaults: {
       from: formatEmailAddress({
         name: config.get<string>('MAIL_FROM_NAME', 'Signa'),
-        address: config.get<string>(
-          'MAIL_FROM_ADDRESS',
-          'no-reply@signa.local',
-        ),
+        address: config.get<string>('MAIL_FROM_ADDRESS', 'no-reply@signa.com'),
       }),
       replyTo: config.get<string>('MAIL_REPLY_TO') || undefined,
     },

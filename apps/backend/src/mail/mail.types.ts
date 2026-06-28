@@ -7,23 +7,30 @@ export type MailAttachment = {
   path?: string;
 };
 
-export type MailTemplateName =
-  | 'password-reset'
-  | 'smtp-successful-setup'
-  | 'submitter-completed'
-  | 'submitter-declined'
-  | 'submitter-documents-copy'
-  | 'submitter-invitation'
-  | 'submitter-invitation-reminder'
-  | 'submitter-otp-verification'
-  | 'template-otp-verification'
-  | 'user-invitation';
+export const mailTemplateNames = [
+  'password-reset',
+  'smtp-successful-setup',
+  'submitter-completed',
+  'submitter-declined',
+  'submitter-documents-copy',
+  'submitter-invitation',
+  'submitter-invitation-reminder',
+  'submitter-otp-verification',
+  'template-otp-verification',
+  'team-invitation',
+  'user-invitation',
+] as const;
 
-export type MailTemplateKey =
-  | 'submitter-completed'
-  | 'submitter-documents-copy'
-  | 'submitter-invitation'
-  | 'submitter-invitation-reminder';
+export type MailTemplateName = (typeof mailTemplateNames)[number];
+
+export const mailTemplateKeys = [
+  'submitter-completed',
+  'submitter-documents-copy',
+  'submitter-invitation',
+  'submitter-invitation-reminder',
+] as const;
+
+export type MailTemplateKey = (typeof mailTemplateKeys)[number];
 
 export type MailAddress = {
   email: string;
@@ -39,14 +46,24 @@ export type SendTemplateMailInput = {
   from?: MailAddress | string;
   replyTo?: MailAddress | string | null;
   attachments?: MailAttachment[];
+  delivery?: MailDeliveryTraceInput;
 };
 
-export type MailDeliveryStatus = 'sent' | 'skipped';
+export type MailDeliveryTraceInput = {
+  attempt?: number;
+  jobId?: string | number | null;
+  submissionId?: string | null;
+  submitterId?: string | null;
+};
+
+export type MailDeliveryStatus = 'sent' | 'skipped' | 'failed';
 
 export type MailDeliveryResult = {
   status: MailDeliveryStatus;
   accepted: string[];
   rejected: string[];
+  errorMessage?: string;
+  errorStack?: string;
   messageId?: string;
   response?: string;
 };

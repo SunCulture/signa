@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  type FormEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -17,16 +11,23 @@ import {
   FileSpreadsheetIcon,
   FolderIcon,
   LinkIcon,
-  MessageSquareTextIcon,
   PencilIcon,
   PenLineIcon,
   PlusIcon,
-  SendIcon,
   Settings2Icon,
-  Trash2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  Timeline,
+  TimelineContent,
+  TimelineDate,
+  TimelineHeader,
+  TimelineIndicator,
+  TimelineItem,
+  TimelineSeparator,
+} from "@/components/reui/timeline";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -46,7 +47,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { Switch } from "@/components/ui/switch";
 import { getAuthSession } from "@/lib/api/auth";
 import { ApiError } from "@/lib/api/http";
 import {
@@ -56,18 +56,23 @@ import {
   listSubmissions,
   type SubmissionResponse,
 } from "@/lib/api/submissions";
+import { listTeams, type Team } from "@/lib/api/teams";
+import { useRealtimeEvents } from "@/lib/realtime/use-realtime-events";
 import {
   archiveTemplate,
   cloneTemplate,
   getTemplate,
+  getTemplateEvents,
+  type TemplateEventResponse,
   type TemplateResponse,
   updateTemplate,
   updateTemplatePreferences,
 } from "@/lib/api/templates";
 import { ThemeModeSwitcher } from "../_components/theme-mode-switcher";
 import { UserMenu } from "../_components/user-menu";
-import { TemplatePreferencesDialog } from "./edit/template-preferences-dialog";
 import { TemplateActionButton } from "./template-detail-action-button";
+import { TemplateDetailSendRecipientsDialog } from "./template-detail-send-recipients-dialog";
+import { TemplatePreferencesDialog } from "./edit/template-preferences-dialog";
 import { TemplateSubmissionRow } from "./template-submission-row";
 
 type TemplateDetailPageProps = {
@@ -77,38 +82,72 @@ type TemplateDetailPageProps = {
 export function TemplateDetailPage({ templateId }: TemplateDetailPageProps) {
   const router = useRouter();
   const [template, setTemplate] = useState<TemplateResponse | null>(null);
+  const [templateEvents, setTemplateEvents] = useState<TemplateEventResponse[]>(
+    [],
+  );
   const [submissions, setSubmissions] = useState<SubmissionResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isMutating, setIsMutating] = useState(false);
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false);
   const [isRecipientsOpen, setIsRecipientsOpen] = useState(false);
+  const [isCloneOpen, setIsCloneOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const [isUpdatingSharedLink, setIsUpdatingSharedLink] = useState(false);
   const [isOpeningSelfSign, setIsOpeningSelfSign] = useState(false);
+  const [cloneName, setCloneName] = useState("");
+  const [cloneTeamId, setCloneTeamId] = useState("");
+  const [teams, setTeams] = useState<Team[]>([]);
 
   const fetchTemplateDetail = useCallback(async () => {
-    const [templateResponse, submissionsResponse] = await Promise.all([
+    const [templateResponse, submissionsResponse, eventsResponse] =
+      await Promise.all([
       getTemplate(templateId),
       listSubmissions({
         include: "fields",
         limit: 100,
         template_id: templateId,
       }),
+      getTemplateEvents(templateId),
     ]);
 
-    return { submissionsResponse, templateResponse };
+    return { eventsResponse, submissionsResponse, templateResponse };
   }, [templateId]);
+
+  const refreshTemplateDetail = useCallback(async () => {
+    try {
+      const { eventsResponse, submissionsResponse, templateResponse } =
+        await fetchTemplateDetail();
+
+      setTemplate(templateResponse);
+      setSubmissions(submissionsResponse.data);
+      setTemplateEvents(eventsResponse.data);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        router.push("/auth/login");
+      }
+    }
+  }, [fetchTemplateDetail, router]);
+
+  useRealtimeEvents({
+    enabled: Boolean(template),
+    onEvent: () => {
+      void refreshTemplateDetail();
+    },
+    scope: "template",
+    templateId,
+  });
 
   async function loadTemplateDetail() {
     setIsLoading(true);
 
     try {
-      const { submissionsResponse, templateResponse } =
+      const { eventsResponse, submissionsResponse, templateResponse } =
         await fetchTemplateDetail();
 
       setTemplate(templateResponse);
       setSubmissions(submissionsResponse.data);
+      setTemplateEvents(eventsResponse.data);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         router.push("/auth/login");
@@ -129,7 +168,7 @@ export function TemplateDetailPage({ templateId }: TemplateDetailPageProps) {
 
     async function loadInitialTemplateDetail() {
       try {
-        const { submissionsResponse, templateResponse } =
+        const { eventsResponse, submissionsResponse, templateResponse } =
           await fetchTemplateDetail();
 
         if (isCancelled) {
@@ -138,6 +177,7 @@ export function TemplateDetailPage({ templateId }: TemplateDetailPageProps) {
 
         setTemplate(templateResponse);
         setSubmissions(submissionsResponse.data);
+        setTemplateEvents(eventsResponse.data);
       } catch (error) {
         if (isCancelled) {
           return;
@@ -165,6 +205,15 @@ export function TemplateDetailPage({ templateId }: TemplateDetailPageProps) {
       isCancelled = true;
     };
   }, [fetchTemplateDetail, router]);
+
+  useEffect(() => {
+    listTeams("active")
+      .then((loadedTeams) => {
+        setTeams(loadedTeams);
+        setCloneTeamId((current) => current || loadedTeams[0]?.id || "");
+      })
+      .catch(() => setTeams([]));
+  }, []);
 
   async function copyTemplateLink() {
     if (!template) {
@@ -206,68 +255,15 @@ export function TemplateDetailPage({ templateId }: TemplateDetailPageProps) {
 
     try {
       const clonedTemplate = await cloneTemplate(template.id, {
-        name: `${template.name} (Clone)`,
+        name: cloneName.trim() || `${template.name} (Clone)`,
+        team_id: cloneTeamId || undefined,
       });
 
       toast.success("Template cloned", { description: clonedTemplate.name });
+      setIsCloneOpen(false);
       router.push(`/templates/${clonedTemplate.id}`);
     } catch (error) {
       toast.error("Template clone failed", {
-        description: error instanceof Error ? error.message : "Try again.",
-      });
-    } finally {
-      setIsMutating(false);
-    }
-  }
-
-  async function addRecipients(input: AddRecipientsFormValue) {
-    if (!template) {
-      return;
-    }
-
-    setIsMutating(true);
-
-    try {
-      const message = input.customMessage
-        ? {
-            body: input.messageBody,
-            subject: input.messageSubject,
-          }
-        : undefined;
-
-      if (input.saveMessage && message) {
-        await updateTemplatePreferences(template.id, {
-          request_email_body: message.body,
-          request_email_subject: message.subject,
-        });
-      }
-
-      await createSubmission({
-        message,
-        name: input.name || undefined,
-        send_email: input.sendEmail,
-        send_sms: input.sendSms,
-        submitters_order: input.order,
-        template_id: template.id,
-        submitters: input.recipients.map((recipient) => ({
-          email: recipient.email,
-          message,
-          name: recipient.name || undefined,
-          phone: recipient.phone || undefined,
-          role: recipient.role,
-          send_email: input.sendEmail,
-          send_sms: input.sendSms,
-        })),
-      });
-      toast.success("Recipients added", {
-        description: `${input.recipients.length} signature request${
-          input.recipients.length === 1 ? "" : "s"
-        } created.`,
-      });
-      setIsRecipientsOpen(false);
-      await loadTemplateDetail();
-    } catch (error) {
-      toast.error("Recipient could not be added", {
         description: error instanceof Error ? error.message : "Try again.",
       });
     } finally {
@@ -457,7 +453,10 @@ export function TemplateDetailPage({ templateId }: TemplateDetailPageProps) {
               </TemplateActionButton>
               <TemplateActionButton
                 disabled={isMutating}
-                onClick={() => void duplicateTemplate()}
+                onClick={() => {
+                  setCloneName(`${template.name} (Clone)`);
+                  setIsCloneOpen(true);
+                }}
                 variant="outline"
               >
                 <CopyIcon data-icon="inline-start" />
@@ -515,6 +514,7 @@ export function TemplateDetailPage({ templateId }: TemplateDetailPageProps) {
             )}
           </div>
         </section>
+        <TemplateActivityTimeline events={templateEvents} />
       </div>
       {isPreferencesOpen ? (
         <TemplatePreferencesDialog
@@ -528,12 +528,24 @@ export function TemplateDetailPage({ templateId }: TemplateDetailPageProps) {
         />
       ) : null}
       {isRecipientsOpen ? (
-        <AddRecipientsDialog
-          isSaving={isMutating}
+        <TemplateDetailSendRecipientsDialog
           onOpenChange={setIsRecipientsOpen}
-          onSubmit={(input) => void addRecipients(input)}
+          onSent={() => void loadTemplateDetail()}
           open={isRecipientsOpen}
           template={template}
+        />
+      ) : null}
+      {isCloneOpen ? (
+        <CloneTemplateDialog
+          isSaving={isMutating}
+          name={cloneName}
+          onNameChange={setCloneName}
+          onOpenChange={setIsCloneOpen}
+          onSubmit={() => void duplicateTemplate()}
+          onTeamChange={setCloneTeamId}
+          open={isCloneOpen}
+          teamId={cloneTeamId}
+          teams={teams}
         />
       ) : null}
       {isExportOpen ? (
@@ -548,320 +560,71 @@ export function TemplateDetailPage({ templateId }: TemplateDetailPageProps) {
   );
 }
 
-type AddRecipientsFormValue = {
-  customMessage: boolean;
-  messageBody: string;
-  messageSubject: string;
-  name: string;
-  order: "preserved" | "random";
-  recipients: Array<{
-    email: string;
-    name: string;
-    phone: string;
-    role: string;
-  }>;
-  saveMessage: boolean;
-  sendEmail: boolean;
-  sendSms: boolean;
-};
-
-function AddRecipientsDialog({
+function CloneTemplateDialog({
   isSaving,
+  name,
+  onNameChange,
   onOpenChange,
   onSubmit,
+  onTeamChange,
   open,
-  template,
+  teamId,
+  teams,
 }: {
   isSaving: boolean;
+  name: string;
+  onNameChange: (name: string) => void;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (input: AddRecipientsFormValue) => void;
+  onSubmit: () => void;
+  onTeamChange: (teamId: string) => void;
   open: boolean;
-  template: TemplateResponse;
+  teamId: string;
+  teams: Team[];
 }) {
-  const templateRoles = template.submitters
-    .map((submitter) => submitter.name)
-    .filter((role): role is string => Boolean(role));
-  const roles = templateRoles.length ? templateRoles : ["First Party"];
-  const [name, setName] = useState("");
-  const [order, setOrder] = useState<"preserved" | "random">("preserved");
-  const [sendEmail, setSendEmail] = useState(true);
-  const [sendSms, setSendSms] = useState(false);
-  const [customMessage, setCustomMessage] = useState(false);
-  const [saveMessage, setSaveMessage] = useState(false);
-  const [messageSubject, setMessageSubject] = useState(
-    getRequestEmailSubject(template),
-  );
-  const [messageBody, setMessageBody] = useState(getRequestEmailBody(template));
-  const [recipients, setRecipients] = useState(
-    roles
-      .slice(0, 1)
-      .map((role) => ({ email: "", name: "", phone: "", role })),
-  );
-
-  function updateRecipient(
-    index: number,
-    nextRecipient: Partial<(typeof recipients)[number]>,
-  ) {
-    setRecipients((current) =>
-      current.map((recipient, recipientIndex) =>
-        recipientIndex === index
-          ? { ...recipient, ...nextRecipient }
-          : recipient,
-      ),
-    );
-  }
-
-  function submitForm(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const normalizedRecipients = recipients
-      .map((recipient) => ({
-        ...recipient,
-        email: recipient.email.trim(),
-        name: recipient.name.trim(),
-        phone: recipient.phone.trim(),
-      }))
-      .filter((recipient) => recipient.email || recipient.phone);
-
-    if (!normalizedRecipients.length) {
-      toast.error("Add at least one recipient email or phone");
-      return;
-    }
-
-    onSubmit({
-      customMessage,
-      messageBody: messageBody.trim(),
-      messageSubject: messageSubject.trim(),
-      name: name.trim(),
-      order,
-      recipients: normalizedRecipients,
-      saveMessage,
-      sendEmail,
-      sendSms,
-    });
-  }
-
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent className="max-w-2xl rounded-3xl bg-[var(--auth-background)] p-0 text-[var(--auth-foreground)]">
-        <form onSubmit={submitForm}>
-          <DialogHeader className="border-b border-[var(--auth-border)] px-7 py-6">
-            <DialogTitle className="text-2xl font-semibold">
-              Add recipients
-            </DialogTitle>
-            <DialogDescription>
-              Create a signature request from this template.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="flex max-h-[70vh] flex-col gap-6 overflow-y-auto px-7 py-6">
-            <div className="grid gap-2">
-              <Label htmlFor="submission-name">Submission name</Label>
-              <Input
-                className="h-12 rounded-full border-[var(--auth-input-border)] px-5 shadow-none focus-visible:ring-0"
-                id="submission-name"
-                onChange={(event) => setName(event.target.value)}
-                placeholder={template.name}
-                value={name}
-              />
-            </div>
-
-            <div className="grid gap-3">
-              <div className="flex items-center justify-between gap-4">
-                <Label>Recipients</Label>
-                <Button
-                  className="h-9 rounded-full px-4 text-xs font-bold"
-                  onClick={() =>
-                    setRecipients((current) => [
-                      ...current,
-                      { email: "", name: "", phone: "", role: roles[0] },
-                    ])
-                  }
-                  type="button"
-                  variant="outline"
-                >
-                  <PlusIcon data-icon="inline-start" />
-                  Add
-                </Button>
-              </div>
-
-              <div className="flex flex-col gap-3">
-                {recipients.map((recipient, index) => (
-                  <div
-                    className="grid gap-3 rounded-2xl border border-[var(--auth-border)] bg-[var(--auth-muted)] p-3 md:grid-cols-[1fr_1fr_1fr_150px_auto]"
-                    key={`${recipient.role}-${index}`}
-                  >
-                    <Input
-                      className="h-11 rounded-full border-[var(--auth-input-border)] bg-white px-4 shadow-none focus-visible:ring-0"
-                      onChange={(event) =>
-                        updateRecipient(index, { email: event.target.value })
-                      }
-                      placeholder="email@example.com"
-                      type="email"
-                      value={recipient.email}
-                    />
-                    <Input
-                      className="h-11 rounded-full border-[var(--auth-input-border)] bg-white px-4 shadow-none focus-visible:ring-0"
-                      onChange={(event) =>
-                        updateRecipient(index, { name: event.target.value })
-                      }
-                      placeholder="Name"
-                      value={recipient.name}
-                    />
-                    <Input
-                      className="h-11 rounded-full border-[var(--auth-input-border)] bg-white px-4 shadow-none focus-visible:ring-0"
-                      onChange={(event) =>
-                        updateRecipient(index, { phone: event.target.value })
-                      }
-                      placeholder="+1 555 0100"
-                      type="tel"
-                      value={recipient.phone}
-                    />
-                    <Select
-                      onValueChange={(role) => updateRecipient(index, { role })}
-                      value={recipient.role}
-                    >
-                      <SelectTrigger className="h-11 rounded-full border-[var(--auth-input-border)] bg-white px-4 shadow-none">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {roles.map((role) => (
-                          <SelectItem key={role} value={role}>
-                            {role}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      aria-label="Remove recipient"
-                      className="size-11 rounded-full"
-                      disabled={recipients.length === 1}
-                      onClick={() =>
-                        setRecipients((current) =>
-                          current.filter(
-                            (_, recipientIndex) => recipientIndex !== index,
-                          ),
-                        )
-                      }
-                      type="button"
-                      variant="ghost"
-                    >
-                      <Trash2Icon data-icon="icon-only" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="grid gap-4 rounded-2xl border border-[var(--auth-border)] bg-[var(--auth-muted)] p-4 md:grid-cols-3">
-              <label className="flex items-center justify-between gap-3">
-                <span className="text-sm font-semibold">Send email</span>
-                <Switch checked={sendEmail} onCheckedChange={setSendEmail} />
-              </label>
-              <label className="flex items-center justify-between gap-3">
-                <span className="text-sm font-semibold">Send SMS</span>
-                <Switch checked={sendSms} onCheckedChange={setSendSms} />
-              </label>
-              <div className="grid gap-1.5">
-                <Label>Signing order</Label>
-                <Select
-                  onValueChange={(value) =>
-                    setOrder(value as "preserved" | "random")
-                  }
-                  value={order}
-                >
-                  <SelectTrigger className="h-10 rounded-full border-[var(--auth-input-border)] bg-white px-4 shadow-none">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="preserved">Preserved</SelectItem>
-                    <SelectItem value="random">Random</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-[var(--auth-border)] bg-[var(--auth-muted)] p-4">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <span className="flex size-10 items-center justify-center rounded-full bg-white text-[var(--auth-primary)]">
-                    <MessageSquareTextIcon data-icon="icon-only" />
-                  </span>
-                  <div>
-                    <p className="font-semibold">Message</p>
-                    <p className="text-sm text-[var(--auth-muted-foreground)]">
-                      Customize the signature request email copy.
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  className="h-9 rounded-full px-4 text-xs font-bold"
-                  onClick={() => setCustomMessage((current) => !current)}
-                  type="button"
-                  variant="outline"
-                >
-                  {customMessage ? "Hide" : "Edit message"}
-                </Button>
-              </div>
-
-              {customMessage ? (
-                <div className="mt-4 grid gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="recipient-message-subject">Subject</Label>
-                    <Input
-                      className="h-11 rounded-full border-[var(--auth-input-border)] bg-white px-4 shadow-none focus-visible:ring-0"
-                      id="recipient-message-subject"
-                      onChange={(event) =>
-                        setMessageSubject(event.target.value)
-                      }
-                      required
-                      value={messageSubject}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="recipient-message-body">Body</Label>
-                    <textarea
-                      className="min-h-40 resize-y rounded-3xl border border-[var(--auth-input-border)] bg-white px-5 py-4 text-sm shadow-none outline-none focus:ring-0"
-                      id="recipient-message-body"
-                      onChange={(event) => setMessageBody(event.target.value)}
-                      required
-                      value={messageBody}
-                    />
-                  </div>
-                  <label className="flex items-center justify-between gap-3 rounded-2xl bg-white px-4 py-3">
-                    <span className="text-sm font-semibold">
-                      Save as default template message
-                    </span>
-                    <Switch
-                      checked={saveMessage}
-                      onCheckedChange={setSaveMessage}
-                    />
-                  </label>
-                </div>
-              ) : null}
-            </div>
+      <DialogContent className="rounded-3xl bg-[var(--auth-background)] text-[var(--auth-foreground)]">
+        <DialogHeader>
+          <DialogTitle>Clone Template</DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-4">
+          <Select onValueChange={onTeamChange} value={teamId}>
+            <SelectTrigger className="!h-12 min-h-12 rounded-full border-[var(--auth-input-border)] bg-white px-5 shadow-none">
+              <SelectValue placeholder="Select team account" />
+            </SelectTrigger>
+            <SelectContent>
+              {teams.map((team) => (
+                <SelectItem key={team.id} value={team.id}>
+                  {team.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            className="h-12 rounded-full border-[var(--auth-input-border)] bg-white px-5"
+            onChange={(event) => onNameChange(event.target.value)}
+            value={name}
+          />
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="inline-flex min-w-0 items-center gap-2">
+              <FolderIcon data-icon="inline-start" />
+              <span className="truncate">Default</span>
+            </span>
+            <button className="underline" type="button">
+              Change Folder
+            </button>
           </div>
-
-          <DialogFooter className="border-t border-[var(--auth-border)] px-7 py-5">
-            <Button
-              className="h-11 rounded-full px-6 font-bold"
-              disabled={isSaving}
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="h-11 rounded-full bg-[var(--auth-primary)] px-6 font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
-              disabled={isSaving}
-              type="submit"
-            >
-              <SendIcon data-icon="inline-start" />
-              {isSaving ? "Sending..." : "Add recipients"}
-            </Button>
-          </DialogFooter>
-        </form>
+        </div>
+        <DialogFooter className="sm:block">
+          <Button
+            className="h-12 w-full rounded-full bg-[var(--auth-primary)] font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
+            disabled={isSaving || !name.trim()}
+            onClick={onSubmit}
+            type="button"
+          >
+            {isSaving ? "SUBMITTING..." : "SUBMIT"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -914,6 +677,105 @@ function TemplateSubmissionsEmptyState({
         </div>
       </div>
     </section>
+  );
+}
+
+function TemplateActivityTimeline({
+  events,
+}: {
+  events: TemplateEventResponse[];
+}) {
+  if (!events.length) {
+    return null;
+  }
+
+  const groupedEvents = groupTemplateEvents(events);
+
+  return (
+    <section className="flex flex-col gap-5 rounded-3xl bg-white/55 px-6 py-6">
+      <div>
+        <h2 className="text-2xl font-semibold">Activity</h2>
+        <p className="mt-1 text-sm text-[var(--auth-muted-foreground)]">
+          Template changes and version history for traceability.
+        </p>
+      </div>
+      <div className="flex flex-col gap-7">
+        {groupedEvents.map((group) => (
+          <div className="flex flex-col gap-4" key={group.label}>
+            <h3 className="text-sm font-bold text-[var(--auth-primary)]">
+              {group.label}
+            </h3>
+            <Timeline defaultValue={group.events.length}>
+              {group.events.map((event, index) => (
+                <TemplateActivityItem
+                  event={event}
+                  index={index}
+                  key={event.id}
+                />
+              ))}
+            </Timeline>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function TemplateActivityItem({
+  event,
+  index,
+}: {
+  event: TemplateEventResponse;
+  index: number;
+}) {
+  const actor = getTemplateEventActor(event);
+  const changedPaths = Array.isArray(event.data.changed_paths)
+    ? event.data.changed_paths.filter(
+        (value): value is string => typeof value === "string",
+      )
+    : [];
+  const initials = getActivityInitials(actor);
+  const isUserEvent = Boolean(event.user);
+
+  return (
+    <TimelineItem
+      className="group-data-[orientation=vertical]/timeline:ms-10 group-data-[orientation=vertical]/timeline:not-last:pb-5"
+      step={index + 1}
+    >
+      <TimelineHeader>
+        <TimelineSeparator className="bg-[var(--auth-input-border)] group-data-[orientation=vertical]/timeline:top-2 group-data-[orientation=vertical]/timeline:-left-8 group-data-[orientation=vertical]/timeline:h-[calc(100%-2.25rem)] group-data-[orientation=vertical]/timeline:translate-y-7" />
+        <TimelineIndicator className="size-8 overflow-hidden rounded-full border-none bg-transparent group-data-[orientation=vertical]/timeline:-left-8">
+          {isUserEvent ? (
+            <Avatar className="size-8 border border-[var(--auth-input-border)] bg-white shadow-sm">
+              <AvatarFallback className="bg-[var(--auth-primary)] text-xs font-bold text-[var(--auth-primary-foreground)]">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+          ) : (
+            <span className="flex size-8 items-center justify-center rounded-full bg-[var(--auth-upgrade)] ring-4 ring-white/70">
+              <span className="size-2.5 rounded-full bg-[var(--auth-primary)]" />
+            </span>
+          )}
+        </TimelineIndicator>
+      </TimelineHeader>
+      <TimelineContent className="flex flex-col gap-1 text-[var(--auth-muted-foreground)]">
+        <div className="flex flex-wrap items-center gap-1.5 text-sm">
+          <strong className="font-semibold text-[var(--auth-primary)]">
+            {actor}
+          </strong>
+          <span>{formatActivityEventType(event.event_type)}</span>
+        </div>
+        <p className="text-base font-semibold leading-snug text-[var(--auth-primary)]">
+          {event.summary}
+        </p>
+        {changedPaths.length ? (
+          <p className="text-sm">Changed {changedPaths.join(", ")}</p>
+        ) : null}
+        <TimelineDate className="mb-0 mt-0.5 text-xs">
+          {formatTemplateEventTime(event.event_timestamp)}
+        </TimelineDate>
+      </TimelineContent>
+    </TimelineItem>
   );
 }
 
@@ -1073,29 +935,81 @@ function ExportSubmissionsDialog({
   );
 }
 
-function getRequestEmailSubject(template: TemplateResponse): string {
-  const subject = template.preferences.request_email_subject;
+function groupTemplateEvents(events: TemplateEventResponse[]): Array<{
+  events: TemplateEventResponse[];
+  label: string;
+}> {
+  const groups = new Map<string, TemplateEventResponse[]>();
 
-  return typeof subject === "string" && subject.trim()
-    ? subject
-    : "You are invited to sign a document";
+  for (const event of events) {
+    const label = getActivityGroupLabel(new Date(event.event_timestamp));
+    groups.set(label, [...(groups.get(label) ?? []), event]);
+  }
+
+  return Array.from(groups.entries()).map(([label, groupEvents]) => ({
+    events: groupEvents,
+    label,
+  }));
 }
 
-function getRequestEmailBody(template: TemplateResponse): string {
-  const body = template.preferences.request_email_body;
+function getActivityGroupLabel(date: Date): string {
+  const now = new Date();
+  const startOfToday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  );
+  const startOfWeek = new Date(startOfToday);
+  startOfWeek.setDate(startOfToday.getDate() - 7);
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  return typeof body === "string" && body.trim()
-    ? body
-    : `Hi there,
+  if (date >= startOfToday) {
+    return "Today";
+  }
 
-You have been invited to sign the "{template.name}".
+  if (date >= startOfWeek) {
+    return "This week";
+  }
 
-Review and Sign
+  if (date >= startOfMonth) {
+    return "This month";
+  }
 
-Please contact us by replying to this email if you have any questions.
+  return "Older";
+}
 
-Thanks,
-{account.name}`;
+function formatActivityEventType(value: string): string {
+  return value.replace("template.", "").replaceAll(".", " ");
+}
+
+function getTemplateEventActor(event: TemplateEventResponse): string {
+  if (!event.user) {
+    return "System";
+  }
+
+  return (
+    [event.user.first_name, event.user.last_name].filter(Boolean).join(" ") ||
+    event.user.email
+  );
+}
+
+function getActivityInitials(actor: string): string {
+  const parts = actor
+    .split(/[\s@._-]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return parts
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join("");
+}
+
+function formatTemplateEventTime(value: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
 
 function TemplateDetailLoading() {

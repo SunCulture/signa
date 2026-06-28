@@ -9,29 +9,57 @@ import { isSignaRole, type SignaRole } from '@repo/shared';
 import { randomBytes } from 'node:crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Not, Repository } from 'typeorm';
+import { Account } from '../accounts/entities/account.entity';
+import {
+  createPasswordResetToken,
+  hashPasswordResetToken,
+} from '../auth/password-reset-tokens';
 import { hashPassword, verifyPassword } from '../auth/passwords';
 import {
   throwDatabaseErrors,
   throwIfNotFound,
   throwIfUniqueConstraint,
 } from '../common/utils/error';
+import { MailService } from '../mail/mail.service';
+import { EmailVerificationCodeService } from '../mail/email-verification-code.service';
+import { StorageService } from '../storage/storage.service';
+import type { UploadedBufferFile } from '../storage/storage.types';
+import { TeamMember } from '../teams/entities/team-member.entity';
+import { Team } from '../teams/entities/team.entity';
+import { createTeamSlug } from '../teams/team-slug';
 import { CreateUserDto } from './dto/create-user.dto';
-import { ImportUsersDto } from './dto/import-users.dto';
+import { ImportUserRowDto, ImportUsersDto } from './dto/import-users.dto';
 import {
   ImportUserResultDto,
   ImportUsersResponseDto,
 } from './dto/import-users-response.dto';
+import { MfaSetupResponseDto, MfaStatusResponseDto } from './dto/mfa.dto';
+import { ProfileAssetResponseDto } from './dto/profile-asset-response.dto';
 import { UpdatePasswordDto } from './dto/update-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserResponseDto } from './dto/user-response.dto';
+import { UserConfig } from './entities/user-config.entity';
 import { User } from './entities/user.entity';
+
+type ProfileAssetKey = 'signature' | 'initials';
 
 @Injectable()
 export class UsersService {
   constructor(
+    @InjectRepository(Account)
+    private readonly accounts: Repository<Account>,
+    @InjectRepository(Team)
+    private readonly teams: Repository<Team>,
+    @InjectRepository(TeamMember)
+    private readonly teamMembers: Repository<TeamMember>,
     @InjectRepository(User)
     private readonly users: Repository<User>,
+    @InjectRepository(UserConfig)
+    private readonly userConfigs: Repository<UserConfig>,
+    private readonly emailVerificationCodes: EmailVerificationCodeService,
+    private readonly mailService: MailService,
+    private readonly storageService: StorageService,
   ) {}
 
   findActiveUser(userId: string): Promise<User | null> {
@@ -91,6 +119,7 @@ export class UsersService {
 
     const user = existingUser ?? this.users.create({ email });
     const password = input.password ?? randomBytes(16).toString('hex');
+    const invitationToken = input.password ? null : createPasswordResetToken();
 
     this.users.merge(user, {
       accountId,
@@ -99,11 +128,21 @@ export class UsersService {
       lastName: this.normalizeOptionalName(input.last_name),
       role: this.normalizeRole(input.role),
       encryptedPassword: await hashPassword(password),
+      resetPasswordToken: invitationToken
+        ? hashPasswordResetToken(invitationToken)
+        : null,
+      resetPasswordSentAt: invitationToken ? new Date() : null,
       archivedAt: null,
     });
 
     try {
-      return this.toUserResponse(await this.users.save(user));
+      const savedUser = await this.users.save(user);
+
+      if (invitationToken) {
+        await this.sendUserInvitation(savedUser, invitationToken);
+      }
+
+      return this.toUserResponse(savedUser);
     } catch (error) {
       throwIfUniqueConstraint(error, 'Email already exists');
     }
@@ -211,6 +250,142 @@ export class UsersService {
     }
   }
 
+  async getProfileAsset(
+    userId: string,
+    key: ProfileAssetKey,
+  ): Promise<ProfileAssetResponseDto | null> {
+    const config = await this.userConfigs.findOneBy({ userId, key });
+
+    if (!config?.value) {
+      return null;
+    }
+
+    const [attachment] = await this.storageService.findRecordAttachments({
+      recordType: 'User',
+      recordId: userId,
+      name: key,
+    });
+
+    if (!attachment || attachment.uuid !== config.value) {
+      return null;
+    }
+
+    return this.toProfileAssetResponse(attachment);
+  }
+
+  async uploadProfileAsset(options: {
+    userId: string;
+    key: ProfileAssetKey;
+    file: UploadedBufferFile;
+  }): Promise<ProfileAssetResponseDto> {
+    await this.findUserOrFail(options.userId);
+    this.assertProfileAssetImage(options.file, options.key);
+    await this.storageService.deleteRecordAttachments({
+      recordType: 'User',
+      recordId: options.userId,
+      name: options.key,
+    });
+
+    const attachment = await this.storageService.createAttachment({
+      buffer: options.file.buffer,
+      filename: options.file.originalname || `${options.key}.png`,
+      contentType: options.file.mimetype ?? 'image/png',
+      name: options.key,
+      recordType: 'User',
+      recordId: options.userId,
+      metadata: {
+        analyzed: true,
+        identified: true,
+        profile_asset: options.key,
+      },
+    });
+
+    await this.upsertUserConfig({
+      userId: options.userId,
+      key: options.key,
+      value: attachment.uuid,
+    });
+
+    return this.toProfileAssetResponse(attachment);
+  }
+
+  async deleteProfileAsset(
+    userId: string,
+    key: ProfileAssetKey,
+  ): Promise<null> {
+    await this.storageService.deleteRecordAttachments({
+      recordType: 'User',
+      recordId: userId,
+      name: key,
+    });
+    await this.userConfigs.delete({ userId, key });
+
+    return null;
+  }
+
+  async getMfaStatus(userId: string): Promise<MfaStatusResponseDto> {
+    const user = await this.findUserOrFail(userId);
+
+    return {
+      otp_required_for_login: user.otpRequiredForLogin,
+    };
+  }
+
+  async startMfaSetup(userId: string): Promise<MfaSetupResponseDto> {
+    const user = await this.findUserOrFail(userId);
+
+    if (!user.otpSecret) {
+      user.otpSecret =
+        this.emailVerificationCodes.generateAuthenticatorSecret();
+      await this.users.save(user);
+    }
+
+    return this.toMfaSetupResponse(user);
+  }
+
+  async enableMfa(options: {
+    userId: string;
+    otpAttempt: string;
+  }): Promise<MfaStatusResponseDto> {
+    const user = await this.findUserOrFail(options.userId);
+
+    if (!user.otpSecret) {
+      throw new UnprocessableEntityException({
+        error: 'Start 2FA setup before verifying a code',
+      });
+    }
+
+    if (!this.verifyAuthenticatorCode(user, options.otpAttempt)) {
+      throw new UnprocessableEntityException({ error: 'Code is invalid' });
+    }
+
+    user.otpRequiredForLogin = true;
+    await this.users.save(user);
+
+    return { otp_required_for_login: true };
+  }
+
+  async disableMfa(options: {
+    userId: string;
+    otpAttempt: string;
+  }): Promise<MfaStatusResponseDto> {
+    const user = await this.findUserOrFail(options.userId);
+
+    if (!user.otpSecret || !user.otpRequiredForLogin) {
+      return { otp_required_for_login: false };
+    }
+
+    if (!this.verifyAuthenticatorCode(user, options.otpAttempt)) {
+      throw new UnprocessableEntityException({ error: 'Code is invalid' });
+    }
+
+    user.otpRequiredForLogin = false;
+    user.otpSecret = null;
+    await this.users.save(user);
+
+    return { otp_required_for_login: false };
+  }
+
   async archiveUser(options: {
     accountId: string;
     userId: string;
@@ -284,11 +459,18 @@ export class UsersService {
 
   private async importUserRow(
     accountId: string,
-    input: CreateUserDto,
+    input: ImportUserRowDto,
     row: number,
   ): Promise<ImportUserResultDto> {
     try {
-      const status = await this.createOrRestoreImportedUser(accountId, input);
+      const { status, user } = await this.createOrRestoreImportedUser(
+        accountId,
+        input,
+      );
+
+      if ('team' in input && typeof input.team === 'string') {
+        await this.assignImportedUserToTeam(accountId, user, input.team);
+      }
 
       return {
         row,
@@ -307,8 +489,8 @@ export class UsersService {
 
   private async createOrRestoreImportedUser(
     accountId: string,
-    input: CreateUserDto,
-  ): Promise<'created' | 'restored'> {
+    input: ImportUserRowDto,
+  ): Promise<{ status: 'created' | 'restored'; user: User }> {
     const email = input.email.toLowerCase();
     const existingUser = await this.users.findOne({ where: { email } });
 
@@ -317,8 +499,107 @@ export class UsersService {
     }
 
     await this.createUser(accountId, input);
+    const savedUser = await this.users.findOneByOrFail({ email });
 
-    return existingUser ? 'restored' : 'created';
+    return {
+      status: existingUser ? 'restored' : 'created',
+      user: savedUser,
+    };
+  }
+
+  private async assignImportedUserToTeam(
+    accountId: string,
+    user: User,
+    teamName: string,
+  ): Promise<void> {
+    const name = teamName.trim();
+
+    if (!name) {
+      return;
+    }
+
+    const team = await this.findOrCreateImportedTeam(accountId, name);
+    const existingMember = await this.teamMembers.findOne({
+      where: {
+        teamId: team.id,
+        userId: user.id,
+      },
+      withDeleted: true,
+    });
+
+    if (existingMember) {
+      existingMember.archivedAt = null;
+      existingMember.role = 'member';
+      await this.teamMembers.save(existingMember);
+      return;
+    }
+
+    await this.teamMembers.save(
+      this.teamMembers.create({
+        accountId,
+        role: 'member',
+        teamId: team.id,
+        userId: user.id,
+      }),
+    );
+  }
+
+  private async findOrCreateImportedTeam(
+    accountId: string,
+    name: string,
+  ): Promise<Team> {
+    const slug = createTeamSlug(name);
+    const existingTeam = await this.teams.findOneBy({
+      accountId,
+      archivedAt: IsNull(),
+      slug,
+    });
+
+    if (existingTeam) {
+      return existingTeam;
+    }
+
+    return this.teams.save(
+      this.teams.create({
+        accountId,
+        createdByUserId: await this.getTeamCreatorUserId(accountId),
+        description: null,
+        name,
+        slug: await this.createUniqueTeamSlug(accountId, name),
+      }),
+    );
+  }
+
+  private async getTeamCreatorUserId(accountId: string): Promise<string> {
+    const user = await this.users.findOne({
+      where: [
+        { accountId, archivedAt: IsNull(), role: 'admin' },
+        { accountId, archivedAt: IsNull() },
+      ],
+      order: { id: 'ASC' },
+    });
+
+    if (!user) {
+      throw new UnprocessableEntityException({ error: 'Team owner not found' });
+    }
+
+    return user.id;
+  }
+
+  private async createUniqueTeamSlug(
+    accountId: string,
+    name: string,
+  ): Promise<string> {
+    const baseSlug = createTeamSlug(name);
+    let slug = baseSlug;
+    let index = 2;
+
+    while (await this.teams.existsBy({ accountId, slug })) {
+      slug = `${baseSlug}-${index}`;
+      index += 1;
+    }
+
+    return slug;
   }
 
   private getImportFailureStatus(
@@ -383,6 +664,94 @@ export class UsersService {
     return name?.trim() || null;
   }
 
+  private async upsertUserConfig(input: {
+    userId: string;
+    key: ProfileAssetKey;
+    value: string;
+  }): Promise<UserConfig> {
+    const config =
+      (await this.userConfigs.findOneBy({
+        userId: input.userId,
+        key: input.key,
+      })) ??
+      this.userConfigs.create({
+        userId: input.userId,
+        key: input.key,
+      });
+
+    config.value = input.value;
+
+    try {
+      return await this.userConfigs.save(config);
+    } catch (error) {
+      throwDatabaseErrors(error);
+    }
+  }
+
+  private assertProfileAssetImage(
+    file: UploadedBufferFile | undefined,
+    key: ProfileAssetKey,
+  ): asserts file is UploadedBufferFile {
+    if (!file?.buffer?.length) {
+      throw new UnprocessableEntityException({
+        error: `${sentenceCase(key)} file is required`,
+      });
+    }
+
+    if (
+      !['image/png', 'image/jpeg', 'image/jpg'].includes(file.mimetype ?? '')
+    ) {
+      throw new UnprocessableEntityException({
+        error: `${sentenceCase(key)} must be a PNG or JPEG image`,
+      });
+    }
+  }
+
+  private toProfileAssetResponse(
+    attachment: Awaited<
+      ReturnType<StorageService['findRecordAttachments']>
+    >[number],
+  ): ProfileAssetResponseDto {
+    return {
+      uuid: attachment.uuid,
+      filename: attachment.blob.filename,
+      content_type: attachment.blob.contentType,
+      url: this.storageService.createBlobProxyUrl(attachment.blob, 3600),
+    };
+  }
+
+  private toMfaSetupResponse(user: User): MfaSetupResponseDto {
+    return {
+      secret: user.otpSecret ?? '',
+      provisioning_uri: this.emailVerificationCodes.generateAuthenticatorUri({
+        email: user.email,
+        secret: user.otpSecret ?? '',
+      }),
+      otp_required_for_login: user.otpRequiredForLogin,
+    };
+  }
+
+  private verifyAuthenticatorCode(user: User, code: string): boolean {
+    return this.emailVerificationCodes.verifyAuthenticatorCode({
+      code,
+      secret: user.otpSecret ?? '',
+    });
+  }
+
+  private async sendUserInvitation(user: User, token: string): Promise<void> {
+    const account = await this.accounts.findOneByOrFail({
+      id: user.accountId,
+    });
+
+    await this.mailService.sendUserInvitation({
+      accountId: user.accountId,
+      accountName: account.name,
+      email: user.email,
+      firstName: user.firstName,
+      token,
+    });
+  }
+
   private toImportUsersResponse(
     results: ImportUserResultDto[],
   ): ImportUsersResponseDto {
@@ -405,12 +774,17 @@ export class UsersService {
 
   toUserResponse(user: User): UserResponseDto {
     return {
-      id: user.id,
+      id: String(user.id),
       first_name: user.firstName,
       last_name: user.lastName,
       email: user.email,
       role: user.role,
+      otp_required_for_login: user.otpRequiredForLogin,
       archived_at: user.archivedAt,
     };
   }
+}
+
+function sentenceCase(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }

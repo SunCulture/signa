@@ -23,8 +23,11 @@ import {
   UpdateApiTokenPermissionsDto,
 } from './dto/api-token-response.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
+import { PasswordResetResponseDto } from './dto/password-reset-response.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtGuard } from './guards/jwt/jwt.guard';
 
 @Controller('auth')
@@ -42,6 +45,22 @@ export class AuthController {
   @ApiOkResponse({ type: AuthResponseDto })
   login(@Body() body: LoginDto): Promise<AuthResponseDto> {
     return this.authService.login(body);
+  }
+
+  @Post('forgot-password')
+  @ApiOkResponse({ type: PasswordResetResponseDto })
+  forgotPassword(
+    @Body() body: ForgotPasswordDto,
+  ): Promise<PasswordResetResponseDto> {
+    return this.authService.requestPasswordReset(body);
+  }
+
+  @Post('reset-password')
+  @ApiOkResponse({ type: PasswordResetResponseDto })
+  resetPassword(
+    @Body() body: ResetPasswordDto,
+  ): Promise<PasswordResetResponseDto> {
+    return this.authService.resetPassword(body);
   }
 
   @Get('api-token')

@@ -6,9 +6,11 @@ import { StorageModule } from '../storage/storage.module';
 import { UsersModule } from '../users/users.module';
 import { DocumentConversionService } from './document-conversion.service';
 import { DocxFieldTagService } from './docx-field-tag.service';
+import { DocxVariableService } from './docx-variable.service';
 import { DynamicDocumentVersion } from './entities/dynamic-document-version.entity';
 import { DynamicDocument } from './entities/dynamic-document.entity';
 import { TemplateAccess } from './entities/template-access.entity';
+import { TemplateEvent } from './entities/template-event.entity';
 import { TemplateFolder } from './entities/template-folder.entity';
 import { TemplateSharing } from './entities/template-sharing.entity';
 import { TemplateVersion } from './entities/template-version.entity';
@@ -16,6 +18,7 @@ import { Template } from './entities/template.entity';
 import { TemplatesController } from './templates.controller';
 import { TemplatesService } from './templates.service';
 import { PdfAcroFormService } from './pdf-acro-form/pdf-acro-form.service';
+import { PdfTextTagService } from './pdf-text-tag.service';
 
 @Module({
   imports: [
@@ -26,6 +29,7 @@ import { PdfAcroFormService } from './pdf-acro-form/pdf-acro-form.service';
       Template,
       TemplateFolder,
       TemplateAccess,
+      TemplateEvent,
       TemplateSharing,
       TemplateVersion,
       DynamicDocument,
@@ -39,6 +43,8 @@ import { PdfAcroFormService } from './pdf-acro-form/pdf-acro-form.service';
     PdfAcroFormService,
     DocumentConversionService,
     DocxFieldTagService,
+    DocxVariableService,
+    PdfTextTagService,
   ],
   exports: [TemplatesService, TypeOrmModule],
 })

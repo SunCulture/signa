@@ -1,0 +1,14 @@
+.git
+.turbo
+**/.next
+**/coverage
+**/dist
+**/node_modules
+**/.env
+**/.env.local
+apps/backend/storage
+apps/backend/data
+data
+storage
+npm-debug.log*
+pnpm-debug.log*

@@ -39,8 +39,7 @@ export function UserMenu() {
 
   function handleSignOut() {
     clearAuthSession()
-    router.push("/auth/login")
-    router.refresh()
+    router.replace("/auth/login")
   }
 
   return (
@@ -65,13 +64,13 @@ export function UserMenu() {
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
-            <Link href="/verify-pdf">
+            <Link href="/settings/e-signature">
               <FileCheck2Icon data-icon="inline-start" />
               Verify PDF
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
-            <Link href="/ask-ai">
+            <Link href="/ai-assistant">
               <BotIcon data-icon="inline-start" />
               Ask AI
             </Link>

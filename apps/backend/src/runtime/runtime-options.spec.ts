@@ -114,7 +114,7 @@ const runtimeConfigDefaults: Record<string, unknown> = {
   BULL_BOARD_ROUTE: '/queues',
   BULL_BOARD_USER: 'admin',
   MAIL_AUTH_ENABLED: false,
-  MAIL_FROM_ADDRESS: 'no-reply@signa.local',
+  MAIL_FROM_ADDRESS: 'no-reply@signa.com',
   MAIL_FROM_NAME: 'Signa',
   MAIL_HOST: 'localhost',
   MAIL_PORT: 1025,

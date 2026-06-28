@@ -10,6 +10,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { v4 as uuidv4 } from 'uuid';
 import { Account } from '../../accounts/entities/account.entity';
 import { Submitter } from '../../submitters/entities/submitter.entity';
 import { Template } from '../../templates/entities/template.entity';
@@ -28,7 +29,7 @@ import { SubmissionEvent } from './submission-event.entity';
 @Index(['accountId', 'id'])
 @Index(['accountId', 'templateId', 'id'])
 export class Submission {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Index()
@@ -50,9 +51,8 @@ export class Submission {
   @Column({
     type: 'varchar',
     length: 255,
-    default: () => '(gen_random_uuid())',
   })
-  slug!: string;
+  slug: string = uuidv4();
 
   @Column({ type: 'varchar', length: 255 })
   source!: string;
@@ -78,20 +78,16 @@ export class Submission {
   @Column({ name: 'variables_schema', type: 'simple-json', nullable: true })
   variablesSchema!: SubmissionVariablesSchema | null;
 
-  @Column({ name: 'expire_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'expire_at', type: Date, nullable: true })
   expireAt!: Date | null;
 
-  @DeleteDateColumn({
-    name: 'archived_at',
-    type: 'timestamptz',
-    nullable: true,
-  })
+  @DeleteDateColumn({ name: 'archived_at', type: Date, nullable: true })
   archivedAt!: Date | null;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => Account, { onDelete: 'CASCADE' })

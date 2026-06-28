@@ -1,3 +1,5 @@
+jest.mock('uuid', () => ({ v4: jest.fn(() => 'mock-uuid') }));
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -10,8 +12,10 @@ import { DocumentConversionService } from './document-conversion.service';
 import { DocxFieldTagService } from './docx-field-tag.service';
 import { DynamicDocumentVersion } from './entities/dynamic-document-version.entity';
 import { DynamicDocument } from './entities/dynamic-document.entity';
+import { TemplateEvent } from './entities/template-event.entity';
 import { TemplateFolder } from './entities/template-folder.entity';
 import { Template } from './entities/template.entity';
+import { TemplateVersion } from './entities/template-version.entity';
 import { PdfAcroFormService } from './pdf-acro-form/pdf-acro-form.service';
 import { TemplatesService } from './templates.service';
 
@@ -70,6 +74,8 @@ describe('TemplatesService', () => {
   let service: TemplatesService;
   let templates: MockRepository<Template>;
   let folders: MockRepository<TemplateFolder>;
+  let templateEvents: MockRepository<TemplateEvent>;
+  let templateVersions: MockRepository<TemplateVersion>;
   let dynamicDocuments: MockRepository<DynamicDocument>;
   let dynamicDocumentVersions: MockRepository<DynamicDocumentVersion>;
   let storage: jest.Mocked<
@@ -98,6 +104,8 @@ describe('TemplatesService', () => {
   beforeEach(async () => {
     templates = createRepository<Template>();
     folders = createRepository<TemplateFolder>();
+    templateEvents = createRepository<TemplateEvent>();
+    templateVersions = createRepository<TemplateVersion>();
     dynamicDocuments = createRepository<DynamicDocument>();
     dynamicDocumentVersions = createRepository<DynamicDocumentVersion>();
     storage = {
@@ -124,6 +132,20 @@ describe('TemplatesService', () => {
         markers: [],
       })),
     };
+    folders.find?.mockResolvedValue([createTemplate().folder]);
+    templateEvents.create?.mockImplementation(
+      (input: Partial<TemplateEvent>) => input as TemplateEvent,
+    );
+    templateEvents.save?.mockImplementation((input: TemplateEvent) =>
+      Promise.resolve({ id: 'template-event-1', ...input }),
+    );
+    templateVersions.create?.mockImplementation(
+      (input: Partial<TemplateVersion>) => input as TemplateVersion,
+    );
+    templateVersions.findOne?.mockResolvedValue(null);
+    templateVersions.save?.mockImplementation((input: TemplateVersion) =>
+      Promise.resolve(input),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -135,6 +157,14 @@ describe('TemplatesService', () => {
         {
           provide: getRepositoryToken(TemplateFolder),
           useValue: folders,
+        },
+        {
+          provide: getRepositoryToken(TemplateEvent),
+          useValue: templateEvents,
+        },
+        {
+          provide: getRepositoryToken(TemplateVersion),
+          useValue: templateVersions,
         },
         {
           provide: getRepositoryToken(DynamicDocument),
@@ -223,6 +253,60 @@ describe('TemplatesService', () => {
       'template.archivedAt IS NOT NULL',
     );
     expect(builder.withDeleted).toHaveBeenCalled();
+  });
+
+  it('creates a blank builder template', async () => {
+    const folder = { id: 'folder-1', name: 'Default' } as TemplateFolder;
+    folders.findOne?.mockResolvedValue(folder);
+    templates.create?.mockImplementation((input: Partial<Template>) =>
+      createTemplate({
+        ...input,
+        id: undefined as never,
+        author: createTemplate().author,
+        folder,
+      }),
+    );
+    templates.save?.mockImplementation((entity: Template) =>
+      Promise.resolve(
+        createTemplate({
+          ...entity,
+          id: entity.id ?? '10',
+          author: createTemplate().author,
+          folder,
+          createdAt: entity.createdAt ?? new Date('2026-06-19T00:00:00.000Z'),
+          updatedAt: new Date('2026-06-19T01:00:00.000Z'),
+        }),
+      ),
+    );
+    templates.findOneOrFail?.mockResolvedValue(
+      createTemplate({
+        fields: [],
+        folder,
+        name: 'Blank NDA',
+        schema: [],
+      }),
+    );
+
+    await expect(
+      service.createTemplate(createUser(), { name: 'Blank NDA' }),
+    ).resolves.toMatchObject({
+      documents: [],
+      fields: [],
+      name: 'Blank NDA',
+      schema: [],
+      submitters: [expect.objectContaining({ name: 'First Party' })],
+    });
+
+    expect(templates.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fields: [],
+        name: 'Blank NDA',
+        schema: [],
+        source: 'native',
+      }),
+    );
+    expect(templateEvents.save).toHaveBeenCalled();
+    expect(templateVersions.save).toHaveBeenCalled();
   });
 
   it('updates role names like DocuSeal roles param', async () => {
@@ -478,6 +562,60 @@ describe('TemplatesService', () => {
       expect.objectContaining({ pending_fields: true }),
     ]);
     expect(typeof savedField?.submitter_uuid).toBe('string');
+  });
+
+  it('adds a generated blank page as a template document', async () => {
+    const template = createTemplate({
+      fields: [],
+      schema: [],
+    });
+    const blankAttachment = createAttachment({
+      filename: 'Blank Page.pdf',
+      uuid: 'blank-attachment-uuid',
+    });
+    templates.findOneOrFail?.mockResolvedValue(template);
+    templates.save?.mockImplementation((entity: Template) =>
+      Promise.resolve(createTemplate({ ...entity })),
+    );
+    storage.createPdfAttachment.mockResolvedValue(blankAttachment);
+    storage.findRecordAttachments.mockResolvedValue([blankAttachment]);
+
+    await expect(
+      service.updateTemplateDocuments(createUser(), '10', {
+        documents: [
+          {
+            name: 'Blank Page',
+            size: 'letter',
+            type: 'blank',
+          },
+        ],
+        merge: true,
+      }),
+    ).resolves.toMatchObject({
+      documents: [
+        {
+          filename: 'Blank Page.pdf',
+          uuid: 'blank-attachment-uuid',
+        },
+      ],
+      schema: [
+        { attachment_uuid: 'blank-attachment-uuid', name: 'Blank Page' },
+      ],
+    });
+
+    expect(storage.createPdfAttachment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filename: 'Blank Page.pdf',
+        name: 'documents',
+        recordId: '10',
+        recordType: 'Template',
+      }),
+    );
+    expect(
+      storage.createPdfAttachment.mock.calls[0]?.[0].buffer
+        .subarray(0, 4)
+        .toString(),
+    ).toBe('%PDF');
   });
 
   it('creates a dynamic template from DocuSeal HTML field tags', async () => {

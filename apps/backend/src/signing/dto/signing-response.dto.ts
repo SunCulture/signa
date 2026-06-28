@@ -94,6 +94,39 @@ export class SigningFormConfigDto {
   @ApiProperty({ example: false })
   with_confetti!: boolean;
 
+  @ApiProperty({ example: true })
+  with_typed_signature!: boolean;
+
+  @ApiProperty({ example: true })
+  with_decline!: boolean;
+
+  @ApiProperty({ example: false })
+  with_delegate!: boolean;
+
+  @ApiProperty({ example: false })
+  require_signing_reason!: boolean;
+
+  @ApiProperty({ example: false })
+  with_signature_id!: boolean;
+
+  @ApiProperty({ example: true })
+  prefill_signature!: boolean;
+
+  @ApiProperty({ example: true })
+  download_links_expire!: boolean;
+
+  @ApiProperty({ example: false })
+  download_links_auth!: boolean;
+
+  @ApiProperty({ example: false })
+  combine_pdf_result!: boolean;
+
+  @ApiProperty({ example: true })
+  flatten_result_pdf!: boolean;
+
+  @ApiProperty({ example: false })
+  force_mfa!: boolean;
+
   @ApiProperty({ type: SigningFormCompletedMessageDto })
   completed_message!: SigningFormCompletedMessageDto;
 

@@ -8,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHmac, createHash, randomBytes } from 'node:crypto';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { basename, extname, join, resolve } from 'node:path';
+import { basename, extname, isAbsolute, join, resolve } from 'node:path';
 import { PDFDocument } from 'pdf-lib';
 import sharp from 'sharp';
 import { Repository } from 'typeorm';
@@ -153,12 +153,16 @@ export class StorageService implements OnModuleDestroy {
     await this.attachments.remove(attachments);
   }
 
-  createBlobProxyUrl(blob: StorageBlob, ttlSeconds = 300): string {
-    const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
+  createBlobProxyUrl(
+    blob: StorageBlob,
+    ttlSeconds: number | null = 300,
+  ): string {
+    const expiresAt =
+      ttlSeconds === null ? null : Math.floor(Date.now() / 1000) + ttlSeconds;
     const payload = base64UrlEncode(
       JSON.stringify({
         blobId: blob.id,
-        expiresAt,
+        ...(expiresAt === null ? {} : { expiresAt }),
       }),
     );
     const signature = this.sign(payload);
@@ -182,11 +186,11 @@ export class StorageService implements OnModuleDestroy {
       expiresAt?: number;
     };
 
-    if (
-      !parsed.blobId ||
-      !parsed.expiresAt ||
-      parsed.expiresAt < Date.now() / 1000
-    ) {
+    if (!parsed.blobId) {
+      throw new ForbiddenException({ error: 'File URL has expired' });
+    }
+
+    if (parsed.expiresAt && parsed.expiresAt < Date.now() / 1000) {
       throw new ForbiddenException({ error: 'File URL has expired' });
     }
 
@@ -319,7 +323,17 @@ export class StorageService implements OnModuleDestroy {
   }
 
   private getStorageRoot(): string {
-    return resolve(this.config.get<string>('STORAGE_PATH', 'storage'));
+    const storagePath = this.config.get<string>('STORAGE_PATH', 'storage');
+
+    if (isAbsolute(storagePath)) {
+      return storagePath;
+    }
+
+    if (isBackendAppCwd() && storagePath.startsWith('apps/backend')) {
+      return resolve(process.cwd(), '..', '..', storagePath);
+    }
+
+    return resolve(storagePath);
   }
 
   private sign(payload: string): string {
@@ -330,6 +344,10 @@ export class StorageService implements OnModuleDestroy {
       .update(payload)
       .digest('base64url');
   }
+}
+
+function isBackendAppCwd(): boolean {
+  return process.cwd().replaceAll('\\', '/').endsWith('/apps/backend');
 }
 
 async function renderPdfPageToPng(

@@ -12,6 +12,7 @@ import { DatabaseModule } from './database/database.module';
 import validationSchema from './env.schema';
 import { HealthModule } from './health/health.module';
 import { MailModule } from './mail/mail.module';
+import { RealtimeModule } from './realtime/realtime.module';
 import { RuntimeModule } from './runtime/runtime.module';
 import { SigningModule } from './signing/signing.module';
 import { StorageModule } from './storage/storage.module';
@@ -23,6 +24,7 @@ import { ToolsModule } from './tools/tools.module';
 import { UsersModule } from './users/users.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { SmsModule } from './sms/sms.module';
+import { StartFormModule } from './start-form/start-form.module';
 
 @Module({
   imports: [
@@ -54,6 +56,7 @@ import { SmsModule } from './sms/sms.module';
       }),
     }),
     RuntimeModule,
+    RealtimeModule,
     DatabaseModule,
     HealthModule,
     AccountsModule,
@@ -69,6 +72,7 @@ import { SmsModule } from './sms/sms.module';
     ToolsModule,
     WebhooksModule,
     SmsModule,
+    StartFormModule,
   ],
   controllers: [AppController],
   providers: [

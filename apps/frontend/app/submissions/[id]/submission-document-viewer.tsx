@@ -1,13 +1,22 @@
 "use client"
 
 import type { SigningField } from "@/lib/api/signing"
-import type { SubmissionResponse } from "@/lib/api/submissions"
-import type { TemplateDocument } from "@/lib/api/templates"
+import type {
+  SubmissionDocumentResponse,
+  SubmissionResponse,
+} from "@/lib/api/submissions"
 import { SubmissionFieldValue } from "./submission-field-display"
 
+export type SubmissionPreviewDocument = SubmissionDocumentResponse & {
+  filename: string
+  preview_images: NonNullable<SubmissionDocumentResponse["preview_images"]>
+  uuid: string
+}
+
 type SubmissionDocumentViewerProps = {
-  documents: TemplateDocument[]
+  documents: SubmissionPreviewDocument[]
   fields: SigningField[]
+  showFieldOverlays: boolean
   submission: SubmissionResponse
   title: string
 }
@@ -31,9 +40,9 @@ export function SubmissionDocumentThumbnails({
             <img
               alt={`${title} thumbnail`}
               className="rounded border border-[var(--auth-input-border)] bg-white"
-              height={preview.metadata.height ?? 280}
+              height={getMetadataNumber(preview.metadata.height, 280)}
               src={preview.url}
-              width={preview.metadata.width ?? 200}
+              width={getMetadataNumber(preview.metadata.width, 200)}
             />
             <div className="px-2 py-2 text-center">{document.filename}</div>
           </a>
@@ -46,6 +55,7 @@ export function SubmissionDocumentThumbnails({
 export function SubmissionDocumentPreview({
   documents,
   fields,
+  showFieldOverlays,
   submission,
   title,
 }: SubmissionDocumentViewerProps) {
@@ -60,6 +70,7 @@ export function SubmissionDocumentPreview({
               key={`${document.uuid}-${previewImage.id}`}
               pageIndex={pageIndex}
               previewImage={previewImage}
+              showFieldOverlays={showFieldOverlays}
               submission={submission}
               title={title}
             />
@@ -75,18 +86,20 @@ function DocumentPage({
   fields,
   pageIndex,
   previewImage,
+  showFieldOverlays,
   submission,
   title,
 }: {
-  document: TemplateDocument
+  document: SubmissionPreviewDocument
   fields: SigningField[]
   pageIndex: number
-  previewImage: TemplateDocument["preview_images"][number]
+  previewImage: SubmissionPreviewDocument["preview_images"][number]
+  showFieldOverlays: boolean
   submission: SubmissionResponse
   title: string
 }) {
-  const width = previewImage.metadata.width ?? 1000
-  const height = previewImage.metadata.height ?? 1400
+  const width = getMetadataNumber(previewImage.metadata.width, 1000)
+  const height = getMetadataNumber(previewImage.metadata.height, 1400)
   const pageFields = fields.filter((field) =>
     field.areas?.some(
       (area) => area.attachment_uuid === document.uuid && area.page === pageIndex,
@@ -108,25 +121,27 @@ function DocumentPage({
         src={previewImage.url}
         width={width}
       />
-      <div className="absolute inset-0">
-        {pageFields.flatMap((field) =>
-          (field.areas ?? [])
-            .filter(
-              (area) =>
-                area.attachment_uuid === document.uuid &&
-                area.page === pageIndex,
-            )
-            .map((area, index) => (
-              <div
-                className="absolute flex items-center justify-center bg-red-100/50 px-1 text-[var(--auth-primary)]"
-                key={`${field.uuid}-${index}`}
-                style={areaToStyle(area)}
-              >
-                <SubmissionFieldValue field={field} submission={submission} />
-              </div>
-            )),
-        )}
-      </div>
+      {showFieldOverlays ? (
+        <div className="absolute inset-0">
+          {pageFields.flatMap((field) =>
+            (field.areas ?? [])
+              .filter(
+                (area) =>
+                  area.attachment_uuid === document.uuid &&
+                  area.page === pageIndex,
+              )
+              .map((area, index) => (
+                <div
+                  className="absolute flex items-center justify-center bg-red-100/50 px-1 text-[var(--auth-primary)]"
+                  key={`${field.uuid}-${index}`}
+                  style={areaToStyle(area)}
+                >
+                  <SubmissionFieldValue field={field} submission={submission} />
+                </div>
+              )),
+          )}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -138,4 +153,8 @@ function areaToStyle(area: { h?: number; w?: number; x?: number; y?: number }) {
     top: `${(area.y ?? 0) * 100}%`,
     width: `${(area.w ?? 0.2) * 100}%`,
   }
+}
+
+function getMetadataNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback
 }

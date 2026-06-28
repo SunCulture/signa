@@ -9,6 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Queue } from 'bullmq';
 import { randomUUID } from 'node:crypto';
 import { Repository } from 'typeorm';
+import { RealtimeService } from '../realtime/realtime.service';
 import { throwDatabaseErrors, throwIfNotFound } from '../common/utils/error';
 import { SubmissionsService } from '../submissions/submissions.service';
 import { TemplatesService } from '../templates/templates.service';
@@ -51,6 +52,7 @@ export class WebhooksService {
     private readonly submissionsService: SubmissionsService,
     private readonly templatesService: TemplatesService,
     private readonly config: ConfigService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   async listWebhooks(user: User): Promise<WebhookUrlsListResponseDto> {
@@ -236,6 +238,19 @@ export class WebhooksService {
 
     event.status = response.statusCode >= 400 ? 'error' : 'success';
     await this.webhookEvents.save(event);
+    this.realtime.publish({
+      account_id: event.accountId,
+      data: {
+        event_type: job.eventType,
+        response_status_code: response.statusCode,
+        status: event.status,
+        webhook_event_id: event.id,
+      },
+      id: `webhook:${event.webhookUrlId}:event:${event.id}:${job.attempt ?? 0}`,
+      record_id: event.id,
+      type: 'webhook.delivery.updated',
+      webhook_url_id: event.webhookUrlId,
+    });
 
     return event.status === 'success';
   }

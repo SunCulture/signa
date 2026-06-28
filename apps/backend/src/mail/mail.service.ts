@@ -12,6 +12,7 @@ import { Repository } from 'typeorm';
 import { EncryptedConfig } from '../accounts/entities/encrypted-config.entity';
 import { EmailEvent } from './entities/email-event.entity';
 import { EmailMessage } from './entities/email-message.entity';
+import { MailBrandingService } from './mail-branding.service';
 import { MailTemplateResolver } from './mail-template-resolver.service';
 import type {
   MailAddress,
@@ -50,6 +51,7 @@ export class MailService implements OnModuleInit {
     private readonly emailMessages: Repository<EmailMessage>,
     @InjectRepository(EmailEvent)
     private readonly emailEvents: Repository<EmailEvent>,
+    private readonly branding: MailBrandingService,
     private readonly mailer: MailerService,
     private readonly templates: MailTemplateResolver,
   ) {}
@@ -118,10 +120,36 @@ export class MailService implements OnModuleInit {
       };
     }
 
-    const info = await this.send(input);
+    let info: SentMessageInfo;
+
+    try {
+      info = await this.send(input);
+    } catch (error) {
+      const failure = normalizeMailFailure(error);
+
+      await this.recordDelivery(input, {
+        status: 'failed',
+        accepted: [],
+        rejected: [],
+        errorMessage: failure.message,
+        errorStack: failure.stack,
+      });
+
+      throw error;
+    }
+
     const rejected = normalizeStringArray(info.rejected);
 
     if (rejected.length > 0) {
+      await this.recordDelivery(input, {
+        status: 'failed',
+        accepted: normalizeStringArray(info.accepted),
+        rejected,
+        errorMessage: `SMTP rejected recipient(s): ${rejected.join(', ')}`,
+        messageId: info.messageId,
+        response: info.response,
+      });
+
       throw new InternalServerErrorException({
         error: `SMTP rejected recipient(s): ${rejected.join(', ')}`,
       });
@@ -138,6 +166,132 @@ export class MailService implements OnModuleInit {
     await this.recordDelivery(input, result);
 
     return result;
+  }
+
+  sendPasswordReset(input: {
+    accountId?: string;
+    email: string;
+    firstName?: string | null;
+    token: string;
+  }): Promise<MailDeliveryResult> {
+    const resetUrl = this.branding.getFrontendUrl(
+      `/auth/reset-password?token=${encodeURIComponent(input.token)}`,
+    );
+
+    return this.sendTemplate({
+      accountId: input.accountId,
+      to: { email: input.email, name: input.firstName },
+      subject: 'Reset your password',
+      template: 'password-reset',
+      context: {
+        ...this.branding.getBaseContext(),
+        actionLabel: 'Change My Password',
+        actionUrl: resetUrl,
+        firstName: input.firstName || 'there',
+        resetUrl,
+        subject: 'Reset your password',
+      },
+    });
+  }
+
+  sendUserInvitation(input: {
+    accountId: string;
+    accountName: string;
+    email: string;
+    firstName?: string | null;
+    token: string;
+  }): Promise<MailDeliveryResult> {
+    const invitationUrl = this.branding.getFrontendUrl(
+      `/auth/reset-password?token=${encodeURIComponent(input.token)}`,
+    );
+
+    return this.sendTemplate({
+      accountId: input.accountId,
+      to: { email: input.email, name: input.firstName },
+      subject: `You are invited to ${input.accountName}`,
+      template: 'user-invitation',
+      context: {
+        ...this.branding.getBaseContext(),
+        accountName: input.accountName,
+        actionLabel: 'Accept Invitation',
+        actionUrl: invitationUrl,
+        firstName: input.firstName || 'there',
+        invitationUrl,
+        subject: `You are invited to ${input.accountName}`,
+      },
+    });
+  }
+
+  sendTeamInvitation(input: {
+    accountId: string;
+    accountName: string;
+    email: string;
+    expiresAt: Date;
+    inviterName: string;
+    role: string;
+    teamName: string;
+    token: string;
+  }): Promise<MailDeliveryResult> {
+    const invitationUrl = this.branding.getFrontendUrl(
+      `/team-invitations/${encodeURIComponent(input.token)}/accept`,
+    );
+    const subject = `You are invited to ${input.teamName}`;
+
+    return this.sendTemplate({
+      accountId: input.accountId,
+      to: { email: input.email },
+      subject,
+      template: 'team-invitation',
+      context: {
+        ...this.branding.getBaseContext(),
+        accountName: input.accountName,
+        actionLabel: 'Accept Invitation',
+        actionUrl: invitationUrl,
+        expiresAt: input.expiresAt.toISOString(),
+        expiresAtLabel: formatMailDate(input.expiresAt),
+        invitationUrl,
+        inviterName: input.inviterName,
+        role: input.role,
+        subject,
+        teamName: input.teamName,
+      },
+    });
+  }
+
+  sendSmtpSuccessfulSetup(input: {
+    accountId?: string;
+    email: string;
+  }): Promise<MailDeliveryResult> {
+    return this.sendTemplate({
+      accountId: input.accountId,
+      to: { email: input.email },
+      subject: 'SMTP has been configured',
+      template: 'smtp-successful-setup',
+      context: {
+        ...this.branding.getBaseContext(),
+        subject: 'SMTP has been configured',
+      },
+    });
+  }
+
+  sendTemplateVerification(input: {
+    accountId?: string;
+    email: string;
+    otpCode: string;
+    templateName: string;
+  }): Promise<MailDeliveryResult> {
+    return this.sendTemplate({
+      accountId: input.accountId,
+      to: { email: input.email },
+      subject: 'Email verification',
+      template: 'template-otp-verification',
+      context: {
+        ...this.branding.getBaseContext(),
+        otpCode: input.otpCode,
+        subject: 'Email verification',
+        templateName: input.templateName,
+      },
+    });
   }
 
   private async send(input: SendTemplateMailInput): Promise<SentMessageInfo> {
@@ -411,9 +565,9 @@ export class MailService implements OnModuleInit {
         name: this.config.get<string>('MAIL_FROM_NAME', 'Signa'),
         email: this.config.get<string>(
           'MAIL_FROM_ADDRESS',
-          'no-reply@signa.local',
+          'no-reply@signa.com',
         ),
-      }) ?? 'no-reply@signa.local'
+      }) ?? 'no-reply@signa.com'
     );
   }
 
@@ -423,10 +577,16 @@ export class MailService implements OnModuleInit {
   ): Promise<void> {
     try {
       const recipients = formatRecipients(input.to);
+      const trace = extractDeliveryTrace(input);
+      const now = new Date();
       const message = await this.emailMessages.save(
         this.emailMessages.create({
           accountId: input.accountId ?? null,
           messageId: result.messageId ?? null,
+          submissionId: trace.submissionId,
+          submitterId: trace.submitterId,
+          jobId: trace.jobId,
+          attempt: trace.attempt,
           template: input.template,
           subject: input.subject,
           recipients: recipients.join(', '),
@@ -442,9 +602,17 @@ export class MailService implements OnModuleInit {
             )
             .digest('hex'),
           status: result.status,
+          lastErrorMessage: result.errorMessage ?? null,
+          lastErrorStack: result.errorStack ?? null,
+          providerResponse: result.response ?? null,
+          queuedAt: null,
+          sentAt: result.status === 'sent' ? now : null,
+          skippedAt: result.status === 'skipped' ? now : null,
+          failedAt: result.status === 'failed' ? now : null,
           data: {
             accepted: result.accepted,
             rejected: result.rejected,
+            error_message: result.errorMessage ?? null,
             response: result.response ?? null,
           },
         }),
@@ -457,11 +625,14 @@ export class MailService implements OnModuleInit {
             emailMessageId: message.id,
             email,
             eventType: result.status,
-            eventDatetime: new Date(),
+            eventDatetime: now,
             messageId: result.messageId ?? null,
-            emailableType: input.context?.submitterId ? 'Submitter' : null,
-            emailableId: stringOrNull(input.context?.submitterId),
+            emailableType: trace.submitterId ? 'Submitter' : null,
+            emailableId: trace.submitterId,
             data: {
+              error_message: result.errorMessage ?? null,
+              job_id: trace.jobId,
+              submission_id: trace.submissionId,
               template: input.template,
               response: result.response ?? null,
             },
@@ -559,7 +730,7 @@ function buildMimeMessage(
   const boundary = `signa-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const headers = [
     `To: ${formatRecipients(input.to).join(', ')}`,
-    `From: ${formatAddress(from) ?? formatAddress(input.from) ?? 'Signa <no-reply@signa.local>'}`,
+    `From: ${formatAddress(from) ?? formatAddress(input.from) ?? 'Signa <no-reply@signa.com>'}`,
     ...(input.replyTo ? [`Reply-To: ${formatAddress(input.replyTo)}`] : []),
     `Subject: ${encodeMimeHeader(input.subject)}`,
     'MIME-Version: 1.0',
@@ -692,6 +863,53 @@ function stringValue(value: unknown): string | null {
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === 'string' && value ? value : null;
+}
+
+function formatMailDate(value: Date): string {
+  return new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'UTC',
+  }).format(value);
+}
+
+function extractDeliveryTrace(input: SendTemplateMailInput): {
+  attempt: number;
+  jobId: string | null;
+  submissionId: string | null;
+  submitterId: string | null;
+} {
+  return {
+    attempt: Math.max(1, Number(input.delivery?.attempt ?? 1)),
+    jobId:
+      input.delivery?.jobId === undefined || input.delivery.jobId === null
+        ? null
+        : String(input.delivery.jobId),
+    submissionId:
+      input.delivery?.submissionId ??
+      stringOrNull(input.context?.submissionId) ??
+      null,
+    submitterId:
+      input.delivery?.submitterId ??
+      stringOrNull(input.context?.submitterId) ??
+      null,
+  };
+}
+
+function normalizeMailFailure(error: unknown): {
+  message: string;
+  stack?: string;
+} {
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+
+  return {
+    message: typeof error === 'string' ? error : JSON.stringify(error),
+  };
 }
 
 function escapeHtml(value: string): string {

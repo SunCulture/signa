@@ -8,6 +8,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { v4 as uuidv4 } from 'uuid';
 import { User } from '../../users/entities/user.entity';
 import { AccountConfig } from './account-config.entity';
 import { AccountLinkedAccount } from './account-linked-account.entity';
@@ -15,16 +16,15 @@ import { EncryptedConfig } from './encrypted-config.entity';
 
 @Entity('accounts')
 export class Account {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Index({ unique: true })
   @Column({
     type: 'varchar',
     length: 255,
-    default: () => '(gen_random_uuid())',
   })
-  uuid!: string;
+  uuid: string = uuidv4();
 
   @Column({ type: 'varchar', length: 255 })
   name!: string;
@@ -35,17 +35,13 @@ export class Account {
   @Column({ type: 'varchar', length: 16, default: 'en-US' })
   locale!: string;
 
-  @DeleteDateColumn({
-    name: 'archived_at',
-    type: 'timestamptz',
-    nullable: true,
-  })
+  @DeleteDateColumn({ name: 'archived_at', type: Date, nullable: true })
   archivedAt!: Date | null;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @OneToMany(() => User, (user) => user.account)

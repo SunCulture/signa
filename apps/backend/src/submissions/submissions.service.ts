@@ -17,6 +17,7 @@ import {
   SelectQueryBuilder,
 } from 'typeorm';
 import { throwDatabaseErrors, throwIfNotFound } from '../common/utils/error';
+import { EmailMessage } from '../mail/entities/email-message.entity';
 import { runtimeEvents } from '../runtime/runtime-events';
 import { StorageService } from '../storage/storage.service';
 import { UploadedBufferFile } from '../storage/storage.types';
@@ -43,6 +44,7 @@ import { DeleteSubmissionQueryDto } from './dto/delete-submission-query.dto';
 import { EventFeedResponseDto } from './dto/event-feed-response.dto';
 import { ListSubmissionsQueryDto } from './dto/list-submissions-query.dto';
 import { SendEmailResponseDto } from './dto/send-email-response.dto';
+import { SubmissionMailEventsResponseDto } from './dto/submission-mail-event-response.dto';
 import { SubmissionEventLogResponseDto } from './dto/submission-event-log-response.dto';
 import { SubmissionInitResponseDto } from './dto/submission-init-response.dto';
 import {
@@ -62,6 +64,7 @@ import {
 } from './submission-event-data';
 import { buildSubmissionEventLog } from './submission-event-log.mapper';
 import { SubmissionDocumentsService } from './submission-documents.service';
+import { DocumentGenerationQueueService } from './document-generation-queue.service';
 import { SubmitterValueNormalizer } from './submitter-value-normalizer.service';
 
 @Injectable()
@@ -76,11 +79,14 @@ export class SubmissionsService {
     private readonly submitters: Repository<Submitter>,
     @InjectRepository(Template)
     private readonly templates: Repository<Template>,
+    @InjectRepository(EmailMessage)
+    private readonly emailMessages: Repository<EmailMessage>,
     private readonly dataSource: DataSource,
     private readonly templatesService: TemplatesService,
     private readonly storageService: StorageService,
     private readonly config: ConfigService,
     private readonly submissionDocumentsService: SubmissionDocumentsService,
+    private readonly documentGenerationQueue: DocumentGenerationQueueService,
     private readonly events: EventEmitter2,
     private readonly submitterValueNormalizer: SubmitterValueNormalizer,
   ) {}
@@ -172,9 +178,13 @@ export class SubmissionsService {
       metadata,
     );
 
-    return submissions.flatMap((submission) =>
-      this.serializeCreatedSubmitters(submission),
-    );
+    return (
+      await Promise.all(
+        submissions.map((submission) =>
+          this.serializeCreatedSubmitters(submission),
+        ),
+      )
+    ).flat();
   }
 
   async createSubmissionFromAlias(
@@ -188,9 +198,13 @@ export class SubmissionsService {
       metadata,
     );
 
-    return submissions.flatMap((submission) =>
-      this.serializeCreatedSubmitters(submission),
-    );
+    return (
+      await Promise.all(
+        submissions.map((submission) =>
+          this.serializeCreatedSubmitters(submission),
+        ),
+      )
+    ).flat();
   }
 
   async createSubmissionInit(
@@ -203,9 +217,13 @@ export class SubmissionsService {
       input,
       metadata,
     );
-    const submitters = submissions.flatMap((submission) =>
-      this.serializeCreatedSubmitters(submission),
-    );
+    const submitters = (
+      await Promise.all(
+        submissions.map((submission) =>
+          this.serializeCreatedSubmitters(submission),
+        ),
+      )
+    ).flat();
 
     if (submissions.length === 1) {
       const [submission] = submissions;
@@ -241,6 +259,7 @@ export class SubmissionsService {
     this.events.emit(runtimeEvents.submissionCreated, {
       accountId: submission.accountId,
       submissionId: submission.id,
+      templateId: submission.templateId,
     });
 
     return submission;
@@ -273,13 +292,15 @@ export class SubmissionsService {
 
   private serializeCreatedSubmitters(
     submission: Submission,
-  ): SubmissionSubmitterResponseDto[] {
-    return submission.submitters.map((submitter) =>
-      this.toSubmitterResponse(submitter, submission, {
-        includeValues: true,
-        includeDocuments: false,
-        includeUrls: true,
-      }),
+  ): Promise<SubmissionSubmitterResponseDto[]> {
+    return Promise.all(
+      submission.submitters.map((submitter) =>
+        this.toSubmitterResponse(submitter, submission, {
+          includeValues: true,
+          includeDocuments: false,
+          includeUrls: true,
+        }),
+      ),
     );
   }
 
@@ -720,6 +741,44 @@ export class SubmissionsService {
     return buildQueuedEmailResponse(submitters.length);
   }
 
+  async listSubmissionMailEvents(
+    user: User,
+    submissionId: string,
+  ): Promise<SubmissionMailEventsResponseDto> {
+    await this.findAccountSubmissionOrFail(user, submissionId, false);
+    const messages = await this.emailMessages.find({
+      where: {
+        accountId: user.accountId,
+        submissionId,
+      },
+      order: {
+        createdAt: 'DESC',
+        id: 'DESC',
+      },
+      take: 100,
+    });
+
+    return {
+      data: messages.map((message) => ({
+        id: message.id,
+        template: message.template,
+        subject: message.subject,
+        recipients: message.recipients,
+        status: message.status,
+        message_id: message.messageId,
+        submitter_id: message.submitterId,
+        attempt: message.attempt,
+        job_id: message.jobId,
+        last_error_message: message.lastErrorMessage,
+        provider_response: message.providerResponse,
+        sent_at: message.sentAt,
+        skipped_at: message.skippedAt,
+        failed_at: message.failedAt,
+        created_at: message.createdAt,
+      })),
+    };
+  }
+
   async sendSubmitterEmail(
     user: User,
     submitterId: string,
@@ -798,6 +857,7 @@ export class SubmissionsService {
       this.events.emit(runtimeEvents.submissionArchived, {
         accountId: saved.accountId,
         submissionId: saved.id,
+        templateId: saved.templateId,
       });
       return {
         id: saved.id,
@@ -950,9 +1010,14 @@ export class SubmissionsService {
         await this.submissionDocumentsService.processSubmitterCompletion(
           submitter,
         );
+        await this.documentGenerationQueue.enqueueSubmitterCompletion(
+          submitter.id,
+        );
         this.events.emit(runtimeEvents.formCompleted, {
           accountId: submitter.accountId,
           submitterId: submitter.id,
+          submissionId: submission.id,
+          templateId: submission.templateId,
         });
       }
     }
@@ -964,6 +1029,7 @@ export class SubmissionsService {
       this.events.emit(runtimeEvents.submissionCompleted, {
         accountId: submission.accountId,
         submissionId: submission.id,
+        templateId: submission.templateId,
       });
     }
   }
@@ -1649,12 +1715,14 @@ export class SubmissionsService {
             )
           : null,
       variables: submission.variables ?? {},
-      submitters: submitters.map((submitter) =>
-        this.toSubmitterResponse(submitter, submission, {
-          includeValues: options.includeValues,
-          includeDocuments: options.includeDocuments,
-          includeUrls: false,
-        }),
+      submitters: await Promise.all(
+        submitters.map((submitter) =>
+          this.toSubmitterResponse(submitter, submission, {
+            includeValues: options.includeValues,
+            includeDocuments: options.includeDocuments,
+            includeUrls: false,
+          }),
+        ),
       ),
       template: submission.template
         ? {
@@ -1696,11 +1764,11 @@ export class SubmissionsService {
     };
   }
 
-  private toSubmitterResponse(
+  private async toSubmitterResponse(
     submitter: Submitter,
     submission: Submission,
     options: SerializeSubmitterOptions,
-  ): SubmissionSubmitterResponseDto {
+  ): Promise<SubmissionSubmitterResponseDto> {
     const preferences = { ...submitter.preferences };
     delete preferences.default_values;
 
@@ -1724,7 +1792,7 @@ export class SubmissionsService {
       metadata: submitter.metadata,
       preferences,
       values: options.includeValues
-        ? this.serializeSubmitterValues(submitter, submission)
+        ? await this.serializeSubmitterValues(submitter, submission)
         : [],
       ...(options.includeUrls
         ? { embed_src: this.buildSubmitterEmbedUrl(submitter) }
@@ -1915,6 +1983,7 @@ export class SubmissionsService {
       this.events.emit(runtimeEvents.submissionExpired, {
         accountId: submission.accountId,
         submissionId: submission.id,
+        templateId: submission.templateId,
       });
     }
 
@@ -1933,7 +2002,10 @@ export class SubmissionsService {
       name: submitter.name,
       phone: submitter.phone,
       completed_at: submitter.completedAt,
-      values: this.serializeSubmitterValues(submitter, submitter.submission),
+      values: await this.serializeSubmitterValues(
+        submitter,
+        submitter.submission,
+      ),
       documents: await this.serializeGeneratedSubmissionDocuments(
         submitter.submission,
       ),
@@ -1993,18 +2065,29 @@ export class SubmissionsService {
     );
   }
 
-  private serializeSubmitterValues(
+  private async serializeSubmitterValues(
     submitter: Submitter,
     submission: Submission,
-  ): { field: string; value: unknown }[] {
+  ): Promise<
+    { attachment?: Record<string, unknown>; field: string; value: unknown }[]
+  > {
     const fields =
       submission.templateFields ?? submission.template?.fields ?? [];
+    const attachmentsByUuid =
+      await this.getSubmitterAttachmentsByUuid(submitter);
 
-    return Object.entries(submitter.values).map(([fieldUuid, value]) => ({
-      field:
-        fields.find((field) => field.uuid === fieldUuid)?.name ?? fieldUuid,
-      value,
-    }));
+    return Object.entries(submitter.values).map(([fieldUuid, value]) => {
+      const field = fields.find((candidate) => candidate.uuid === fieldUuid);
+      const attachment = this.findValueAttachment(value, attachmentsByUuid);
+
+      return {
+        field: field?.name ?? fieldUuid,
+        value,
+        ...(attachment
+          ? { attachment: this.serializeValueAttachment(attachment) }
+          : {}),
+      };
+    });
   }
 
   private serializeEvents(
@@ -2037,12 +2120,15 @@ export class SubmissionsService {
       submission.templateSchema ?? submission.template?.schema ?? [];
     const orderedAttachments = getSchemaOrderedAttachments(schema, attachments);
 
-    return orderedAttachments.map((attachment) => ({
-      name:
-        getSchemaDocumentName(schema, attachment.uuid) ??
-        getBaseName(attachment.blob.filename),
-      url: this.storageService.createBlobProxyUrl(attachment.blob),
-    }));
+    return Promise.all(
+      orderedAttachments.map((attachment) =>
+        this.serializeDocumentAttachment(attachment, {
+          name:
+            getSchemaDocumentName(schema, attachment.uuid) ??
+            getBaseName(attachment.blob.filename),
+        }),
+      ),
+    );
   }
 
   private async serializeGeneratedSubmissionDocuments(
@@ -2055,10 +2141,80 @@ export class SubmissionsService {
         options,
       );
 
-    return attachments.map((attachment) => ({
-      name: getBaseName(attachment.blob.filename),
+    return Promise.all(
+      attachments.map((attachment) =>
+        this.serializeDocumentAttachment(attachment, {
+          name: getBaseName(attachment.blob.filename),
+        }),
+      ),
+    );
+  }
+
+  private async serializeDocumentAttachment(
+    attachment: StorageAttachment,
+    options: { name: string },
+  ): Promise<SubmissionDocumentResponseDto> {
+    const previews = await this.storageService.findPreviewAttachments(
+      attachment.id,
+    );
+
+    return {
+      id: attachment.id,
+      uuid: attachment.uuid,
+      filename: attachment.blob.filename,
+      name: options.name,
       url: this.storageService.createBlobProxyUrl(attachment.blob),
-    }));
+      preview_images: previews.map((preview) => ({
+        id: preview.id,
+        url: this.storageService.createBlobProxyUrl(preview.blob),
+        filename: preview.blob.filename,
+        metadata: preview.blob.metadata ?? {},
+      })),
+    };
+  }
+
+  private async getSubmitterAttachmentsByUuid(
+    submitter: Submitter,
+  ): Promise<Map<string, StorageAttachment>> {
+    const attachments = await this.storageService.findRecordAttachments({
+      recordType: 'Submitter',
+      recordId: submitter.id,
+      name: 'attachments',
+    });
+
+    return new Map(
+      attachments.map((attachment) => [attachment.uuid, attachment]),
+    );
+  }
+
+  private findValueAttachment(
+    value: unknown,
+    attachmentsByUuid: Map<string, StorageAttachment>,
+  ): StorageAttachment | null {
+    if (typeof value === 'string') {
+      return attachmentsByUuid.get(value) ?? null;
+    }
+
+    if (Array.isArray(value)) {
+      const uuid = value.find(
+        (item): item is string => typeof item === 'string',
+      );
+
+      return uuid ? (attachmentsByUuid.get(uuid) ?? null) : null;
+    }
+
+    return null;
+  }
+
+  private serializeValueAttachment(
+    attachment: StorageAttachment,
+  ): Record<string, unknown> {
+    return {
+      uuid: attachment.uuid,
+      filename: attachment.blob.filename,
+      content_type: attachment.blob.contentType,
+      url: this.storageService.createBlobProxyUrl(attachment.blob),
+    };
   }
 
   private buildSubmitterEmbedUrl(submitter: Submitter): string {

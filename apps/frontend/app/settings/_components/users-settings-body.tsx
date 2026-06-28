@@ -47,6 +47,8 @@ import {
   removeTeamMember,
   type Team,
   type TeamMember,
+  type TeamRole,
+  updateTeamMember,
 } from "@/lib/api/teams"
 import { SettingsSidebar } from "./settings-sidebar"
 import { UsersImportDialog } from "./users-import-dialog"
@@ -55,14 +57,20 @@ type UserFormState = {
   email: string
   firstName: string
   lastName: string
+  password: string
   role: SignaRole
+  teamId: string
+  teamRole: TeamRole
 }
 
 const emptyUserForm: UserFormState = {
   email: "",
   firstName: "",
   lastName: "",
+  password: "",
   role: "admin",
+  teamId: "",
+  teamRole: "member",
 }
 
 export function UsersSettingsBody() {
@@ -119,17 +127,25 @@ function UsersPanel() {
 
   function openCreateDialog() {
     setEditingUser(null)
-    setForm(emptyUserForm)
+    setForm({
+      ...emptyUserForm,
+      teamId: teams[0]?.id ?? "",
+    })
     setIsDialogOpen(true)
   }
 
   function openEditDialog(user: AuthUser) {
+    const primaryMember = getPrimaryTeamMember(teamMembersByTeamId, teams, user.id)
+
     setEditingUser(user)
     setForm({
       email: user.email,
       firstName: user.first_name ?? "",
       lastName: user.last_name ?? "",
+      password: "",
       role: user.role,
+      teamId: primaryMember?.team_id ?? teams[0]?.id ?? "",
+      teamRole: primaryMember?.role ?? "member",
     })
     setIsDialogOpen(true)
   }
@@ -143,14 +159,17 @@ function UsersPanel() {
         email: form.email,
         first_name: form.firstName.trim() || undefined,
         last_name: form.lastName.trim() || undefined,
+        password: form.password.trim() || undefined,
         role: form.role,
       }
       const savedUser = editingUser
         ? await updateUser(editingUser.id, payload)
         : await createUser(payload)
 
+      await syncUserTeam(savedUser)
       setUsers((current) => upsertUser(current, savedUser))
       setIsDialogOpen(false)
+      await loadUsers()
       toast.success(editingUser ? "User updated" : "User added")
     } catch (error) {
       toast.error(editingUser ? "User update failed" : "User invite failed", {
@@ -162,31 +181,44 @@ function UsersPanel() {
     }
   }
 
-  async function toggleUserTeam(team: Team, user: AuthUser, isMember: boolean) {
+  async function syncUserTeam(user: AuthUser) {
+    if (!form.teamId) {
+      return
+    }
+
     try {
-      if (isMember) {
-        const member = teamMembersByTeamId[team.id]?.find(
-          (item) => item.user_id === user.id
-        )
+      await Promise.all(
+        teams.map(async (team) => {
+          const member = teamMembersByTeamId[team.id]?.find(
+            (item) => item.user_id === user.id
+          )
 
-        if (member) {
-          await removeTeamMember(team.id, member.id)
-        }
-      } else {
-        await addTeamMember(team.id, { role: "member", user_id: user.id })
-      }
+          if (team.id === form.teamId) {
+            if (member) {
+              await updateTeamMember(team.id, member.id, {
+                role: form.teamRole,
+              })
+            } else {
+              await addTeamMember(team.id, {
+                role: form.teamRole,
+                user_id: user.id,
+              })
+            }
 
-      const members = await listTeamMembers(team.id)
-      setTeamMembersByTeamId((current) => ({
-        ...current,
-        [team.id]: members,
-      }))
-      toast.success(isMember ? "User removed from team" : "User added to team")
+            return
+          }
+
+          if (member) {
+            await removeTeamMember(team.id, member.id)
+          }
+        })
+      )
     } catch (error) {
-      toast.error("Team membership could not be updated", {
+      toast.error("Team account could not be updated", {
         description: getErrorMessage(error),
         classNames: { icon: "text-destructive" },
       })
+      throw error
     }
   }
 
@@ -247,28 +279,25 @@ function UsersPanel() {
                 New User
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-3xl rounded-3xl border-[var(--auth-input-border)] bg-[var(--auth-background)] text-[var(--auth-foreground)]">
               <DialogHeader>
-                <DialogTitle>
+                <DialogTitle className="text-3xl font-semibold tracking-normal">
                   {editingUser ? "Edit User" : "New User"}
                 </DialogTitle>
               </DialogHeader>
-              <form className="grid gap-4" onSubmit={submitUser}>
-                <UserForm form={form} onChange={setForm} />
-                {editingUser ? (
-                  <UserTeamAssignments
-                    teamMembersByTeamId={teamMembersByTeamId}
-                    teams={teams}
-                    user={editingUser}
-                    onToggleTeam={toggleUserTeam}
-                  />
-                ) : null}
+              <form className="flex flex-col gap-6" onSubmit={submitUser}>
+                <UserForm
+                  form={form}
+                  isEditing={Boolean(editingUser)}
+                  teams={teams}
+                  onChange={setForm}
+                />
                 <Button
-                  className="h-11 rounded-full"
+                  className="h-14 rounded-full bg-[var(--auth-primary)] text-base font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
                   disabled={isSubmitting}
                   type="submit"
                 >
-                  {isSubmitting ? "SAVING..." : "SAVE"}
+                  {isSubmitting ? "SUBMITTING..." : "SUBMIT"}
                 </Button>
               </form>
             </DialogContent>
@@ -374,14 +403,18 @@ function UsersPanel() {
 
 function UserForm({
   form,
+  isEditing,
+  teams,
   onChange,
 }: {
   form: UserFormState
+  isEditing: boolean
+  teams: Team[]
   onChange: (form: UserFormState) => void
 }) {
   return (
     <>
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-5 md:grid-cols-2">
         <FieldInput
           label="First name"
           onChange={(firstName) => onChange({ ...form, firstName })}
@@ -400,71 +433,87 @@ function UserForm({
         type="email"
         value={form.email}
       />
-      <div className="grid gap-2">
-        <Label>Role</Label>
-        <Select
-          onValueChange={(role) =>
-            onChange({ ...form, role: role as SignaRole })
-          }
-          value={form.role}
-        >
-          <SelectTrigger className="!h-11 min-h-11 w-full rounded-full px-5 py-0">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {signaRoles.map((role) => (
-              <SelectItem key={role} value={role}>
-                {signaRoleLabels[role]}
+      {!isEditing ? (
+        <FieldInput
+          label="Password"
+          onChange={(password) => onChange({ ...form, password })}
+          required
+          type="password"
+          value={form.password}
+        />
+      ) : null}
+      <SelectField
+        label="Role"
+        onValueChange={(role) => onChange({ ...form, role: role as SignaRole })}
+        value={form.role}
+      >
+        {signaRoles.map((role) => (
+          <SelectItem key={role} value={role}>
+            {signaRoleLabels[role]}
+          </SelectItem>
+        ))}
+      </SelectField>
+      <RoleHelp />
+      {teams.length ? (
+        <>
+          <SelectField
+            label="Team account"
+            onValueChange={(teamId) => onChange({ ...form, teamId })}
+            value={form.teamId}
+          >
+            {teams.map((team) => (
+              <SelectItem key={team.id} value={team.id}>
+                {team.name}
               </SelectItem>
             ))}
-          </SelectContent>
-        </Select>
-      </div>
+          </SelectField>
+          <SelectField
+            label="Team role"
+            onValueChange={(teamRole) =>
+              onChange({ ...form, teamRole: teamRole as TeamRole })
+            }
+            value={form.teamRole}
+          >
+            <SelectItem value="manager">Manager</SelectItem>
+            <SelectItem value="member">Member</SelectItem>
+            <SelectItem value="viewer">Viewer</SelectItem>
+          </SelectField>
+        </>
+      ) : null}
     </>
   )
 }
 
-function UserTeamAssignments({
-  teamMembersByTeamId,
-  teams,
-  user,
-  onToggleTeam,
+function RoleHelp() {
+  return (
+    <div className="-mt-2 rounded-2xl bg-[var(--auth-muted)] px-5 py-4 text-sm text-[var(--auth-foreground)]">
+      Roles are enabled in Signa. Admins manage all account settings, editors
+      manage documents, members work with assigned documents, agents can send
+      requests from templates, and viewers have read-only access.
+    </div>
+  )
+}
+
+function SelectField({
+  children,
+  label,
+  onValueChange,
+  value,
 }: {
-  teamMembersByTeamId: Record<string, TeamMember[]>
-  teams: Team[]
-  user: AuthUser
-  onToggleTeam: (team: Team, user: AuthUser, isMember: boolean) => void
+  children: React.ReactNode
+  label: string
+  onValueChange: (value: string) => void
+  value: string
 }) {
   return (
     <div className="grid gap-2">
-      <Label>Teams</Label>
-      <div className="grid gap-2 rounded-2xl border border-border p-3">
-        {teams.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No teams created yet.</p>
-        ) : (
-          teams.map((team) => {
-            const isMember = hasTeamMember(
-              teamMembersByTeamId[team.id],
-              user.id
-            )
-
-            return (
-              <label
-                className="flex items-center justify-between gap-3 rounded-xl px-3 py-2 hover:bg-[var(--auth-muted)]"
-                key={team.id}
-              >
-                <span className="font-semibold">{team.name}</span>
-                <input
-                  checked={isMember}
-                  className="size-4 accent-primary"
-                  onChange={() => onToggleTeam(team, user, isMember)}
-                  type="checkbox"
-                />
-              </label>
-            )
-          })
-        )}
-      </div>
+      <Label>{label}</Label>
+      <Select onValueChange={onValueChange} value={value}>
+        <SelectTrigger className="!h-14 min-h-14 w-full rounded-full px-6 py-0 text-lg">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>{children}</SelectContent>
+      </Select>
     </div>
   )
 }
@@ -522,7 +571,7 @@ function FieldInput({
     <div className="grid gap-2">
       <Label>{label}</Label>
       <Input
-        className="h-11 rounded-full"
+        className="h-14 rounded-full px-6 text-lg"
         onChange={(event) => onChange(event.target.value)}
         required={required}
         type={type}
@@ -596,6 +645,24 @@ function hasTeamMember(
   userId: string
 ): boolean {
   return members?.some((member) => member.user_id === userId) ?? false
+}
+
+function getPrimaryTeamMember(
+  membersByTeamId: Record<string, TeamMember[]>,
+  teams: Team[],
+  userId: string
+): TeamMember | null {
+  for (const team of teams) {
+    const member = membersByTeamId[team.id]?.find(
+      (item) => item.user_id === userId
+    )
+
+    if (member) {
+      return member
+    }
+  }
+
+  return null
 }
 
 function getErrorMessage(error: unknown): string {

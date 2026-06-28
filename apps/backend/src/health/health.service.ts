@@ -4,7 +4,7 @@ import { readFile, access } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { Socket } from 'node:net';
 import { TLSSocket, connect as tlsConnect } from 'node:tls';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { DataSource } from 'typeorm';
 import {
   HealthDependencyDto,
@@ -173,7 +173,7 @@ export class HealthService {
   }
 
   private async checkStorage(): Promise<HealthDependencyDto> {
-    const storagePath = resolve(
+    const storagePath = resolveStoragePath(
       this.config.get<string>('STORAGE_PATH', join(process.cwd(), 'storage')),
     );
     const startedAt = Date.now();
@@ -363,4 +363,20 @@ export class HealthService {
   private isRedisRequired(): boolean {
     return this.config.get<boolean>('HEALTH_REDIS_REQUIRED', false);
   }
+}
+
+function resolveStoragePath(storagePath: string): string {
+  if (isAbsolute(storagePath)) {
+    return storagePath;
+  }
+
+  if (isBackendAppCwd() && storagePath.startsWith('apps/backend')) {
+    return resolve(process.cwd(), '..', '..', storagePath);
+  }
+
+  return resolve(storagePath);
+}
+
+function isBackendAppCwd(): boolean {
+  return process.cwd().replaceAll('\\', '/').endsWith('/apps/backend');
 }

@@ -1,6 +1,5 @@
-import { randomUUID } from 'node:crypto';
+import { v4 as uuidv4 } from 'uuid';
 import {
-  BeforeInsert,
   Column,
   CreateDateColumn,
   Entity,
@@ -21,7 +20,7 @@ export type WebhookDeliveryStatus = 'pending' | 'success' | 'error';
 @Index(['webhookUrlId', 'uuid'], { unique: true })
 @Index(['accountId'])
 export class WebhookEvent {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Column({ name: 'account_id', type: 'bigint' })
@@ -31,7 +30,7 @@ export class WebhookEvent {
   webhookUrlId!: string;
 
   @Column({ type: 'varchar', length: 255 })
-  uuid!: string;
+  uuid: string = uuidv4();
 
   @Column({ name: 'event_type', type: 'varchar', length: 255 })
   eventType!: string;
@@ -45,13 +44,13 @@ export class WebhookEvent {
   @Column({ type: 'varchar', length: 32, default: 'pending' })
   status!: WebhookDeliveryStatus;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'simple-json', nullable: true })
   payload!: Record<string, unknown> | null;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => WebhookUrl, (url) => url.webhookEvents, {
@@ -62,9 +61,4 @@ export class WebhookEvent {
 
   @OneToMany(() => WebhookAttempt, (attempt) => attempt.webhookEvent)
   attempts!: WebhookAttempt[];
-
-  @BeforeInsert()
-  setUuid(): void {
-    this.uuid ||= randomUUID();
-  }
 }

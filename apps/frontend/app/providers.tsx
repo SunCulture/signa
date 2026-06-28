@@ -9,6 +9,8 @@ import {
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { NuqsAdapter } from "nuqs/adapters/next/app"
 
+import { AuthRouteGuard } from "./auth-route-guard"
+
 type ProvidersProps = {
   children: React.ReactNode
 }
@@ -40,7 +42,7 @@ export function Providers({ children }: ProvidersProps) {
   return (
     <NuqsAdapter>
       <QueryClientProvider client={queryClient}>
-        {children}
+        <AuthRouteGuard>{children}</AuthRouteGuard>
         <ReactQueryDevtools initialIsOpen={false} />
       </QueryClientProvider>
     </NuqsAdapter>

@@ -17,6 +17,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { ApiError } from "@/lib/api/http";
+import {
+  getAuthSession,
+  getProfileAsset,
+  type ProfileAsset,
+} from "@/lib/api/auth";
 import {
   completeSigningForm,
   declineSigningForm,
@@ -40,6 +46,11 @@ type SigningChoiceOption = {
   value: string;
 };
 
+type SavedSignerAssets = {
+  initials: ProfileAsset | null;
+  signature: ProfileAsset | null;
+};
+
 export function SigningPage({
   focusFieldPrefix,
   slug,
@@ -55,12 +66,17 @@ export function SigningPage({
   const [isDeclineOpen, setIsDeclineOpen] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [savedAssets, setSavedAssets] = useState<SavedSignerAssets>({
+    initials: null,
+    signature: null,
+  });
 
   useEffect(() => {
     getSigningForm(slug, trackingParam)
       .then((loadedForm) => {
         setForm(loadedForm);
         setActivePanel(getInitialPanelState(loadedForm, focusFieldPrefix));
+        void loadSavedSignerAssets(loadedForm).then(setSavedAssets);
       })
       .catch((loadError: unknown) => {
         const message =
@@ -81,26 +97,34 @@ export function SigningPage({
     return form.fields;
   }, [form]);
 
-  async function saveFieldValue(field: SigningField, value: unknown) {
+  async function saveFieldValue(
+    field: SigningField,
+    value: unknown,
+    extraValues: Record<string, unknown> = {},
+  ) {
     if (!form) {
       return;
     }
 
     const fieldKey = getFieldKey(field);
-    const nextValues = { ...form.values, [fieldKey]: value };
+    const nextValues = { ...form.values, ...extraValues, [fieldKey]: value };
     const updatedForm = await updateSigningValues(slug, nextValues);
 
     setForm(updatedForm);
     setActivePanel(getNextPanelState(updatedForm, field));
   }
 
-  async function completeForm(field: SigningField, value: unknown) {
+  async function completeForm(
+    field: SigningField,
+    value: unknown,
+    extraValues: Record<string, unknown> = {},
+  ) {
     if (!form) {
       return;
     }
 
     const fieldKey = getFieldKey(field);
-    const nextValues = { ...form.values, [fieldKey]: value };
+    const nextValues = { ...form.values, ...extraValues, [fieldKey]: value };
     const completedForm = await completeSigningForm(slug, nextValues);
 
     setForm(completedForm);
@@ -139,12 +163,9 @@ export function SigningPage({
         link.click();
       });
     } catch (downloadError) {
-      const message =
-        downloadError instanceof Error
-          ? downloadError.message
-          : "Document could not be downloaded.";
-
-      toast.error("Download failed", { description: message });
+      toast.error("Download failed", {
+        description: getDownloadErrorMessage(downloadError),
+      });
     } finally {
       setIsDownloading(false);
     }
@@ -199,15 +220,17 @@ export function SigningPage({
             {form.title}
           </h1>
           <div className="flex shrink-0 items-center justify-end gap-2">
-            <Button
-              className="h-10 rounded-full bg-[var(--auth-muted)] px-4 text-xs font-bold text-[var(--auth-muted-foreground)] hover:bg-[var(--auth-primary)] hover:text-[var(--auth-primary-foreground)] sm:h-9 sm:px-5"
-              disabled={isCompleted || isDeclined}
-              onClick={() => setIsDeclineOpen(true)}
-              type="button"
-              variant="ghost"
-            >
-              DECLINE
-            </Button>
+            {form.configs.with_decline ? (
+              <Button
+                className="h-10 rounded-full bg-[var(--auth-muted)] px-4 text-xs font-bold text-[var(--auth-muted-foreground)] hover:bg-[var(--auth-primary)] hover:text-[var(--auth-primary-foreground)] sm:h-9 sm:px-5"
+                disabled={isCompleted || isDeclined}
+                onClick={() => setIsDeclineOpen(true)}
+                type="button"
+                variant="ghost"
+              >
+                DECLINE
+              </Button>
+            ) : null}
             <Button
               aria-label="Download"
               className="size-10 rounded-full bg-[var(--auth-primary)] p-0 text-xs font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)] sm:h-9 sm:w-auto sm:px-5"
@@ -264,10 +287,12 @@ export function SigningPage({
           activeField={activePanel?.field ?? getInitialPanelState(form)?.field}
           fields={orderedFields}
           form={form}
+          onFormChange={setForm}
           onComplete={completeForm}
           onSaveField={saveFieldValue}
           onSelectField={(field) => setActivePanel({ field, mode: "field" })}
           onUploadAttachment={uploadFieldAttachment}
+          savedAssets={savedAssets}
         />
       ) : null}
 
@@ -327,6 +352,36 @@ function CompletedStatusContent({
       ) : null}
     </div>
   );
+}
+
+async function loadSavedSignerAssets(
+  form: SigningForm,
+): Promise<SavedSignerAssets> {
+  const emptyAssets = { initials: null, signature: null };
+
+  if (!form.configs.prefill_signature || !form.submitter.email) {
+    return emptyAssets;
+  }
+
+  const currentUser = getAuthSession()?.user;
+
+  if (
+    !currentUser?.email ||
+    currentUser.email.toLowerCase() !== form.submitter.email.toLowerCase()
+  ) {
+    return emptyAssets;
+  }
+
+  try {
+    const [signature, initials] = await Promise.all([
+      getProfileAsset("signature"),
+      getProfileAsset("initials"),
+    ]);
+
+    return { initials, signature };
+  } catch {
+    return emptyAssets;
+  }
 }
 
 function showCompletionConfetti(isEnabled: boolean) {
@@ -505,10 +560,24 @@ function ChoiceFieldDisplay({
   if (area.option_uuid) {
     const option = options.find((item) => item.uuid === area.option_uuid);
     const isSelected = option ? isOptionSelected(value, option) : false;
+    const label = option?.value ?? "Option";
 
     return (
-      <span className="text-lg font-bold text-[var(--auth-primary)]">
-        {isSelected ? "✓" : ""}
+      <span className="flex h-full min-w-0 items-center gap-1.5 text-[var(--auth-primary)]">
+        <span
+          className={cn(
+            "flex size-4 shrink-0 items-center justify-center rounded-sm border text-[10px] font-bold",
+            field.type === "radio" ? "rounded-full" : "",
+            isSelected
+              ? "border-[var(--auth-primary)] bg-[var(--auth-primary)] text-[var(--auth-primary-foreground)]"
+              : "border-[var(--auth-primary)]/55 bg-white/80",
+          )}
+        >
+          {isSelected ? "✓" : ""}
+        </span>
+        <span className="truncate text-xs font-semibold leading-none">
+          {label}
+        </span>
       </span>
     );
   }
@@ -612,14 +681,17 @@ function isOptionSelected(
 }
 
 function getSigningChoiceOptions(field: SigningField): SigningChoiceOption[] {
-  if (!Array.isArray(field.options)) {
-    return [];
+  const rawOptions = getSigningRawOptions(field);
+
+  if (!rawOptions.length) {
+    return getSigningAreaOptions(field);
   }
 
-  return field.options.map((option, index) => {
+  return rawOptions.map((option, index) => {
     const fallbackUuid = `${field.uuid ?? field.name ?? "field"}-${index}`;
     const optionRecord = isSigningOptionRecord(option) ? option : {};
     const label =
+      getSigningOptionString(option) ||
       getSigningOptionString(optionRecord.value) ||
       getSigningOptionString(optionRecord.label) ||
       getSigningOptionString(optionRecord.name) ||
@@ -631,6 +703,35 @@ function getSigningChoiceOptions(field: SigningField): SigningChoiceOption[] {
       value: label || `Option ${index + 1}`,
     };
   });
+}
+
+function getSigningRawOptions(field: SigningField): unknown[] {
+  if (Array.isArray(field.options)) {
+    return field.options;
+  }
+
+  const preferencesOptions = field.preferences?.options;
+
+  return Array.isArray(preferencesOptions) ? preferencesOptions : [];
+}
+
+function getSigningAreaOptions(field: SigningField): SigningChoiceOption[] {
+  return (field.areas ?? [])
+    .filter((area) => typeof area.option_uuid === "string")
+    .map((area, index) => ({
+      uuid: area.option_uuid ?? `${field.uuid ?? field.name ?? "field"}-${index}`,
+      value: `Option ${index + 1}`,
+    }));
+}
+
+function getDownloadErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status === 403) {
+    return "Authentication is required to download completed documents for this account.";
+  }
+
+  return error instanceof Error
+    ? error.message
+    : "Document could not be downloaded.";
 }
 
 function isSigningOptionRecord(

@@ -13,7 +13,7 @@ import { Account } from './account.entity';
 @Entity('account_linked_accounts')
 @Index(['accountId', 'linkedAccountId'], { unique: true })
 export class AccountLinkedAccount {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Column({ name: 'account_id', type: 'bigint' })
@@ -25,10 +25,10 @@ export class AccountLinkedAccount {
   @Column({ name: 'account_type', type: 'text', default: 'testing' })
   accountType!: string;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => Account, (account) => account.linkedAccounts, {

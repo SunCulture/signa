@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { UserHydrationGuard } from '../auth/guards/user-hydration/user-hydration.guard';
 import { AuthorizationModule } from '../authorization/authorization.module';
+import { MailModule } from '../mail/mail.module';
 import { User } from '../users/entities/user.entity';
 import { UsersModule } from '../users/users.module';
 import { TeamsService } from './teams.service';
@@ -16,6 +17,7 @@ import { Team } from './entities/team.entity';
     AuthModule,
     UsersModule,
     AuthorizationModule,
+    MailModule,
     TypeOrmModule.forFeature([Team, TeamMember, TeamInvitation, User]),
   ],
   providers: [TeamsService, UserHydrationGuard],

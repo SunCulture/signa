@@ -100,7 +100,10 @@ export function addTeamMember(
   input: AddTeamMemberInput
 ): Promise<TeamMember> {
   return authenticatedApiFetch<TeamMember>(`/teams/${teamId}/members`, {
-    body: JSON.stringify(input),
+    body: JSON.stringify({
+      ...input,
+      user_id: String(input.user_id),
+    }),
     method: "POST",
   })
 }

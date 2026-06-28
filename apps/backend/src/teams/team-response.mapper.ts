@@ -7,7 +7,7 @@ import { Team } from './entities/team.entity';
 
 export function toTeamResponse(team: Team): TeamResponseDto {
   return {
-    id: team.id,
+    id: String(team.id),
     uuid: team.uuid,
     name: team.name,
     slug: team.slug,
@@ -22,12 +22,12 @@ export function toTeamResponse(team: Team): TeamResponseDto {
 
 export function toMemberResponse(member: TeamMember): TeamMemberResponseDto {
   return {
-    id: member.id,
-    team_id: member.teamId,
-    user_id: member.userId,
+    id: String(member.id),
+    team_id: String(member.teamId),
+    user_id: String(member.userId),
     role: member.role,
     user: {
-      id: member.user.id,
+      id: String(member.user.id),
       account_role: member.user.role,
       email: member.user.email,
       first_name: member.user.firstName,
@@ -44,8 +44,8 @@ export function toInvitationResponse(
 ): TeamInvitationResponseDto {
   return {
     accept_token: options?.acceptToken,
-    id: invitation.id,
-    team_id: invitation.teamId,
+    id: String(invitation.id),
+    team_id: String(invitation.teamId),
     email: invitation.email,
     role: invitation.role,
     status: invitation.status,

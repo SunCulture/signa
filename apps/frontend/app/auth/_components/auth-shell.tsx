@@ -1,15 +1,15 @@
-"use client"
+"use client";
 
-import Link from "next/link"
-import Image from "next/image"
-import { useRouter } from "next/navigation"
-import { useState } from "react"
-import { useTopLoader } from "nextjs-toploader"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { Globe2Icon, InfoIcon, LogInIcon } from "lucide-react"
-import { toast } from "sonner"
+import Link from "next/link";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { useTopLoader } from "nextjs-toploader";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Globe2Icon, InfoIcon, LogInIcon } from "lucide-react";
+import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ui/button";
 import {
   Field,
   FieldDescription,
@@ -17,14 +17,14 @@ import {
   FieldGroup,
   FieldLabel,
   FieldSeparator,
-} from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import {
   InputOTP,
   InputOTPGroup,
   InputOTPSeparator,
   InputOTPSlot,
-} from "@/components/ui/input-otp"
+} from "@/components/ui/input-otp";
 import {
   Select,
   SelectContent,
@@ -32,101 +32,114 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
-import { login, register, saveAuthSession } from "@/lib/api/auth"
-import { ApiError } from "@/lib/api/http"
-import {
-  authFormSchema,
-  type AuthFormValues,
-} from "@/lib/forms/auth-forms"
-import {
-  authDictionaries,
-  type AuthMode,
-} from "@/lib/i18n/auth-dictionaries"
+} from "@/components/ui/select";
+import { login, register, saveAuthSession } from "@/lib/api/auth";
+import { ApiError } from "@/lib/api/http";
+import { authFormSchema, type AuthFormValues } from "@/lib/forms/auth-forms";
+import { authDictionaries, type AuthMode } from "@/lib/i18n/auth-dictionaries";
 import {
   defaultLocale,
   isLocale,
   localeLabels,
   locales,
   type Locale,
-} from "@/lib/i18n/config"
-import { cn } from "@/lib/utils"
+} from "@/lib/i18n/config";
+import { cn } from "@/lib/utils";
 import {
   Controller,
   useForm,
   type Control,
   type UseFormRegisterReturn,
-} from "react-hook-form"
+} from "react-hook-form";
 
 type AuthShellProps = {
-  mode: AuthMode
-}
+  mode: AuthMode;
+};
 
 export function AuthShell({ mode }: AuthShellProps) {
-  const [locale, setLocale] = useState<Locale>(defaultLocale)
-  const dictionary = authDictionaries[locale]
-  const copy = dictionary.modes[mode]
-  const showSocial = mode === "login" || mode === "register"
-  const loader = useTopLoader()
-  const router = useRouter()
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [locale, setLocale] = useState<Locale>(defaultLocale);
+  const dictionary = authDictionaries[locale];
+  const copy = dictionary.modes[mode];
+  const showSocial = mode === "login" || mode === "register";
+  const loader = useTopLoader();
+  const router = useRouter();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [needsOtp, setNeedsOtp] = useState(mode === "otp");
   const form = useForm<AuthFormValues>({
     resolver: zodResolver(authFormSchema),
     defaultValues: getAuthFormDefaults(mode),
-  })
+  });
 
   function handleLocaleChange(nextLocale: Locale) {
-    setLocale(nextLocale)
-    document.documentElement.lang = nextLocale
+    setLocale(nextLocale);
+    document.documentElement.lang = nextLocale;
   }
 
   async function handleValidSubmit(values: AuthFormValues) {
-    setIsSubmitting(true)
-    loader.start()
-    form.clearErrors("root")
+    setIsSubmitting(true);
+    loader.start();
+    form.clearErrors("root");
 
     try {
       if (mode === "login") {
+        if (needsOtp && values.otp?.length !== 6) {
+          form.setError("otp", {
+            message: "Enter your 6-digit code.",
+          });
+          return;
+        }
+
         const session = await login({
           email: values.email ?? "",
+          otp_attempt: needsOtp ? values.otp : undefined,
           password: values.password ?? "",
-        })
+        });
 
-        saveAuthSession(session)
+        saveAuthSession(session);
         toast.success("Signed in", {
           description: "Welcome back to Signa.",
           classNames: { icon: "text-green-500" },
-        })
-        router.push("/templates")
-        router.refresh()
-        return
+        });
+        router.replace(getPostAuthRedirectPath());
+        return;
       }
 
       if (mode === "register") {
-        const session = await register(createRegisterInput(values, locale))
+        const session = await register(createRegisterInput(values, locale));
 
-        saveAuthSession(session)
+        saveAuthSession(session);
         toast.success("Account created", {
           description: "Your workspace is ready.",
           classNames: { icon: "text-green-500" },
-        })
-        router.push("/templates")
-        router.refresh()
-        return
+        });
+        router.replace(getPostAuthRedirectPath());
+        return;
       }
 
-      await new Promise((resolve) => window.setTimeout(resolve, 450))
+      await new Promise((resolve) => window.setTimeout(resolve, 450));
     } catch (error) {
+      if (isOtpRequiredError(error) && mode === "login") {
+        setNeedsOtp(true);
+        form.setError("otp", {
+          message: "Enter the 6-digit code from your authenticator app.",
+        });
+        toast.error("Two-factor authentication required", {
+          description: "Enter the code from your authenticator app.",
+          classNames: { icon: "text-destructive" },
+        });
+        return;
+      }
+
       form.setError("root", {
         message: getAuthSubmitError(error, mode),
-      })
+      });
       toast.error(getAuthFailureTitle(mode), {
         description: getAuthSubmitError(error, mode),
         classNames: { icon: "text-destructive" },
-      })
+      });
     } finally {
-      loader.done()
-      setIsSubmitting(false)
+      loader.done();
+      setIsSubmitting(false);
     }
   }
 
@@ -193,7 +206,7 @@ export function AuthShell({ mode }: AuthShellProps) {
                 registration={form.register("confirmPassword")}
               />
             ) : null}
-            {copy.fields.includes("otp") ? (
+            {copy.fields.includes("otp") || needsOtp ? (
               <OtpField
                 control={form.control}
                 label={dictionary.fields.otp}
@@ -221,27 +234,27 @@ export function AuthShell({ mode }: AuthShellProps) {
         />
       </section>
     </main>
-  )
+  );
 }
 
 function getAuthFailureTitle(mode: AuthMode): string {
   if (mode === "login") {
-    return "Sign in failed"
+    return "Sign in failed";
   }
 
   if (mode === "register") {
-    return "Registration failed"
+    return "Registration failed";
   }
 
-  return "Request failed"
+  return "Request failed";
 }
 
 function AuthHeader({
   dictionary,
   mode,
 }: {
-  dictionary: (typeof authDictionaries)[Locale]
-  mode: AuthMode
+  dictionary: (typeof authDictionaries)[Locale];
+  mode: AuthMode;
 }) {
   return (
     <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3 md:px-2">
@@ -281,7 +294,7 @@ function AuthHeader({
         ) : null}
       </div>
     </header>
-  )
+  );
 }
 
 function AuthField({
@@ -293,11 +306,11 @@ function AuthField({
   className,
   ...props
 }: React.ComponentProps<typeof Input> & {
-  id: string
-  label: string
-  description?: string
-  error?: string
-  registration?: UseFormRegisterReturn
+  id: string;
+  label: string;
+  description?: string;
+  error?: string;
+  registration?: UseFormRegisterReturn;
 }) {
   return (
     <Field className="gap-2" data-invalid={!!error}>
@@ -311,7 +324,7 @@ function AuthField({
         aria-invalid={!!error}
         className={cn(
           "h-12 rounded-full border-[var(--auth-input-border)] bg-card px-5 text-base shadow-none focus-visible:border-[var(--auth-primary)] focus-visible:ring-[var(--auth-primary)]/20",
-          className
+          className,
         )}
         id={id}
         {...registration}
@@ -324,7 +337,7 @@ function AuthField({
         </FieldDescription>
       ) : null}
     </Field>
-  )
+  );
 }
 
 function OtpField({
@@ -332,9 +345,9 @@ function OtpField({
   error,
   label,
 }: {
-  control: Control<AuthFormValues>
-  error?: string
-  label: string
+  control: Control<AuthFormValues>;
+  error?: string;
+  label: string;
 }) {
   return (
     <Field className="items-center gap-3" data-invalid={!!error}>
@@ -373,30 +386,30 @@ function OtpField({
       />
       <FieldError>{error}</FieldError>
     </Field>
-  )
+  );
 }
 
 function SocialButtons({
   dictionary,
 }: {
-  dictionary: (typeof authDictionaries)[Locale]
+  dictionary: (typeof authDictionaries)[Locale];
 }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <AuthProviderButton dictionary={dictionary} provider="google" />
       <AuthProviderButton dictionary={dictionary} provider="microsoft" />
     </div>
-  )
+  );
 }
 
 function AuthProviderButton({
   dictionary,
   provider,
 }: {
-  dictionary: (typeof authDictionaries)[Locale]
-  provider: "google" | "microsoft"
+  dictionary: (typeof authDictionaries)[Locale];
+  provider: "google" | "microsoft";
 }) {
-  const isGoogle = provider === "google"
+  const isGoogle = provider === "google";
 
   return (
     <Button
@@ -407,7 +420,7 @@ function AuthProviderButton({
       {isGoogle ? <GoogleMark /> : <MicrosoftMark />}
       {isGoogle ? dictionary.social.google : dictionary.social.microsoft}
     </Button>
-  )
+  );
 }
 
 function GoogleMark() {
@@ -436,7 +449,7 @@ function GoogleMark() {
         fill="#4285F4"
       />
     </svg>
-  )
+  );
 }
 
 function MicrosoftMark() {
@@ -449,18 +462,22 @@ function MicrosoftMark() {
     >
       <path d="M6 6H22V22H6z" fill="#ff5722" transform="rotate(-180 14 14)" />
       <path d="M26 6H42V22H26z" fill="#4caf50" transform="rotate(-180 34 14)" />
-      <path d="M26 26H42V42H26z" fill="#ffc107" transform="rotate(-180 34 34)" />
+      <path
+        d="M26 26H42V42H26z"
+        fill="#ffc107"
+        transform="rotate(-180 34 34)"
+      />
       <path d="M6 26H22V42H6z" fill="#03a9f4" transform="rotate(-180 14 34)" />
     </svg>
-  )
+  );
 }
 
 function AuthLinks({
   dictionary,
   mode,
 }: {
-  dictionary: (typeof authDictionaries)[Locale]
-  mode: AuthMode
+  dictionary: (typeof authDictionaries)[Locale];
+  mode: AuthMode;
 }) {
   if (mode === "forgot-password" || mode === "reset-password") {
     return (
@@ -469,7 +486,7 @@ function AuthLinks({
           {dictionary.links.alreadyHaveAccount}
         </Link>
       </div>
-    )
+    );
   }
 
   if (mode === "otp") {
@@ -479,7 +496,7 @@ function AuthLinks({
           {dictionary.links.backToSignIn}
         </Link>
       </div>
-    )
+    );
   }
 
   return (
@@ -496,7 +513,7 @@ function AuthLinks({
         {dictionary.links.forgotPassword}
       </Link>
     </div>
-  )
+  );
 }
 
 function LanguagePicker({
@@ -504,9 +521,9 @@ function LanguagePicker({
   locale,
   onLocaleChange,
 }: {
-  dictionary: (typeof authDictionaries)[Locale]
-  locale: Locale
-  onLocaleChange: (locale: Locale) => void
+  dictionary: (typeof authDictionaries)[Locale];
+  locale: Locale;
+  onLocaleChange: (locale: Locale) => void;
 }) {
   return (
     <>
@@ -515,7 +532,7 @@ function LanguagePicker({
         <Select
           onValueChange={(value) => {
             if (isLocale(value)) {
-              onLocaleChange(value)
+              onLocaleChange(value);
             }
           }}
           value={locale}
@@ -540,7 +557,7 @@ function LanguagePicker({
         </Select>
       </div>
     </>
-  )
+  );
 }
 
 export function AuthNotice({ message }: { message: string }) {
@@ -552,7 +569,25 @@ export function AuthNotice({ message }: { message: string }) {
       </span>
       <span aria-hidden="true">×</span>
     </div>
-  )
+  );
+}
+
+function getPostAuthRedirectPath(): string {
+  if (typeof window === "undefined") {
+    return "/templates";
+  }
+
+  const nextPath = new URLSearchParams(window.location.search).get("next");
+
+  if (!nextPath?.startsWith("/") || nextPath.startsWith("//")) {
+    return "/templates";
+  }
+
+  if (nextPath.startsWith("/auth")) {
+    return "/templates";
+  }
+
+  return nextPath;
 }
 
 function getAuthFormDefaults(mode: AuthMode): AuthFormValues {
@@ -563,22 +598,22 @@ function getAuthFormDefaults(mode: AuthMode): AuthFormValues {
     password: "",
     confirmPassword: "",
     otp: "",
-  }
+  };
 }
 
 function createRegisterInput(
   values: AuthFormValues,
-  locale: Locale
+  locale: Locale,
 ): Parameters<typeof register>[0] {
-  const nameParts = (values.name ?? "").trim().split(/\s+/).filter(Boolean)
-  const firstName = nameParts[0] ?? "Signa"
-  const lastName = nameParts.slice(1).join(" ")
+  const nameParts = (values.name ?? "").trim().split(/\s+/).filter(Boolean);
+  const firstName = nameParts[0] ?? "Signa";
+  const lastName = nameParts.slice(1).join(" ");
   const browserLocale =
-    typeof navigator === "undefined" ? `${locale}-US` : navigator.language
+    typeof navigator === "undefined" ? `${locale}-US` : navigator.language;
   const timezone =
     typeof Intl === "undefined"
       ? "UTC"
-      : Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+      : Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
   return {
     account_name: `${firstName}'s Account`,
@@ -588,17 +623,35 @@ function createRegisterInput(
     locale: browserLocale,
     password: values.password ?? "",
     timezone,
-  }
+  };
 }
 
 function getAuthSubmitError(error: unknown, mode: AuthMode): string {
   if (error instanceof ApiError) {
-    return error.message
+    return error.message;
   }
 
   if (mode === "register") {
-    return "Unable to create your account. Please try again."
+    return "Unable to create your account. Please try again.";
   }
 
-  return "Unable to sign in. Please try again."
+  return "Unable to sign in. Please try again.";
+}
+
+function isOtpRequiredError(error: unknown): boolean {
+  if (!(error instanceof ApiError)) {
+    return false;
+  }
+
+  if (error.message.toLowerCase().includes("two-factor")) {
+    return error.message.toLowerCase().includes("required");
+  }
+
+  const details = error.details;
+
+  if (!details || typeof details !== "object") {
+    return false;
+  }
+
+  return "code" in details && details.code === "otp_required";
 }

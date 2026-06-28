@@ -9,6 +9,7 @@ import { StorageBlob } from '../storage/entities/storage-blob.entity';
 import { StorageService } from '../storage/storage.service';
 import { SubmissionEvent } from '../submissions/entities/submission-event.entity';
 import { Submission } from '../submissions/entities/submission.entity';
+import { DocumentGenerationQueueService } from '../submissions/document-generation-queue.service';
 import { SubmissionDocumentsService } from '../submissions/submission-documents.service';
 import { SubmitterValueNormalizer } from '../submissions/submitter-value-normalizer.service';
 import { Template } from '../templates/entities/template.entity';
@@ -121,6 +122,13 @@ describe('SubmittersService', () => {
           provide: SubmissionDocumentsService,
           useValue: {
             processSubmitterCompletion: jest.fn(),
+          },
+        },
+        {
+          provide: DocumentGenerationQueueService,
+          useValue: {
+            enqueueSubmissionArtifacts: jest.fn(),
+            enqueueSubmitterCompletion: jest.fn(),
           },
         },
         SubmitterValueNormalizer,

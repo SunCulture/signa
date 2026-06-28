@@ -14,13 +14,24 @@ const validationSchema = Joi.object({
   }),
   JWT_EXPIRES_IN: Joi.string().default('7d'),
 
-  DATABASE_HOST: Joi.string().default('localhost'),
+  DATABASE_TYPE: Joi.string().valid('postgres', 'sqlite').optional(),
+  DATABASE_URL: Joi.string()
+    .uri({ scheme: ['postgres', 'postgresql'] })
+    .allow('')
+    .optional(),
+  DATABASE_HOST: Joi.string().allow('').optional(),
   DATABASE_PORT: Joi.number().port().default(5432),
   DATABASE_USER: Joi.string().default('postgres'),
   DATABASE_PASSWORD: Joi.string().allow('').default('postgres'),
   DATABASE_NAME: Joi.string().default('signa_development'),
   DATABASE_SSL: Joi.boolean().truthy('true').falsy('false').default(false),
   DATABASE_LOGGING: Joi.boolean().truthy('true').falsy('false').default(false),
+  DATABASE_MIGRATIONS_RUN: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .default(false),
+  SQLITE_DATABASE_PATH: Joi.string().default('data/signa.sqlite'),
+  SQLITE_SYNCHRONIZE: Joi.boolean().truthy('true').falsy('false').default(true),
 
   REDIS_URL: Joi.string()
     .uri({ scheme: ['redis', 'rediss'] })
@@ -68,11 +79,12 @@ const validationSchema = Joi.object({
     otherwise: Joi.string().allow('').optional(),
   }),
   MAIL_FROM_NAME: Joi.string().default('Signa'),
-  MAIL_FROM_ADDRESS: Joi.string().email().default('no-reply@signa.local'),
+  MAIL_FROM_ADDRESS: Joi.string().email().default('no-reply@signa.com'),
   MAIL_REPLY_TO: Joi.string().email().allow('').optional(),
   MAIL_TEMPLATE_DIR: Joi.string().allow('').optional(),
   MAIL_LOGO_URL: Joi.string().uri().allow('').optional(),
   MAIL_ASSET_BASE_URL: Joi.string().uri().allow('').optional(),
+  MAIL_CALLBACK_SECRET: Joi.string().allow('').optional(),
   MAIL_TLS_REJECT_UNAUTHORIZED: Joi.boolean()
     .truthy('true')
     .falsy('false')
@@ -123,6 +135,7 @@ const validationSchema = Joi.object({
   TWILIO_VERIFY_SERVICE_SID: Joi.string().allow('').optional(),
   TWILIO_MESSAGING_SERVICE_SID: Joi.string().allow('').optional(),
   TWILIO_FROM_PHONE: Joi.string().allow('').optional(),
+  SMS_CALLBACK_SECRET: Joi.string().allow('').optional(),
 });
 
 export default validationSchema;

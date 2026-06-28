@@ -1,4 +1,6 @@
 import { BullModule } from '@nestjs/bullmq';
+import { BullBoardModule } from '@bull-board/nestjs';
+import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
@@ -26,6 +28,10 @@ import { WebhooksService } from './webhooks.service';
     SubmissionsModule,
     TemplatesModule,
     BullModule.registerQueue({ name: queueNames.webhooks }),
+    BullBoardModule.forFeature({
+      name: queueNames.webhooks,
+      adapter: BullMQAdapter,
+    }),
     TypeOrmModule.forFeature([WebhookUrl, WebhookEvent, WebhookAttempt]),
   ],
   controllers: [WebhooksController, WebhookEventsController],

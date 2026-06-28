@@ -14,6 +14,7 @@ import { TemplatesService } from '../templates/templates.service';
 import { User } from '../users/entities/user.entity';
 import { SubmissionEvent } from './entities/submission-event.entity';
 import { Submission } from './entities/submission.entity';
+import { DocumentGenerationQueueService } from './document-generation-queue.service';
 import { SubmissionDocumentsService } from './submission-documents.service';
 import { SubmitterValueNormalizer } from './submitter-value-normalizer.service';
 import { SubmissionsService } from './submissions.service';
@@ -42,7 +43,10 @@ describe('SubmissionsService', () => {
   let templates: MockRepository<Template>;
   let submissionEvents: MockRepository<SubmissionEvent>;
   let storage: jest.Mocked<
-    Pick<StorageService, 'findRecordAttachments' | 'createBlobProxyUrl'>
+    Pick<
+      StorageService,
+      'createBlobProxyUrl' | 'findPreviewAttachments' | 'findRecordAttachments'
+    >
   >;
   let submissionDocuments: jest.Mocked<
     Pick<
@@ -65,6 +69,7 @@ describe('SubmissionsService', () => {
     submissionEvents = createRepository<SubmissionEvent>();
     storage = {
       findRecordAttachments: jest.fn().mockResolvedValue([]),
+      findPreviewAttachments: jest.fn().mockResolvedValue([]),
       createBlobProxyUrl: jest.fn((blob: StorageBlob) => `/files/${blob.id}`),
     };
     submissionDocuments = {
@@ -167,6 +172,13 @@ describe('SubmissionsService', () => {
         {
           provide: SubmissionDocumentsService,
           useValue: submissionDocuments,
+        },
+        {
+          provide: DocumentGenerationQueueService,
+          useValue: {
+            enqueueSubmissionArtifacts: jest.fn(),
+            enqueueSubmitterCompletion: jest.fn(),
+          },
         },
         {
           provide: EventEmitter2,
@@ -351,12 +363,39 @@ describe('SubmissionsService', () => {
         blob: { id: 'blob-1', filename: 'contract.pdf' } as StorageBlob,
       }),
     ]);
+    storage.findPreviewAttachments.mockResolvedValue([
+      createAttachment({
+        id: 'preview-1',
+        uuid: 'preview-uuid',
+        blob: {
+          id: 'preview-blob-1',
+          filename: '0.png',
+          metadata: { width: 1400, height: 1800 },
+        } as StorageBlob,
+      }),
+    ]);
 
     await expect(
       service.getSubmissionDocuments(createUser(), 'submission-1'),
     ).resolves.toEqual({
       id: 'submission-1',
-      documents: [{ name: 'contract', url: '/files/blob-1' }],
+      documents: [
+        {
+          id: 'attachment-1',
+          uuid: 'attachment-uuid',
+          filename: 'contract.pdf',
+          name: 'contract',
+          url: '/files/blob-1',
+          preview_images: [
+            {
+              id: 'preview-1',
+              filename: '0.png',
+              metadata: { width: 1400, height: 1800 },
+              url: '/files/preview-blob-1',
+            },
+          ],
+        },
+      ],
     });
     expect(submissionDocuments.getSubmissionDocuments).toHaveBeenCalledWith(
       submission,

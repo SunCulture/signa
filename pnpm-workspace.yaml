@@ -3,6 +3,7 @@ packages:
   - "packages/*"
 allowBuilds:
   '@scarf/scarf': true
+  better-sqlite3: true
   msgpackr-extract: false
   sharp: true
   unrs-resolver: true

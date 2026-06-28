@@ -1,0 +1,24 @@
+services:
+  signa:
+    build:
+      context: .
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_TYPE: sqlite
+      SQLITE_DATABASE_PATH: /app/data/signa.sqlite
+      JWT_SECRET: change-me-to-a-long-random-production-secret
+      API_PUBLIC_URL: http://localhost:3001/api
+      FRONTEND_ORIGIN: http://localhost:3001
+      STORAGE_PATH: /app/storage
+      MAIL_ENABLED: "false"
+      QUEUE_ENABLED: "false"
+    ports:
+      - "3001:3001"
+    volumes:
+      - signa-data:/app/data
+      - signa-storage:/app/storage
+
+volumes:
+  signa-data:
+  signa-storage:

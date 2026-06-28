@@ -2,7 +2,7 @@
 
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useRef, useState } from "react";
-import { TypeIcon, XIcon } from "lucide-react";
+import { GripVerticalIcon, TypeIcon, UserPlusIcon, XIcon } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
@@ -55,6 +55,7 @@ export function FieldAreaOverlay({
   onCopySelectedFields,
   onDeleteField,
   onDeleteSelectedFields,
+  onAddSubmitter,
   onNudgeSelectedFields,
   onPasteCopiedFields,
   onSelectField,
@@ -72,6 +73,7 @@ export function FieldAreaOverlay({
   onCopySelectedFields: (fieldUuid?: string) => void;
   onDeleteField: (fieldUuid: string) => Promise<void>;
   onDeleteSelectedFields: (fieldUuid?: string) => Promise<void>;
+  onAddSubmitter: (fieldUuid?: string) => Promise<void>;
   onNudgeSelectedFields: (
     fieldUuid: string,
     dx: number,
@@ -235,7 +237,7 @@ export function FieldAreaOverlay({
     <div
       aria-label={`${title} field`}
       className={cn(
-        "group/field field-area-container absolute cursor-grab overflow-visible outline-none [container-type:size] active:cursor-grabbing",
+        "group/field field-area-container absolute cursor-default overflow-visible outline-none [container-type:size]",
         isSelected || isMultiSelected ? "z-10" : "hover:z-10",
       )}
       onClick={(event) => {
@@ -253,7 +255,6 @@ export function FieldAreaOverlay({
         });
       }}
       onPointerCancel={() => setInteraction(null)}
-      onPointerDown={(event) => startInteraction("move", event)}
       onPointerMove={updateInteraction}
       onPointerUp={finishInteraction}
       role="button"
@@ -271,6 +272,18 @@ export function FieldAreaOverlay({
           className="field-area-controls absolute left-0 top-[-25px] z-10 flex h-[25px] w-max max-w-80 items-center overflow-hidden whitespace-nowrap rounded-t border bg-white text-sm font-medium leading-none text-[var(--auth-primary)] shadow-sm"
           style={{ borderColor: roleColor }}
         >
+          <button
+            aria-label={`Move ${title}`}
+            className="flex h-full w-5 shrink-0 cursor-grab items-center justify-center border-r text-[var(--auth-label)] hover:bg-red-50 active:cursor-grabbing"
+            onPointerCancel={() => setInteraction(null)}
+            onPointerDown={(event) => startInteraction("move", event)}
+            onPointerMove={updateInteraction}
+            onPointerUp={finishInteraction}
+            style={{ borderColor: roleColor }}
+            type="button"
+          >
+            <GripVerticalIcon className="size-3.5" />
+          </button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -325,6 +338,18 @@ export function FieldAreaOverlay({
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="gap-2"
+                disabled={isSaving}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void onAddSubmitter(field.uuid);
+                }}
+              >
+                <UserPlusIcon className="size-4" />
+                <span>Add {getPartyName(submitters.length)}</span>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
           <DropdownMenu>

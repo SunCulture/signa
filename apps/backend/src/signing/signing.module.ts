@@ -2,7 +2,10 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AccountConfig } from '../accounts/entities/account-config.entity';
 import { StorageModule } from '../storage/storage.module';
+import { MailModule } from '../mail/mail.module';
 import { SubmissionEvent } from '../submissions/entities/submission-event.entity';
+import { IdentityVerification } from '../submissions/entities/identity-verification.entity';
+import { PaymentAttempt } from '../submissions/entities/payment-attempt.entity';
 import { Submission } from '../submissions/entities/submission.entity';
 import { SubmissionsModule } from '../submissions/submissions.module';
 import { Template } from '../templates/entities/template.entity';
@@ -16,11 +19,14 @@ import { SubmitterTrackingController } from './submitter-tracking.controller';
 @Module({
   imports: [
     StorageModule,
+    MailModule,
     SubmissionsModule,
     TypeOrmModule.forFeature([
       Submitter,
       Submission,
       SubmissionEvent,
+      PaymentAttempt,
+      IdentityVerification,
       Template,
       AccountConfig,
     ]),

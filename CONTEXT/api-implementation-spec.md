@@ -27,6 +27,8 @@ Signa currently has a Nest global prefix of `/api`. DocuSeal Cloud examples use 
 - Auth: API requests use `X-Auth-Token: API_KEY`.
 - API token storage follows DocuSeal's access-token model: store an encrypted token value for reveal, store a SHA-256 digest for lookup, and resolve the key to the owning user/account.
 - Signa extends DocuSeal's single-token model with per-token resource permissions. Guards deny API-key requests when the key lacks the required resource action, while bearer JWT web routes continue to use user/session authorization.
+- Team account API keys are stored in the same `access_tokens` table with nullable `team_id`; the owning user remains the security principal and permissions are still constrained by the token scope.
+- Team impersonation issues a normal web JWT with an additional `teamId` claim so route handlers can remain account-scoped while frontend/team workflows know the selected team account.
 - Web-app management routes use bearer JWT issued by `POST /api/auth/login` or `POST /api/auth/register`.
 - Unauthorized response: JSON `{ "error": "Not authenticated" }`, HTTP 401.
 - Forbidden response: JSON `{ "error": "Not authorized" }`, HTTP 403 unless DocuSeal returns a testing/production API-key mismatch message.
@@ -87,10 +89,14 @@ Account settings preference scope:
 
 - `GET /api/account/preferences` returns account-level config flags normalized from `account_configs`.
 - `PATCH /api/account/preferences` persists supported flags/configs as account-scoped config rows and removes empty string/reminder configs, matching DocuSeal's account-config behavior.
+- `GET /api/account_custom_fields` returns the account-scoped template custom field library stored in `account_configs.template_custom_fields`.
+- `POST /api/account_custom_fields` mirrors DocuSeal's save semantics by replacing the full custom field list and returning the normalized saved list.
 - Defaults mirror DocuSeal account settings behavior where practical: typed signatures, resubmission, decline, pre-fill signatures, and expiring download links are enabled unless explicitly disabled; stricter auth/compliance features are opt-in.
 - Current supported keys: `receive_completed_email`, `bcc_emails`, `submitter_reminders`, `force_mfa`, `with_signature_id`, `require_signing_reason`, `allow_typed_signature`, `allow_to_resubmit`, `allow_to_decline`, `allow_to_delegate`, `form_prefill_signature`, `download_links_expire`, `download_links_auth`, `combine_pdf_result_key`, `enforce_signing_order`, `with_file_links`, `hipaa`, `cfr_part_11`, `knowledge_based_authentication`, `esigning_preference`, `flatten_result_pdf`, `document_filename_format`, `submitter_invitation_email`, `submitter_documents_copy_email`, `submitter_completed_email`, `form_completed_message`, `form_completed_button`, `form_with_confetti`, and `policy_links`.
 - Notification parity note: DocuSeal stores completed-notification email enablement as a user config and BCC/reminders as account configs. Signa currently exposes all three through account preferences for a simpler tenant-level settings page; split to user-level config later if per-user notification preferences become required.
-- E-signature/personalization parity note: Signa stores company logo as an account-scoped storage attachment and signing certificate settings in `encrypted_configs`, matching DocuSeal's account-level settings boundary. Certificate-backed cryptographic PDF signing and HexaPDF-grade certificate-chain verification remain pending.
+- E-signature/personalization parity note: Signa stores company logo as an account-scoped storage attachment and PKCS#12/PFX signing certificate settings in `encrypted_configs`, matching DocuSeal's account-level settings boundary. Certificate-backed cryptographic PDF signing is implemented with `@signpdf/signer-p12`; HexaPDF-grade certificate-chain verification, RFC3161 timestamp embedding, and LTV remain pending.
+- Profile parity note: DocuSeal stores per-user signature and initials as ActiveStorage attachments with `user_configs` values keyed by `signature` and `initials`. Signa mirrors that boundary with `UserConfig`, storage attachments on `record_type='User'`, draw/upload frontend modals, and signed blob URLs.
+- Authenticator 2FA uses `otplib` for secret generation, otpauth provisioning URI generation, and TOTP verification. Signa stores the secret on `users.otp_secret`, toggles `users.otp_required_for_login`, and rejects login without a valid OTP once enabled.
 
 Team management scope:
 
@@ -105,7 +111,7 @@ Team management scope:
   - `agent`: operational send/resend/support role for submission workflows.
 - New account registration creates a default team named after the account and adds the registering user as `manager`.
 - Team managers can manage members/invitations for their team; account admins can manage all teams.
-- Current invitation implementation stores only a token hash and returns the raw accept token only on creation. Queued invitation email delivery remains a mail-workflow integration task.
+- Current invitation implementation stores only token hashes. Account user creation/import sends the user invitation email with a password setup token when no explicit password is provided. Team invitation creation now sends an accept-token email and keeps the raw token out of persistence.
 
 Team endpoints:
 
@@ -124,6 +130,15 @@ Team endpoints:
 | POST   | `/teams/{id}/invitations`                 | Create a team invitation       | Done   |
 | DELETE | `/teams/{id}/invitations/{invitationId}`  | Revoke a pending invitation    | Done   |
 | POST   | `/team-invitations/{token}/accept`        | Accept a pending invitation    | Done   |
+| POST   | `/teams/{id}/impersonate`                 | Issue team-scoped web session  | Done   |
+| POST   | `/teams/{id}/api-token`                   | Issue team-scoped API token    | Done   |
+
+Team action parity notes:
+
+- DocuSeal's public team-account docs expose `IMPERSONATE` and `API KEY` actions on team rows. Signa now has backend support for both:
+  - impersonation validates that the actor is an account admin or team manager, then returns a bearer JWT with `teamId`;
+  - API-key issuance validates the same permission boundary, stores encrypted token material plus SHA-256 lookup, and persists the selected `team_id`.
+- Frontend action wiring and clone/send flows should read the `teamId` claim or selected team context instead of trusting client-supplied account/team IDs.
 
 User management scope:
 
@@ -136,6 +151,15 @@ User endpoints:
 
 | Method | Path              | Operation                         | Status |
 | ------ | ----------------- | --------------------------------- | ------ |
+| GET    | `/profile`        | Current user profile              | Done   |
+| PATCH  | `/profile`        | Update current user profile       | Done   |
+| PATCH  | `/profile/password` | Update current user password    | Done   |
+| GET/POST/DELETE | `/profile/signature` | Manage current user signature | Done |
+| GET/POST/DELETE | `/profile/initials` | Manage current user initials | Done |
+| GET    | `/profile/mfa`    | Current user 2FA status           | Done   |
+| POST   | `/profile/mfa/setup` | Start authenticator 2FA setup  | Done   |
+| POST   | `/profile/mfa`    | Enable authenticator 2FA          | Done   |
+| DELETE | `/profile/mfa`    | Disable authenticator 2FA         | Done   |
 | GET    | `/users`          | List active/archived users        | Done   |
 | POST   | `/users`          | Create or restore a user          | Done   |
 | POST   | `/users/import`   | Bulk import normalized user rows  | Done   |
@@ -217,7 +241,8 @@ Signa status:
 
 - Implemented tenant-scoped retrieval with submitters, template, creator, optional events, optional fields, status, completion timestamp, values, and generated documents.
 - Completed submissions now lazily generate audit trail and combined-document URLs when document serialization is requested.
-- Remaining gap: generated PDFs are value-stamped with `pdf-lib`, but DocuSeal's HexaPDF/PDFium-grade flattening, cryptographic signatures, LTV, PDF/A, and timestamp server behavior are not complete.
+- Generated completed PDFs persist original document UUID/SHA-256 metadata plus result SHA-256 metadata, are cryptographically signed with the account default PKCS#12 certificate, and generated audit trails print original/result SHA-256 evidence in the DocuSeal audit-trail style.
+- Remaining gap: generated PDFs are value-stamped with `pdf-lib`, but DocuSeal's HexaPDF/PDFium-grade flattening, LTV, PDF/A, RFC3161 timestamp server embedding, and certificate-chain verification behavior are not complete.
 
 #### GET `/submissions/{id}/events`
 
@@ -247,8 +272,10 @@ Signa status:
 - Signature request email links now include a DocuSeal-style signed `t` tracking param; visiting `/s/:slug?t=...` records `click_email` before the normal `view_form` event.
 - API-created and API-updated completed submitters now include request IP/user-agent metadata on `api_complete_form` events.
 - Public phone verification now records `send_2fa_sms` and `phone_verified`.
+- Public payment attempts now record `payment_attempt` with field, provider, and status metadata.
+- Public identity/KBA verification now records `complete_verification` with field, method, provider, and status metadata.
 - Public delegation records `delegate_form`; scheduled reminders record `send_reminder_email`.
-- Remaining gap: direct SMS-click endpoint/provider callbacks, provider email opens/bounces, identity verification/KBA, and payment events depend on their pending subsystems. Queued `send_sms` invitation events are persisted when Twilio Messaging delivery succeeds.
+- Remaining gap: richer provider email open/bounce/unsubscribe normalization beyond stored provider callback events. Queued `send_sms` invitation events are persisted when Twilio Messaging delivery succeeds.
 
 #### GET `/submissions/{id}/documents`
 
@@ -276,6 +303,10 @@ Signa status:
   - completed submissions generate result PDFs attached to the last completed submitter;
   - `merge=true` generates and caches preview/result merged PDFs on the submission;
   - generated outputs are stored through the existing ActiveStorage-compatible local storage layer.
+- Result generation best-effort flattens source AcroForms, normalizes signer image/signature blobs before embedding, writes desktop-reader-friendly serialized PDFs, and caches completed documents by values hash so stale generated outputs are regenerated.
+- Completed generated document responses now include `id`, `uuid`, `filename`, `name`, signed `url`, and PDFium-generated `preview_images`.
+- `GET /api/submissions/:id` promotes the latest completed submitter's generated documents to top-level `documents`, matching DocuSeal's completed-submission serializer behavior.
+- Submitter values that point to signature/image/file attachments include resolved attachment metadata and signed URLs for review UIs and webhook payloads.
 - Remaining gap: generated PDFs are stamped/serialized with the currently supported Signa field set; advanced DocuSeal rendering details such as exact font/layout parity, PDF/A, cryptographic signing, LTV, timestamp server integration, and HexaPDF edge cases remain pending.
 
 #### POST `/submissions`
@@ -326,8 +357,8 @@ Signa status:
 - `send_email=true` now emits a queued signature-request email event; `sent_at` is set only after the mail processor successfully delivers and records `send_email`, matching DocuSeal's send job semantics.
 - Returns DocuSeal-style submitter responses with `embed_src`.
 - Email-list creation is implemented through `POST /api/submissions/emails`; each email creates an individual submission and reuses the existing queued signature-request flow.
-- Pending: complex multi-submission payload arrays beyond email-list aliases and full delivery/provider-event persistence.
-- Runtime foundations for webhook/email/SMS side effects now exist through Nest EventEmitter, BullMQ queues, ScheduleModule, and MailerModule. Mail, webhook, and SMS invitation processors are implemented; SMS provider callback tracking remains pending.
+- Pending: complex multi-submission payload arrays beyond email-list aliases and provider-specific delivery dashboards/signature validation.
+- Runtime foundations for webhook/email/SMS side effects now exist through Nest EventEmitter, BullMQ queues, ScheduleModule, and MailerModule. Mail, webhook, SMS invitation, Twilio delivery callback, and generic email provider callback flows are implemented.
 
 #### POST `/submissions/emails`
 
@@ -532,13 +563,16 @@ Templates are reusable signing forms with documents, submitters, and fields.
 | ------ | --------------------------- | ---------------------------------------- | -------- | ------ |
 | GET    | `/templates`                | List all templates                       | P0       | Done   |
 | GET    | `/templates/{id}`           | Get a template                           | P0       | Done   |
+| POST   | `/templates`                | Create a blank builder template          | P0       | Done   |
 | POST   | `/templates/pdf`            | Create a template from PDF               | P0       | Done   |
 | POST   | `/templates/docx`           | Create a template from Word DOCX         | P1       | Done   |
 | POST   | `/templates/html`           | Create a template from HTML              | P1       | Done   |
 | POST   | `/templates/{id}/clone`     | Clone a template                         | P1       | Done   |
-| POST   | `/templates/merge`          | Merge templates                          | P1       | Todo   |
+| POST   | `/templates/merge`          | Merge templates                          | P1       | Done   |
 | PUT    | `/templates/{id}`           | Update a template                        | P0       | Done   |
 | PUT    | `/templates/{id}/documents` | Update template documents                | P0       | Done   |
+| GET    | `/templates/{id}/events`    | List template activity events            | P1       | Done   |
+| GET    | `/templates/{id}/versions`  | List template version snapshots          | P1       | Done   |
 | DELETE | `/templates/{id}`           | Archive or permanently delete a template | P0       | Done   |
 
 #### GET `/templates`
@@ -585,6 +619,50 @@ Signa status:
 - Implemented for metadata, author, folder name, fields, schema, submitters, preferences, and variables schema.
 - Document URL serialization uses signed local proxy URLs from the Storage module.
 - Document serialization follows template `schema` order and omits stale attachments no longer referenced by schema, matching DocuSeal's `schema_documents` behavior.
+
+#### GET `/templates/{id}/events`
+
+Purpose: return account-scoped template activity for timeline/audit display.
+
+Signa status:
+
+- Implemented through module-local `template_events` records.
+- Captures template create, clone, merge, update, rename, archive, restore, folder, document, preference, field, schema, submitter, and sharing changes.
+- Events include actor, timestamp, summary, event type, and changed top-level paths where available.
+- Frontend template details render these events in a grouped activity timeline.
+
+#### GET `/templates/{id}/versions`
+
+Purpose: return deduplicated template snapshots for version inspection.
+
+Signa status:
+
+- Implemented through `template_versions`.
+- Snapshots are stored when tracked template changes occur and deduped by content hash.
+- Version rows preserve author and event metadata so future restore/diff flows can be added without changing the storage shape.
+
+#### POST `/templates`
+
+Purpose: create a blank template row that can be opened in the builder before any uploaded document exists.
+
+Body fields:
+
+- `name`
+- `folder_name`
+- `external_id`
+- `shared_link`
+- `submitters[]`
+
+Signa status:
+
+- Implemented account-scoped blank template creation with DocuSeal-style default submitter fallback (`First Party`), empty `schema`, empty `fields`, empty `preferences`, and `source=native`.
+- Records template activity/version snapshots and emits `template.created` lifecycle events.
+- Dashboard `CREATE` uses this endpoint, then adds a generated blank PDF page through `PUT /api/templates/{id}/documents` before redirecting to the builder.
+
+Blank page document support:
+
+- `PUT /api/templates/{id}/documents` accepts document operations with `type=blank`, `name`, `size=letter|a4|legal`, `position`, and `replace`.
+- Blank pages are generated as normal PDF attachments with `pdf-lib`, then processed through the existing storage/preview/schema pipeline so editor thumbnails, field placement, downloads, and ordering work without special cases.
 
 #### POST `/templates/pdf`
 
@@ -664,12 +742,14 @@ Body fields:
 - `folder_name`
 - `external_id`
 - `application_key` alias
+- `team_id` Signa extension for DocuSeal Pro-style clone into team account
 - `documents` optional replacements
 
 Behavior:
 
 - Clones schema documents and preview attachments.
 - Sets source to `api`.
+- When `team_id` is supplied, persists the target team account in template preferences so team-aware UI/API flows can scope the cloned template.
 - Enqueues `template.created`.
 
 #### POST `/templates/merge`
@@ -686,6 +766,13 @@ Body fields:
 Purpose:
 
 - Combine multiple existing templates into one reusable signing template.
+
+Signa status:
+
+- Implemented tenant-scoped merge for multiple source templates.
+- Preserves source template order, cloned document attachments/previews, fields, submitters, schema, first-template preferences, folder placement, `external_id`, `shared_link`, and optional merged role names.
+- Rewrites submitter UUIDs, field UUIDs, attachment UUIDs, field conditions, formula references, and submitter invite/link references to avoid cross-template collisions.
+- Enqueues `template.created` webhook/event side effects.
 
 #### PUT `/templates/{id}`
 
@@ -726,7 +813,8 @@ Purpose:
 
 Signa status:
 
-- Implemented PDF replacement/append behavior via `merge`.
+- Implemented DocuSeal-style document add/replace/remove operations for PDF, DOCX, and HTML documents.
+- Supports `position`, `replace`, `remove`, and `merge` semantics, preserving existing fields where possible when replacing a document and removing document-scoped fields when deleting a document.
 - Rebuilds schema and normalized fields for uploaded/replaced documents, including standard AcroForm extraction when explicit fields are not supplied.
 - Returns `schema`, changed `fields`, changed `submitters`, and serialized document URLs.
 
@@ -799,7 +887,7 @@ Behavior:
 
 Remaining caveat:
 
-- `POST /api/tools/verify` currently verifies Signa-generated checksum presence for completed documents and parses PDF validity; full PDF cryptographic signature/certificate verification is still pending.
+- `POST /api/tools/verify` currently verifies Signa-generated checksum presence for completed documents, returns the checked SHA-256, parses PDF validity, and reports detected embedded PDF signatures as `unsupported` for certificate-chain cryptographic verification. Full DocuSeal/HexaPDF-style certificate-chain verification is still pending behind a dedicated verifier decision.
 
 Events observed in controllers:
 
@@ -837,6 +925,7 @@ From the local clone:
 Initial candidates for Signa:
 
 - PDF creation/editing/forms/merge: `pdf-lib` as first pass. Standard AcroForm positional extraction is implemented with this stack. Validate whether it covers every remaining HexaPDF use case, especially XFA, signatures, and AcroForm flattening.
+- Generated-only PDFs: evaluate `pdfkit` for audit trails, completion certificates, cover pages, and receipt-style documents where the document is created from scratch. Do not use it as the primary existing-PDF stamping/editing engine unless a separate import/overlay strategy is proven.
 - PDF rendering/previews/text geometry: use a PDFium-backed Node package or a worker/service wrapper around PDFium. PDF.js can render in Node/browser but may not match PDFium output or low-level object access.
 - PDF signature verification/signing: likely needs a specialized library or external service; `pdf-lib` alone is not enough for full digital signature parity.
 - Image processing: `sharp`, which is libvips-backed and maps well to `ruby-vips` preview/image transformations.
@@ -862,12 +951,16 @@ Current Signa implementation:
 - `PUT /api/signing/:slug/values` saves in-progress signer values.
 - `POST /api/signing/:slug/complete` validates required values and marks the submitter completed.
 - `POST /api/signing/:slug/decline` marks the submitter declined.
+- `POST /api/signing/:slug/payment-attempts` records payment provider state for payment fields; required payment fields block completion until a `succeeded` attempt exists.
+- `POST /api/signing/:slug/identity-verifications` records KBA/identity provider state for verification fields; required verification fields block completion until a `verified` record exists.
 - `GET /api/signing/:slug/download` returns generated completed result PDFs once the submitter has completed, and falls back to current template documents before completion.
+- Account preference enforcement follows DocuSeal's `Submitters::FormConfigs`, result generation, and download helpers for the current supported flow: `allow_typed_signature` controls typed-signature availability; `allow_to_decline` controls decline UI/action; `allow_to_delegate` controls delegate action; `allow_to_resubmit` controls shared-link resubmission; `form_prefill_signature` controls saved/default signature reuse; `require_signing_reason` requires a signer reason and feeds the signature ID/reason block; `with_signature_id` adds document/signature ID metadata and visual blocks; `download_links_expire` controls signed blob URL expiry; `download_links_auth` blocks unauthenticated public completed download links; `combine_pdf_result_key` switches completed public downloads to merged result plus audit behavior; `flatten_result_pdf` controls whether result generation flattens source AcroForms.
+- Authenticated owner downloads use `GET /api/submissions/:id/documents`, so public signer download restrictions do not block dashboard/API access for authorized users.
 
 Remaining parity gaps:
 
 - HexaPDF/PDFium-grade final PDF flattening, annotation preservation, exact typography/layout parity, cryptographic signing, LTV, PDF/A, and timestamp server support.
-- Full DocuSeal signer field widget coverage, signing order enforcement, signing reason prompts, signer authentication, delegation, and resubmission rules.
+- Remaining signer auth policy decisions: public unauthenticated signer MFA/KBA and authenticated-only completed-link access UI beyond the backend `download_links_auth` block.
 
 ### Template Email Preferences
 
@@ -891,9 +984,12 @@ Current Signa implementation:
 Remaining parity gaps:
 
 - Mail queue dispatch is wired for submitter invitation, submitter verification, reminders, completed notification, documents copy, and declined emails.
+- Password reset, user invitation, SMTP setup/test, and template OTP templates have reusable MailService send paths; password reset and user invitation endpoints/flows are wired.
+- Submitter and shared-link template email OTP use `otplib` TOTP verification with deterministic DocuSeal-compatible identities (`email + submitter.slug` and `email + template.slug`) and expose public send/check endpoints.
 - Signature request email click tracking is implemented through signed public signing URLs and `submission_events.click_email`.
-- Email delivery persistence is implemented through `EmailMessage` and `EmailEvent` rows for sent/skipped template deliveries.
-- Scheduled reminder dispatch is implemented from account reminder settings and persisted as `submission_events.send_reminder_email`.
+- Email delivery persistence is implemented through `EmailMessage` and `EmailEvent` rows for sent, skipped, and failed template deliveries. `EmailMessage` records submission/submitter linkage, BullMQ job id, attempt count, provider response, sent/skipped/failed timestamps, and exact error message/stack for production debugging. Authenticated dashboard debugging can read delivery trace data through `GET /api/submissions/:id/mail-events`.
+- Scheduled reminder dispatch is implemented from account reminder settings and persisted as `submission_events.send_reminder_email`; reminder email rendering now honors DocuSeal-style template-level `invitation_reminder_email_subject` / `invitation_reminder_email_body` before falling back to account defaults and built-in defaults.
+- Shared-link public start forms are implemented through `GET/POST /api/start-form/:slug`, `POST /api/start-form/:slug/email-verification/send`, and `POST /api/start-form/:slug/email-verification/check`, with frontend route `/d/:slug`.
 - Provider-specific opens/bounces remain pending.
 - Account-level email defaults and inheritance need to be reconciled when the notification module is implemented.
 
@@ -913,12 +1009,58 @@ Implemented:
   - `sms`
   - `maintenance`
 
+### Realtime Events
+
+Implemented:
+
+- `GET /api/realtime/stream`
+  - Server-Sent Events endpoint for dashboard/live workflow updates.
+  - Authenticates the current web-session JWT through `token` query param because browser `EventSource` cannot send custom `Authorization` headers.
+  - Account-scoped by default; optional filters:
+    - `scope=account|template|submission|webhook`
+    - `template_id`
+    - `submission_id`
+    - `webhook_url_id`
+  - Emits keepalive events as `realtime.keepalive` to keep proxies and browser connections open.
+
+Realtime event payload:
+
+```json
+{
+  "id": "template.updated:...",
+  "type": "template.updated",
+  "account_id": "1",
+  "template_id": "21",
+  "submission_id": "37",
+  "submitter_id": "40",
+  "webhook_url_id": "2",
+  "record_id": "37",
+  "occurred_at": "2026-06-27T15:35:00.000Z",
+  "data": {}
+}
+```
+
+Covered event families:
+
+- Template lifecycle: `template.created`, `template.updated`, `template.archived`.
+- Submission lifecycle: `submission.created`, `submission.completed`, `submission.expired`, `submission.archived`.
+- Public signing lifecycle: `form.viewed`, `form.started`, `form.completed`, `form.declined`.
+- Mail delivery trace: `mail.email_sent`, `mail.email_skipped`, `mail.email_failed`, plus future mail event names emitted by `MailProcessor`.
+- Webhook delivery trace: `webhook.delivery.updated`.
+
+Frontend subscriptions:
+
+- Templates dashboard listens account-wide and refreshes templates/folders/submissions.
+- Template detail listens by `template_id` and refreshes template, submissions, and activity timeline.
+- Submission detail listens by `submission_id` and refreshes submission documents, event log, and mail trace.
+- Webhooks settings listens by `webhook_url_id` and invalidates webhook/event queries.
+
 Pending:
 
-- Queue processors for document generation, webhooks, SMS, and maintenance jobs.
-- Webhook URL/event/attempt persistence and signed delivery.
-- Mail delivery status persistence and SMS delivery orchestration.
-- Scheduler handlers for submission expiry and cleanup.
+- Provider-specific callback signature validation and delivery dashboards.
+- Richer SMS provider metadata beyond Twilio status callbacks.
+- Provider-specific open/bounce/unsubscribe mapping beyond the generic email provider callback ingestion endpoint.
+- Remaining cleanup/retry maintenance schedulers beyond implemented submission expiry.
 
 ### Risk Areas
 

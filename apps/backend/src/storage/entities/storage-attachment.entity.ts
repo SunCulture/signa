@@ -7,12 +7,13 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import { v4 as uuidv4 } from 'uuid';
 import { StorageBlob } from './storage-blob.entity';
 
 @Entity('active_storage_attachments')
 @Index(['recordType', 'recordId', 'name', 'blobId'])
 export class StorageAttachment {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Column({ type: 'varchar', length: 255 })
@@ -31,11 +32,10 @@ export class StorageAttachment {
   @Column({
     type: 'varchar',
     length: 255,
-    default: () => '(gen_random_uuid())',
   })
-  uuid!: string;
+  uuid: string = uuidv4();
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
   @ManyToOne(() => StorageBlob, (blob) => blob.attachments, {

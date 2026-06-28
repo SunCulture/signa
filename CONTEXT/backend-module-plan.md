@@ -35,9 +35,9 @@ Implemented:
 
 Pending:
 
-- Remaining BullMQ processors are still owned by the relevant feature modules.
-- Queue registration into Bull Board will happen when processors are added.
-- SMS delivery orchestration, remaining maintenance schedules, and document-generation processors still need feature-module implementations. Mail and webhook processors exist for the current implemented flows.
+- Remaining BullMQ processors are owned by the relevant feature modules.
+- Mail, SMS, webhook, reminders, submission-expiry, and document-generation processors are implemented for the current supported flows and registered with Bull Board where applicable.
+- Remaining maintenance schedules are for cleanup/retry/stale-generation follow-up jobs, not core delivery or document-generation execution.
 
 Tests:
 
@@ -175,6 +175,7 @@ Owns:
 - `TemplateAccess`
 - `TemplateSharing`
 - `TemplateVersion`
+- `TemplateEvent`
 - Storage-owned `StorageBlob`
 - Storage-owned `StorageAttachment`
 - later `DynamicDocument`
@@ -184,6 +185,7 @@ P0 endpoints:
 
 - `GET /api/templates`
 - `GET /api/templates/:id`
+- `POST /api/templates`
 - `PUT /api/templates/:id`
 - `DELETE /api/templates/:id`
 - `POST /api/templates/pdf`
@@ -195,14 +197,19 @@ P1 endpoints:
 - `POST /api/templates/html`
 - `POST /api/templates/:id/clone`
 - `POST /api/templates/merge`
+- `GET /api/templates/:id/events`
+- `GET /api/templates/:id/versions`
 
 Responsibilities:
 
 - List templates with DocuSeal pagination and filters.
+- Create blank builder templates.
 - Create templates from PDF uploads.
 - Update template metadata, roles, submitters, fields, folder, archive state.
 - Replace or append template documents.
+- Merge templates from multiple existing template ids.
 - Archive or permanently delete templates.
+- Record template activity and deduplicated version snapshots for audit/debug history.
 - Emit template webhook events through Webhooks Module when available.
 
 Current Signa status:
@@ -213,10 +220,18 @@ Current Signa status:
 - PDF template creation/replacement supports DocuSeal JSON documents with base64/URL files and provided coordinate fields.
 - PDF previews are generated with `@hyzyla/pdfium` and `sharp`.
 - Standard AcroForm positional extraction is implemented with `pdf-lib`.
-- Frontend `/templates` now reads real backend templates, preserves active/archived/search state in URL params, and supports upload, move, edit, archive, restore, and permanent delete.
+- Blank builder template creation is implemented through `POST /api/templates`.
+- Blank builder pages are implemented through `PUT /api/templates/:id/documents` with `type=blank`, generating normal PDF attachments with `pdf-lib` and the existing PDFium preview pipeline.
+- Frontend `/templates` now reads real backend templates, preserves dashboard view, active/archived/search/folder state in URL params, and supports DocuSeal-style Templates/Submissions switching, upload, folder browsing, modal move, edit, archive, restore, and permanent delete.
+- `GET/POST/PUT/DELETE /api/templates/folders` are implemented for account-scoped DocuSeal-style folder paths using the implicit `Default` root folder.
+- `POST /api/templates/merge` is implemented with cloned document/previews, schema/field/submitter merge, UUID/reference remapping, role override support, and `template.created` side effects.
+- `PUT /api/templates/:id/documents` now supports PDF/DOCX/HTML add, replace, remove, position, and merge semantics.
+- `template_events` records template create, clone, merge, update, rename, archive, restore, folder, document, preference, field, schema, submitter, and sharing activity with actor, timestamp, summary, event type, and changed top-level paths.
+- `template_versions` stores deduplicated template snapshots for tracked template changes.
+- `GET /api/templates/:id/events` and `GET /api/templates/:id/versions` are implemented for dashboard timelines and version inspection.
 - Frontend `/templates/:id/edit` now supports backend-backed document list ordering, append, replace, remove, rename, and center-canvas preview rendering.
 - Frontend `/templates/:id/edit` now supports DocuSeal-style normalized field placement on preview pages, including click/draw create, page overlays, select, move, resize, delete, and persistence through `PUT /api/templates/:id`.
-- Pending for deeper parity: folder picker modal, blank-template creation, embedded text-tag extraction/removal, DocuSeal-grade PDF flattening/signing, PDF/A/LTV/timestamp support, and XFA support.
+- Pending for deeper parity: embedded text-tag extraction/removal, DocuSeal-grade PDF flattening/signing, PDF/A/LTV/timestamp support, and XFA support.
 - Template lifecycle webhook enqueue is implemented through the Webhooks module.
 
 Tests:
@@ -349,7 +364,7 @@ Responsibilities:
 - Send signature request emails/SMS when enabled.
 - Send completion notifications.
 - Render DocuSeal-compatible Markdown email templates after replacing template, submitter, submission, document, account, and sender variables.
-- Store `EmailMessage` and `EmailEvent` delivery records for sent/skipped template mail.
+- Store `EmailMessage` and `EmailEvent` delivery records for sent, skipped, and failed template mail.
 - Keep provider-specific code behind adapters.
 
 Current Signa status:
@@ -360,8 +375,11 @@ Current Signa status:
 - `MailService` is reusable and queue-friendly, with `MAIL_ENABLED` skip mode, template checks, formatted sender/recipient handling, and SMTP rejected-recipient detection.
 - `MailEventListener` maps submitter/form lifecycle events to queued jobs.
 - `MailProcessor` currently handles signature request, submitter verification, reminder, completed notification, documents copy, and declined emails, including result-document/audit attachments when generated artifacts are already available.
-- `MailReminderScheduler` scans due pending submitters hourly and queues idempotent reminder jobs from account reminder settings.
-- Remaining gaps: SMS processors, user/password/account email orchestration, provider-specific delivery/open/bounce events, and Bull Board feature registration for concrete queues.
+- Mail queue delivery trace now persists submission/submitter linkage, BullMQ job id, attempt number, provider response, exact failure message/stack, and sent/skipped/failed timestamps on `EmailMessage`.
+- `GET /api/submissions/:id/mail-events` exposes delivery trace rows for dashboard/debug visibility.
+- `MailReminderScheduler` scans due pending submitters hourly and queues idempotent reminder jobs from account reminder settings. Reminder email copy follows DocuSeal precedence: template-level invitation reminder subject/body, account-level reminder defaults, then built-in defaults.
+- Password reset, account SMTP test, user invitation, submitter email OTP, and shared-link template OTP send paths are wired through the reusable MailService. OTP generation/verification uses `otplib` TOTP with DocuSeal-compatible identity derivation.
+- Remaining gaps: provider-specific callback signature verification and richer provider delivery dashboards.
 
 Tests:
 
@@ -403,7 +421,38 @@ Implemented:
 - Hourly submission-expiry scheduler that emits `submission.expired`.
 - Webhook events persist outbound payload snapshots for event-log inspection.
 
-### 12. Tools Module
+### 12. Realtime Module
+
+Purpose: dashboard live updates for template, submission, mail, and webhook activity.
+
+Owns:
+
+- `RealtimeService`
+- `RealtimeController`
+- `RealtimeEventListener`
+
+Responsibilities:
+
+- Expose account-scoped Server-Sent Events through `GET /api/realtime/stream`.
+- Authenticate dashboard streams with the current web-session JWT.
+- Filter event streams by template, submission, or webhook URL when requested.
+- Bridge runtime lifecycle events into realtime dashboard events.
+- Publish direct queue/delivery state changes from mail and webhook processors.
+- Emit keepalive events so browser/proxy connections remain stable.
+
+Current Signa status:
+
+- Template, submission, and public form lifecycle runtime events publish to SSE.
+- Mail sent/skipped/failed trace rows publish realtime delivery events after persistence.
+- Webhook delivery status updates publish realtime events after attempt/status persistence.
+- Frontend subscriptions are wired for the templates dashboard, template detail, submission detail, and webhooks settings pages.
+
+Tests:
+
+- Realtime service filtering is covered for account/template scoped streams.
+- Keepalive events are covered.
+
+### 13. Tools Module
 
 Purpose: secondary utility endpoints after public API stability.
 
@@ -476,8 +525,15 @@ Implemented JSON endpoints:
 - `POST /api/auth/register`
 - `POST /api/auth/login`
 - `GET /api/profile`
+- `GET /api/profile`
 - `PATCH /api/profile`
 - `PATCH /api/profile/password`
+- `GET/POST/DELETE /api/profile/signature`
+- `GET/POST/DELETE /api/profile/initials`
+- `GET /api/profile/mfa`
+- `POST /api/profile/mfa/setup`
+- `POST /api/profile/mfa`
+- `DELETE /api/profile/mfa`
 - `GET /api/account`
 - `PATCH /api/account`
 - `DELETE /api/account`
@@ -503,7 +559,8 @@ Notes:
 - Local DocuSeal OSS includes users settings routes but no standalone team model/controller. Signa now implements an account-local team model using common workspace best practices: account remains the tenant, team membership is many-to-many, and account role is separate from team role.
 - Local DocuSeal OSS only enables `admin` and displays editor/viewer as Pro-gated options. Signa intentionally unlocks `admin`, `editor`, `member`, `viewer`, and `agent`, backed by CASL policy guards and shared role constants.
 - `POST /api/users/import` supports bulk user creation/restoration with per-row results from normalized frontend import rows. The frontend now supports manual comma/space-separated emails, CSV parsing, `.xlsx` parsing, sample CSV download, and optional first/last names. Import-time team membership assignment remains pending.
-- Team invitation email delivery is not yet queued; invitation creation stores a token hash and returns the raw accept token only in the create response.
+- Team invitation email delivery is wired through MailService; invitation creation stores a token hash, sends the raw accept token by email, and returns the raw accept token only in the create response. Account user creation/import invitations are wired through MailService with password setup tokens.
+- Profile signature and initials follow DocuSeal's `UserConfig::SIGNATURE_KEY` / `INITIALS_KEY` pattern and store the active attachment UUID in `user_configs`. Authenticator 2FA is implemented with `otplib`, persisted on user OTP columns, and enforced by `/api/auth/login`.
 
 - Web-app routes use bearer JWT auth.
 - Public API compatibility routes continue to use `X-Auth-Token`.

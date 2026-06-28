@@ -9,8 +9,10 @@ import {
   DownloadIcon,
   EyeIcon,
   PenLineIcon,
+  Redo2Icon,
   SaveIcon,
   SlidersHorizontalIcon,
+  Undo2Icon,
   UserRoundPlusIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -24,6 +26,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { PendingImportedFieldsBanner } from "./_components/pending-imported-fields-banner";
 import { TemplateCanvas } from "./_components/canvas/template-canvas";
 import { TemplateDocumentsPanel } from "./_components/documents/template-documents-panel";
@@ -47,14 +55,19 @@ export function TemplateEditor() {
 
   const {
     activeFieldType,
+    addBlankPage,
+    addCustomFieldWithoutDrawing,
     addDocument,
     addDroppedField,
     addFieldWithoutDrawing,
     addSubmitter,
+    canRedo,
+    canUndo,
     copyFieldToAllPages,
     copySelectedFields,
     currentFields,
     currentSubmitters,
+    customFields,
     createField,
     currentTemplate,
     deleteField,
@@ -84,7 +97,9 @@ export function TemplateEditor() {
     replaceDocument,
     reorderDocumentFields,
     resolvePendingImportedFields,
+    redoTemplateChange,
     saveTemplateDraft,
+    saveFieldAsCustomField,
     saveTemplatePreferences,
     selectField,
     selectedDocument,
@@ -102,6 +117,7 @@ export function TemplateEditor() {
     updateFieldArea,
     updateDocumentConditions,
     updateTemplateSharedLink,
+    undoTemplateChange,
   } = editor;
 
   function openRecipientsDialog() {
@@ -125,7 +141,7 @@ export function TemplateEditor() {
           onRemove={() => void resolvePendingImportedFields("remove")}
         />
       ) : null}
-      <header className="flex h-16 shrink-0 items-center justify-between border-b border-[var(--auth-input-border)] bg-card px-4">
+      <header className="relative flex h-16 shrink-0 items-center justify-between border-b border-[var(--auth-input-border)] bg-card px-4">
         <div className="flex min-w-0 items-center gap-3">
           <Link
             aria-label="Back to templates"
@@ -146,6 +162,14 @@ export function TemplateEditor() {
             {currentTemplate.name}
           </h1>
         </div>
+
+        <TemplateEditorHistoryControls
+          canRedo={canRedo}
+          canUndo={canUndo}
+          isSaving={isSavingFields}
+          onRedo={redoTemplateChange}
+          onUndo={undoTemplateChange}
+        />
 
         <div className="flex shrink-0 items-center gap-3">
           <Button
@@ -255,6 +279,7 @@ export function TemplateEditor() {
       <div className="grid min-h-0 flex-1 grid-cols-[226px_minmax(0,1fr)_340px]">
         <TemplateDocumentsPanel
           isUploadingDocument={isUploadingDocument}
+          onAddBlankPage={addBlankPage}
           onAddDocument={addDocument}
           onEditDocument={setEditingDocumentUuid}
           onMoveDocument={moveDocument}
@@ -273,6 +298,7 @@ export function TemplateEditor() {
           documents={currentTemplate.documents}
           fields={currentFields}
           isSavingFields={isSavingFields}
+          onAddSubmitter={addSubmitter}
           onCopySelectedFields={copySelectedFields}
           onDropField={addDroppedField}
           onCreateField={createField}
@@ -291,11 +317,13 @@ export function TemplateEditor() {
         />
         <TemplateFieldsPanel
           activeFieldType={activeFieldType}
+          customFields={customFields}
           fields={currentFields}
           isSavingFields={isSavingFields}
           onAddSubmitter={addSubmitter}
           onAddFieldWithoutDrawing={addFieldWithoutDrawing}
           onCancelFieldPlacement={() => setActiveFieldType(null)}
+          onCustomFieldSelect={addCustomFieldWithoutDrawing}
           onCopyFieldToAllPages={copyFieldToAllPages}
           onDeleteField={deleteField}
           onFieldTypeSelect={setActiveFieldType}
@@ -307,6 +335,7 @@ export function TemplateEditor() {
           onRenameSubmitter={renameSubmitter}
           onSelectSubmitter={setSelectedSubmitterUuid}
           onSelectField={(fieldUuid) => selectField(fieldUuid)}
+          onSaveCustomField={saveFieldAsCustomField}
           onStartDrawNewArea={startDrawNewArea}
           onUpdateField={updateFieldAndTemplate}
           selectedFieldUuid={selectedFieldUuid}
@@ -315,6 +344,59 @@ export function TemplateEditor() {
         />
       </div>
     </main>
+  );
+}
+
+function TemplateEditorHistoryControls({
+  canRedo,
+  canUndo,
+  isSaving,
+  onRedo,
+  onUndo,
+}: {
+  canRedo: boolean;
+  canUndo: boolean;
+  isSaving: boolean;
+  onRedo: () => Promise<void>;
+  onUndo: () => Promise<void>;
+}) {
+  return (
+    <TooltipProvider>
+      <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center overflow-hidden rounded-full border border-[var(--auth-input-border)] bg-[var(--auth-background)] shadow-sm">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              aria-label="Undo"
+              className="size-10 rounded-none border-r border-[var(--auth-input-border)] text-[var(--auth-primary)]"
+              disabled={!canUndo || isSaving}
+              onClick={() => void onUndo()}
+              size="icon"
+              type="button"
+              variant="ghost"
+            >
+              <Undo2Icon data-icon="icon-only" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Undo</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              aria-label="Redo"
+              className="size-10 rounded-none text-[var(--auth-primary)]"
+              disabled={!canRedo || isSaving}
+              onClick={() => void onRedo()}
+              size="icon"
+              type="button"
+              variant="ghost"
+            >
+              <Redo2Icon data-icon="icon-only" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Redo</TooltipContent>
+        </Tooltip>
+      </div>
+    </TooltipProvider>
   );
 }
 

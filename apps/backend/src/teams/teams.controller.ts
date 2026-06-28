@@ -17,6 +17,9 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtGuard } from '../auth/guards/jwt/jwt.guard';
+import { AuthService } from '../auth/auth.service';
+import { ApiTokenRevealResponseDto } from '../auth/dto/api-token-response.dto';
+import { AuthResponseDto } from '../auth/dto/auth-response.dto';
 import { UserHydrationGuard } from '../auth/guards/user-hydration/user-hydration.guard';
 import { AuthorizationAction } from '../authorization/authorization-actions';
 import { CheckPolicies } from '../authorization/check-policies.decorator';
@@ -40,7 +43,10 @@ import { TeamsService } from './teams.service';
 @ApiTags('Teams')
 @ApiBearerAuth()
 export class TeamsController {
-  constructor(private readonly teamsService: TeamsService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly teamsService: TeamsService,
+  ) {}
 
   @Get('teams')
   @ApiQuery({ name: 'status', required: false, enum: ['active', 'archived'] })
@@ -192,6 +198,40 @@ export class TeamsController {
       input: body,
       teamId,
     });
+  }
+
+  @Post('teams/:id/impersonate')
+  @ApiOkResponse({ type: AuthResponseDto })
+  async impersonateTeam(
+    @CurrentUser() user: User,
+    @Param('id') teamId: string,
+  ): Promise<AuthResponseDto> {
+    await this.teamsService.assertCanUseTeamAction({
+      accountId: user.accountId,
+      actor: user,
+      teamId,
+    });
+
+    return this.authService.createTeamImpersonationResponse({
+      account: user.account,
+      teamId,
+      user,
+    });
+  }
+
+  @Post('teams/:id/api-token')
+  @ApiOkResponse({ type: ApiTokenRevealResponseDto })
+  async issueTeamApiToken(
+    @CurrentUser() user: User,
+    @Param('id') teamId: string,
+  ): Promise<ApiTokenRevealResponseDto> {
+    await this.teamsService.assertCanUseTeamAction({
+      accountId: user.accountId,
+      actor: user,
+      teamId,
+    });
+
+    return this.authService.issueTeamApiToken({ teamId, user });
   }
 
   @Delete('teams/:id/invitations/:invitationId')

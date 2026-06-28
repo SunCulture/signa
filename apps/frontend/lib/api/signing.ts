@@ -66,6 +66,17 @@ export type SigningForm = {
 
 export type SigningFormConfig = {
   with_confetti: boolean;
+  with_typed_signature: boolean;
+  with_decline: boolean;
+  with_delegate: boolean;
+  require_signing_reason: boolean;
+  with_signature_id: boolean;
+  prefill_signature: boolean;
+  download_links_expire: boolean;
+  download_links_auth: boolean;
+  combine_pdf_result: boolean;
+  flatten_result_pdf: boolean;
+  force_mfa: boolean;
   completed_message: {
     title?: string;
     body?: string;
@@ -166,6 +177,19 @@ export function sendSigningPhoneVerification(
 ): Promise<{ phone: string; status: string }> {
   return apiFetch<{ phone: string; status: string }>(
     `/signing/${slug}/phone-verification/send`,
+    {
+      body: JSON.stringify(input),
+      method: "POST",
+    },
+  );
+}
+
+export function validateSigningPhoneNumber(
+  slug: string,
+  input: { field_uuid?: string; phone?: string },
+): Promise<{ phone: string; valid: boolean }> {
+  return apiFetch<{ phone: string; valid: boolean }>(
+    `/signing/${slug}/phone-verification/validate`,
     {
       body: JSON.stringify(input),
       method: "POST",

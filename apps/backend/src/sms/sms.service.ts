@@ -49,6 +49,7 @@ export class SmsService {
     const message = await client.messages.create({
       ...this.getSender(),
       body: this.buildInvitationBody(submitter),
+      statusCallback: this.buildStatusCallbackUrl(),
       to,
     });
 
@@ -99,6 +100,25 @@ export class SmsService {
     }
 
     return { from: this.fromPhone! };
+  }
+
+  private buildStatusCallbackUrl(): string | undefined {
+    const apiBase = this.config.get<string>('API_PUBLIC_URL');
+
+    if (!apiBase) {
+      return undefined;
+    }
+
+    const secret = this.config.get<string>('SMS_CALLBACK_SECRET');
+    const url = new URL(
+      `${apiBase.replace(/\/$/, '')}/sms-events/twilio/status`,
+    );
+
+    if (secret) {
+      url.searchParams.set('secret', secret);
+    }
+
+    return url.toString();
   }
 }
 

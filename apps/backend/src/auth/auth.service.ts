@@ -1,7 +1,9 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   UnauthorizedException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import {
   createCipheriv,
@@ -12,12 +14,14 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, IsNull, Repository } from 'typeorm';
 import { Account } from '../accounts/entities/account.entity';
 import { throwIfUniqueConstraint } from '../common/utils/error';
 import { TeamMember } from '../teams/entities/team-member.entity';
 import { Team } from '../teams/entities/team.entity';
 import { createTeamSlug } from '../teams/team-slug';
+import { EmailVerificationCodeService } from '../mail/email-verification-code.service';
+import { MailService } from '../mail/mail.service';
 import { User } from '../users/entities/user.entity';
 import {
   defaultApiTokenPermissions,
@@ -31,20 +35,30 @@ import {
 } from './dto/api-token-response.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { LoginDto } from './dto/login.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { AccessToken } from './entities/access-token.entity';
 import { hashPassword, verifyPassword } from './passwords';
+import {
+  createPasswordResetToken,
+  hashPasswordResetToken,
+} from './password-reset-tokens';
 import { TenantContext } from './tenant-context';
 import { WebSessionJwtPayload } from './web-session';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectRepository(AccessToken)
     private readonly accessTokens: Repository<AccessToken>,
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
+    private readonly emailVerificationCodes: EmailVerificationCodeService,
     private readonly jwtService: JwtService,
+    private readonly mailService: MailService,
   ) {}
 
   hashApiToken(apiToken: string): string {
@@ -82,6 +96,7 @@ export class AuthService {
       apiTokenPermissions: normalizeApiTokenPermissions(
         accessToken.permissions,
       ),
+      teamId: accessToken.teamId ?? undefined,
     };
   }
 
@@ -141,6 +156,47 @@ export class AuthService {
       await this.accessTokens.save(accessToken),
       await this.getUserRole(userId),
     );
+  }
+
+  async issueTeamApiToken(options: {
+    teamId: string;
+    user: User;
+  }): Promise<ApiTokenRevealResponseDto> {
+    const token = this.generateApiToken();
+    const accessToken = await this.accessTokens.save(
+      this.accessTokens.create({
+        permissions: [...defaultApiTokenPermissions],
+        sha256: this.hashApiToken(token),
+        teamId: options.teamId,
+        token: this.encryptApiToken(token),
+        userId: options.user.id,
+      }),
+    );
+
+    return {
+      ...this.toApiTokenResponse(accessToken, options.user.role),
+      permissions_note:
+        'API token belongs to this user and is scoped to the selected team.',
+      revealed_token: token,
+    };
+  }
+
+  createTeamImpersonationResponse(options: {
+    account: Account;
+    teamId: string;
+    user: User;
+  }): AuthResponseDto {
+    const response = this.createAuthResponse(options.user, options.account);
+
+    response.access_token = this.jwtService.sign({
+      accountId: options.user.accountId,
+      role: options.user.role,
+      sub: options.user.id,
+      teamId: options.teamId,
+      userId: options.user.id,
+    } satisfies WebSessionJwtPayload);
+
+    return response;
   }
 
   async register(input: RegisterDto): Promise<AuthResponseDto> {
@@ -220,7 +276,105 @@ export class AuthService {
       throw new UnauthorizedException({ error: 'Invalid email or password' });
     }
 
+    if (user.otpRequiredForLogin) {
+      if (!input.otp_attempt) {
+        throw new UnauthorizedException({
+          error: 'Two-factor authentication code is required',
+          code: 'otp_required',
+        });
+      }
+
+      if (
+        !user.otpSecret ||
+        !this.emailVerificationCodes.verifyAuthenticatorCode({
+          code: input.otp_attempt,
+          secret: user.otpSecret,
+        })
+      ) {
+        throw new UnauthorizedException({
+          error: 'Two-factor authentication code is invalid',
+          code: 'otp_invalid',
+        });
+      }
+    }
+
     return this.createAuthResponse(user, user.account);
+  }
+
+  async requestPasswordReset(input: ForgotPasswordDto): Promise<{ ok: true }> {
+    const user = await this.dataSource.getRepository(User).findOne({
+      where: { email: input.email.toLowerCase() },
+      relations: { account: true },
+    });
+
+    if (!user || user.archivedAt || user.account.archivedAt) {
+      return { ok: true };
+    }
+
+    const token = createPasswordResetToken();
+
+    user.resetPasswordToken = hashPasswordResetToken(token);
+    user.resetPasswordSentAt = new Date();
+    await this.dataSource.getRepository(User).save(user);
+
+    try {
+      await this.mailService.sendPasswordReset({
+        accountId: user.accountId,
+        email: user.email,
+        firstName: user.firstName,
+        token,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to send password reset email for user ${user.id}: ${(error as Error).message}`,
+      );
+    }
+
+    return { ok: true };
+  }
+
+  async resetPassword(input: ResetPasswordDto): Promise<{ ok: true }> {
+    if (input.password !== input.password_confirmation) {
+      throw new UnprocessableEntityException({
+        error: 'Password confirmation does not match',
+      });
+    }
+
+    const user = await this.dataSource.getRepository(User).findOne({
+      where: { resetPasswordToken: hashPasswordResetToken(input.token) },
+      relations: { account: true },
+    });
+
+    if (
+      !user ||
+      user.archivedAt ||
+      user.account.archivedAt ||
+      !this.isPasswordResetTokenFresh(user.resetPasswordSentAt)
+    ) {
+      throw new UnprocessableEntityException({
+        error: 'Password reset token is invalid or expired',
+      });
+    }
+
+    user.encryptedPassword = await hashPassword(input.password);
+    user.resetPasswordToken = null;
+    user.resetPasswordSentAt = null;
+    await this.dataSource.getRepository(User).save(user);
+
+    return { ok: true };
+  }
+
+  private isPasswordResetTokenFresh(sentAt: Date | null): boolean {
+    if (!sentAt) {
+      return false;
+    }
+
+    const ttlMinutes = this.configService.get<number>(
+      'PASSWORD_RESET_TOKEN_TTL_MINUTES',
+      360,
+    );
+
+    return Date.now() - sentAt.getTime() <= ttlMinutes * 60 * 1000;
   }
 
   private createAuthResponse(user: User, account: Account): AuthResponseDto {
@@ -239,6 +393,7 @@ export class AuthService {
         last_name: user.lastName,
         email: user.email,
         role: user.role,
+        otp_required_for_login: user.otpRequiredForLogin,
       },
       account: {
         id: account.id,
@@ -251,7 +406,7 @@ export class AuthService {
 
   private async findOrCreateUserApiToken(userId: string): Promise<AccessToken> {
     const existing = await this.accessTokens.findOne({
-      where: { userId },
+      where: { teamId: IsNull(), userId },
       order: { id: 'ASC' },
     });
 

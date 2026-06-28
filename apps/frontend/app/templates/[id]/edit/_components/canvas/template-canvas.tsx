@@ -17,6 +17,7 @@ export function TemplateCanvas({
   documents,
   fields,
   isSavingFields,
+  onAddSubmitter,
   onCopySelectedFields,
   onCreateField,
   onDeleteField,
@@ -37,6 +38,7 @@ export function TemplateCanvas({
   documents: TemplateDocument[];
   fields: TemplateEditorField[];
   isSavingFields: boolean;
+  onAddSubmitter: (fieldUuid?: string) => Promise<void>;
   onCopySelectedFields: (fieldUuid?: string) => void;
   onCreateField: (area: TemplateFieldArea) => Promise<void>;
   onDeleteField: (fieldUuid: string) => Promise<void>;
@@ -91,6 +93,7 @@ export function TemplateCanvas({
               fields={fields}
               isSelected={document.uuid === selectedDocumentUuid}
               isSavingFields={isSavingFields}
+              onAddSubmitter={onAddSubmitter}
               onCopySelectedFields={onCopySelectedFields}
               key={document.uuid}
               name={getDocumentDisplayName(template, document)}
@@ -128,6 +131,7 @@ export function TemplateCanvasDocument({
   isSelected,
   isSavingFields,
   name,
+  onAddSubmitter,
   onCopySelectedFields,
   onCreateField,
   onDeleteField,
@@ -149,6 +153,7 @@ export function TemplateCanvasDocument({
   isSelected: boolean;
   isSavingFields: boolean;
   name: string;
+  onAddSubmitter: (fieldUuid?: string) => Promise<void>;
   onCopySelectedFields: (fieldUuid?: string) => void;
   onCreateField: (area: TemplateFieldArea) => Promise<void>;
   onDeleteField: (fieldUuid: string) => Promise<void>;
@@ -192,6 +197,7 @@ export function TemplateCanvasDocument({
               filename={document.filename}
               isSelected={isSelected && index === 0}
               isSavingFields={isSavingFields}
+              onAddSubmitter={onAddSubmitter}
               onCopySelectedFields={onCopySelectedFields}
               key={previewImage.id}
               onCreateField={onCreateField}

@@ -5,8 +5,9 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { basename, extname } from 'node:path';
+import { PDFDocument } from 'pdf-lib';
 import { Brackets, IsNull, Repository, SelectQueryBuilder } from 'typeorm';
 import { throwDatabaseErrors, throwIfNotFound } from '../common/utils/error';
 import { runtimeEvents } from '../runtime/runtime-events';
@@ -14,25 +15,38 @@ import { StorageService } from '../storage/storage.service';
 import { UploadedBufferFile } from '../storage/storage.types';
 import { User } from '../users/entities/user.entity';
 import { CloneTemplateDto } from './dto/clone-template.dto';
+import { CreateTemplateDto } from './dto/create-template.dto';
+import { CreateTemplateFolderDto } from './dto/create-template-folder.dto';
 import { CreateTemplateFromDocxDto } from './dto/create-template-from-docx.dto';
 import { CreateTemplateFromHtmlDto } from './dto/create-template-from-html.dto';
 import { CreateTemplateFromPdfDto } from './dto/create-template-from-pdf.dto';
+import { DeleteTemplateFolderQueryDto } from './dto/delete-template-folder-query.dto';
 import { DeleteTemplateQueryDto } from './dto/delete-template-query.dto';
+import { ListTemplateFoldersQueryDto } from './dto/list-template-folders-query.dto';
 import { ListTemplatesQueryDto } from './dto/list-templates-query.dto';
+import { MergeTemplatesDto } from './dto/merge-templates.dto';
+import { TemplateEventsListResponseDto } from './dto/template-event-response.dto';
+import { TemplateFolderResponseDto } from './dto/template-folder-response.dto';
 import { TemplateDeleteResponseDto } from './dto/template-delete-response.dto';
 import { TemplateDocumentsUpdateResponseDto } from './dto/template-documents-update-response.dto';
 import { TemplateResponseDto } from './dto/template-response.dto';
 import { TemplateUpdateResponseDto } from './dto/template-update-response.dto';
+import { TemplateVersionsListResponseDto } from './dto/template-version-response.dto';
 import { TemplatesListResponseDto } from './dto/templates-list-response.dto';
+import { UpdateTemplateFolderDto } from './dto/update-template-folder.dto';
 import { UpdateTemplateDocumentsDto } from './dto/update-template-documents.dto';
 import { UpdateTemplateDto } from './dto/update-template.dto';
 import { DocumentConversionService } from './document-conversion.service';
 import { DocxFieldTagService } from './docx-field-tag.service';
+import { DocxVariableService } from './docx-variable.service';
 import { DynamicDocumentVersion } from './entities/dynamic-document-version.entity';
 import { DynamicDocument } from './entities/dynamic-document.entity';
+import { TemplateEvent } from './entities/template-event.entity';
 import { TemplateFolder } from './entities/template-folder.entity';
 import { Template } from './entities/template.entity';
+import { TemplateVersion } from './entities/template-version.entity';
 import { PdfAcroFormService } from './pdf-acro-form/pdf-acro-form.service';
+import { PdfTextTagService } from './pdf-text-tag.service';
 import {
   TemplateDocumentResponse,
   TemplateField,
@@ -49,6 +63,10 @@ export class TemplatesService {
     private readonly templates: Repository<Template>,
     @InjectRepository(TemplateFolder)
     private readonly folders: Repository<TemplateFolder>,
+    @InjectRepository(TemplateEvent)
+    private readonly templateEvents: Repository<TemplateEvent>,
+    @InjectRepository(TemplateVersion)
+    private readonly templateVersions: Repository<TemplateVersion>,
     @InjectRepository(DynamicDocument)
     private readonly dynamicDocuments: Repository<DynamicDocument>,
     @InjectRepository(DynamicDocumentVersion)
@@ -57,6 +75,8 @@ export class TemplatesService {
     private readonly pdfAcroFormService: PdfAcroFormService,
     private readonly documentConversionService: DocumentConversionService,
     private readonly docxFieldTagService: DocxFieldTagService,
+    private readonly docxVariableService: DocxVariableService,
+    private readonly pdfTextTagService: PdfTextTagService,
     private readonly events: EventEmitter2,
   ) {}
 
@@ -76,7 +96,12 @@ export class TemplatesService {
     }
 
     this.applyFilters(builder, query);
-    await this.applyFolderFilter(builder, user.accountId, query.folder);
+    await this.applyFolderFilter(
+      builder,
+      user.accountId,
+      query.folder ??
+        (query.archived ? undefined : TemplateFolder.DEFAULT_NAME),
+    );
 
     const templates = await builder
       .orderBy('template.id', 'DESC')
@@ -95,6 +120,254 @@ export class TemplatesService {
     };
   }
 
+  async listFolders(
+    user: User,
+    query: ListTemplateFoldersQueryDto,
+  ): Promise<TemplateFolderResponseDto[]> {
+    const parent = query.parent
+      ? await this.findFolderByFullNameOrFail(user, query.parent)
+      : null;
+    const folders = await this.folders
+      .createQueryBuilder('folder')
+      .leftJoinAndSelect('folder.parentFolder', 'parentFolder')
+      .leftJoinAndSelect('parentFolder.parentFolder', 'grandParentFolder')
+      .leftJoinAndSelect('grandParentFolder.parentFolder', 'rootParentFolder')
+      .where('folder.account_id = :accountId', { accountId: user.accountId })
+      .andWhere('folder.archived_at IS NULL')
+      .andWhere(
+        parent
+          ? 'folder.parent_folder_id = :parentFolderId'
+          : 'folder.parent_folder_id IS NULL',
+        parent ? { parentFolderId: parent.id } : {},
+      )
+      .orderBy('folder.name', 'ASC')
+      .getMany();
+    const search = query.q?.trim().toLowerCase();
+    const visibleFolders = folders.filter((folder) => {
+      if (!parent && folder.name === TemplateFolder.DEFAULT_NAME) {
+        return false;
+      }
+
+      return search ? folder.name.toLowerCase().includes(search) : true;
+    });
+
+    return Promise.all(
+      visibleFolders.map((folder) => this.toFolderResponse(folder)),
+    );
+  }
+
+  async createFolder(
+    user: User,
+    input: CreateTemplateFolderDto,
+  ): Promise<TemplateFolderResponseDto> {
+    const folderName = this.buildFolderPath(input.parent, input.name);
+    const folder = await this.findOrCreateFolder(user, folderName);
+
+    return this.toFolderResponse(
+      await this.findFolderByFullNameOrFail(user, this.getFolderName(folder)),
+    );
+  }
+
+  async updateFolder(
+    user: User,
+    folderId: string,
+    input: UpdateTemplateFolderDto,
+  ): Promise<TemplateFolderResponseDto> {
+    const folder = await this.findAccountFolderOrFail(user, folderId);
+
+    this.assertEditableFolder(folder);
+
+    if (input.name !== undefined) {
+      const name = input.name.trim();
+
+      if (!name) {
+        throw new UnprocessableEntityException({
+          error: 'Folder name cannot be blank',
+        });
+      }
+
+      folder.name = name;
+    }
+
+    if (input.parent !== undefined) {
+      folder.parentFolder = input.parent.trim()
+        ? await this.findOrCreateFolder(user, input.parent)
+        : null;
+      folder.parentFolderId = folder.parentFolder?.id ?? null;
+
+      if (folder.parentFolderId === folder.id) {
+        throw new UnprocessableEntityException({
+          error: 'Folder cannot be moved inside itself',
+        });
+      }
+
+      if (
+        folder.parentFolder &&
+        this.getFolderName(folder.parentFolder).startsWith(
+          `${this.getFolderName(folder)} /`,
+        )
+      ) {
+        throw new UnprocessableEntityException({
+          error: 'Folder cannot be moved inside one of its subfolders',
+        });
+      }
+    }
+
+    try {
+      const saved = await this.folders.save(folder);
+
+      return this.toFolderResponse(
+        await this.findAccountFolderOrFail(user, saved.id),
+      );
+    } catch (error) {
+      throwDatabaseErrors(error);
+    }
+  }
+
+  async deleteFolder(
+    user: User,
+    folderId: string,
+    query: DeleteTemplateFolderQueryDto,
+  ): Promise<null> {
+    const folder = await this.findAccountFolderOrFail(user, folderId);
+
+    this.assertEditableFolder(folder);
+
+    if (query.mode === 'with_contents') {
+      await this.deleteFolderWithContents(user, folder);
+      return null;
+    }
+
+    await this.deleteFolderOnly(user, folder);
+
+    return null;
+  }
+
+  async createTemplate(
+    user: User,
+    input: CreateTemplateDto,
+  ): Promise<TemplateResponseDto> {
+    const folder = await this.findOrCreateFolder(
+      user,
+      input.folder_name ?? TemplateFolder.DEFAULT_NAME,
+    );
+    const template = this.templates.create({
+      accountId: user.accountId,
+      authorId: user.id,
+      externalId: input.external_id ?? null,
+      fields: [],
+      folder,
+      folderId: folder.id,
+      name: input.name?.trim() || 'Untitled Template',
+      preferences: {},
+      schema: [],
+      sharedLink: input.shared_link ?? true,
+      source: 'native',
+      submitters: input.submitters?.length
+        ? input.submitters
+        : [{ name: 'First Party', uuid: randomUUID() }],
+      variablesSchema: null,
+    });
+
+    try {
+      const saved = await this.templates.save(template);
+      await this.recordTemplateActivity({
+        data: { source: saved.source },
+        eventType: 'template.created',
+        summary: 'Template created',
+        template: saved,
+        user,
+      });
+      this.events.emit(runtimeEvents.templateCreated, {
+        accountId: saved.accountId,
+        templateId: saved.id,
+      });
+
+      return this.toTemplateResponse(
+        await this.findAccountTemplateOrFail(user, saved.id),
+      );
+    } catch (error) {
+      throwDatabaseErrors(error);
+    }
+  }
+
+  private async deleteFolderOnly(user: User, folder: TemplateFolder) {
+    const defaultFolder = await this.findOrCreateFolder(
+      user,
+      TemplateFolder.DEFAULT_NAME,
+    );
+
+    await Promise.all([
+      this.templates.update(
+        {
+          accountId: user.accountId,
+          folderId: folder.id,
+        },
+        {
+          folderId: defaultFolder.id,
+        },
+      ),
+      this.folders.update(
+        {
+          accountId: user.accountId,
+          parentFolderId: folder.id,
+        },
+        {
+          parentFolderId: null,
+        },
+      ),
+    ]);
+
+    await this.folders.softDelete({
+      accountId: user.accountId,
+      id: folder.id,
+    });
+  }
+
+  private async deleteFolderWithContents(
+    user: User,
+    folder: TemplateFolder,
+  ): Promise<void> {
+    const folders = await this.findDescendantFolders(user.accountId, folder.id);
+    const folderIds = [folder.id, ...folders.map((item) => item.id)];
+    const archivedAt = new Date();
+
+    await Promise.all([
+      this.templates
+        .createQueryBuilder()
+        .update(Template)
+        .set({ archivedAt })
+        .where('account_id = :accountId', { accountId: user.accountId })
+        .andWhere('folder_id IN (:...folderIds)', { folderIds })
+        .execute(),
+      this.folders
+        .createQueryBuilder()
+        .update(TemplateFolder)
+        .set({ archivedAt })
+        .where('account_id = :accountId', { accountId: user.accountId })
+        .andWhere('id IN (:...folderIds)', { folderIds })
+        .execute(),
+    ]);
+  }
+
+  private async findDescendantFolders(
+    accountId: string,
+    folderId: string,
+  ): Promise<TemplateFolder[]> {
+    const children = await this.folders.find({
+      where: {
+        accountId,
+        archivedAt: IsNull(),
+        parentFolderId: folderId,
+      },
+    });
+    const descendants = await Promise.all(
+      children.map((child) => this.findDescendantFolders(accountId, child.id)),
+    );
+
+    return children.concat(descendants.flat());
+  }
+
   async getTemplate(
     user: User,
     templateId: string,
@@ -102,6 +375,87 @@ export class TemplatesService {
     return this.toTemplateResponse(
       await this.findAccountTemplateOrFail(user, templateId),
     );
+  }
+
+  async listTemplateEvents(
+    user: User,
+    templateId: string,
+  ): Promise<TemplateEventsListResponseDto> {
+    await this.findAccountTemplateOrFail(user, templateId);
+
+    const events = await this.templateEvents.find({
+      where: {
+        accountId: user.accountId,
+        templateId,
+      },
+      relations: {
+        user: true,
+      },
+      order: {
+        eventTimestamp: 'DESC',
+        id: 'DESC',
+      },
+      take: 100,
+    });
+
+    return {
+      data: events.map((event) => ({
+        id: event.id,
+        template_id: event.templateId,
+        event_type: event.eventType,
+        summary: event.summary,
+        event_timestamp: event.eventTimestamp,
+        data: event.data,
+        user: event.user
+          ? {
+              id: event.user.id,
+              email: event.user.email,
+              first_name: event.user.firstName,
+              last_name: event.user.lastName,
+            }
+          : null,
+      })),
+    };
+  }
+
+  async listTemplateVersions(
+    user: User,
+    templateId: string,
+  ): Promise<TemplateVersionsListResponseDto> {
+    await this.findAccountTemplateOrFail(user, templateId);
+
+    const versions = await this.templateVersions.find({
+      where: {
+        accountId: user.accountId,
+        templateId,
+      },
+      relations: {
+        author: true,
+      },
+      order: {
+        createdAt: 'DESC',
+        id: 'DESC',
+      },
+      take: 50,
+    });
+
+    return {
+      data: versions.map((version) => ({
+        id: version.id,
+        template_id: version.templateId,
+        sha1: version.sha1,
+        created_at: version.createdAt,
+        data: version.data,
+        author: version.author
+          ? {
+              id: version.author.id,
+              email: version.author.email,
+              first_name: version.author.firstName,
+              last_name: version.author.lastName,
+            }
+          : null,
+      })),
+    };
   }
 
   async createBackingTemplateFromPdf(
@@ -245,6 +599,13 @@ export class TemplatesService {
 
     try {
       const saved = await this.templates.save(savedTemplate);
+      await this.recordTemplateActivity({
+        data: { source: saved.source },
+        eventType: 'template.created',
+        summary: 'Template created',
+        template: saved,
+        user,
+      });
       this.events.emit(runtimeEvents.templateCreated, {
         accountId: saved.accountId,
         templateId: saved.id,
@@ -271,6 +632,12 @@ export class TemplatesService {
       : originalTemplate.folder;
     const clonedJson = this.cloneTemplateJson(originalTemplate);
     const clonedName = input.name?.trim() || `${originalTemplate.name} (Clone)`;
+    const clonedPreferences = input.team_id
+      ? {
+          ...clonedJson.preferences,
+          team_id: input.team_id,
+        }
+      : clonedJson.preferences;
     const clone = this.templates.create({
       accountId: user.accountId,
       authorId: user.id,
@@ -278,7 +645,7 @@ export class TemplatesService {
       fields: clonedJson.fields,
       folderId: folder.id,
       name: clonedName,
-      preferences: clonedJson.preferences,
+      preferences: clonedPreferences,
       schema: clonedJson.schema,
       sharedLink: originalTemplate.sharedLink,
       source: 'api',
@@ -304,12 +671,95 @@ export class TemplatesService {
     try {
       const savedClone = await this.templates.save(clone);
       await this.cloneTemplateAttachments(originalTemplate, savedClone);
+      await this.recordTemplateActivity({
+        data: {
+          source_template_id: originalTemplate.id,
+          source_template_name: originalTemplate.name,
+        },
+        eventType: 'template.cloned',
+        summary: `Template cloned from ${originalTemplate.name}`,
+        template: savedClone,
+        user,
+      });
       this.events.emit(runtimeEvents.templateCreated, {
         accountId: savedClone.accountId,
         templateId: savedClone.id,
       });
       return this.toTemplateResponse(
         await this.findAccountTemplateOrFail(user, savedClone.id),
+      );
+    } catch (error) {
+      throwDatabaseErrors(error);
+    }
+  }
+
+  async mergeTemplates(
+    user: User,
+    input: MergeTemplatesDto,
+  ): Promise<TemplateResponseDto> {
+    const templateIds = normalizeIdList(input.template_ids);
+
+    if (templateIds.length < 2) {
+      throw new UnprocessableEntityException({
+        error: 'At least 2 templates are required',
+      });
+    }
+
+    const sourceTemplates = await Promise.all(
+      templateIds.map((id) => this.findAccountTemplateOrFail(user, id)),
+    );
+    const folder = input.folder_name
+      ? await this.findOrCreateFolder(user, input.folder_name)
+      : sourceTemplates[0].folder;
+    const mergedJson = this.mergeTemplateJson(sourceTemplates, input.roles);
+    const mergedTemplate = this.templates.create({
+      accountId: user.accountId,
+      authorId: user.id,
+      externalId: input.external_id ?? null,
+      fields: mergedJson.fields,
+      folderId: folder.id,
+      name: input.name?.trim() || `${sourceTemplates[0].name} (Merged)`,
+      preferences: deepClone(sourceTemplates[0].preferences),
+      schema: mergedJson.schema,
+      sharedLink: input.shared_link ?? true,
+      source: 'api',
+      submitters: mergedJson.submitters,
+      variablesSchema: deepClone(sourceTemplates[0].variablesSchema),
+    });
+
+    mergedTemplate.folder = folder;
+    mergedTemplate.author = user;
+
+    try {
+      const saved = await this.templates.save(mergedTemplate);
+
+      for (const source of mergedJson.sources) {
+        await this.cloneTemplateAttachments(
+          source.template,
+          saved,
+          source.schema,
+        );
+      }
+
+      await this.recordTemplateActivity({
+        data: {
+          source_template_ids: sourceTemplates.map((template) => template.id),
+          source_template_names: sourceTemplates.map(
+            (template) => template.name,
+          ),
+        },
+        eventType: 'template.created',
+        summary: 'Template created by merging templates',
+        template: saved,
+        user,
+      });
+      this.events.emit(runtimeEvents.templateCreated, {
+        accountId: saved.accountId,
+        templateId: saved.id,
+      });
+
+      return this.toTemplateResponse(
+        await this.findAccountTemplateOrFail(user, saved.id),
       );
     } catch (error) {
       throwDatabaseErrors(error);
@@ -325,6 +775,7 @@ export class TemplatesService {
     const template = await this.findAccountTemplateOrFail(user, templateId, {
       withDeleted: body.archived === false,
     });
+    const before = this.buildTemplateSnapshot(template);
 
     if (body.folder_name) {
       template.folder = await this.findOrCreateFolder(user, body.folder_name);
@@ -372,6 +823,26 @@ export class TemplatesService {
 
     try {
       const saved = await this.templates.save(template);
+      const changedPaths = getChangedTemplatePaths(
+        before,
+        this.buildTemplateSnapshot(saved),
+      );
+      const eventType =
+        body.archived === true
+          ? 'template.archived'
+          : body.archived === false
+            ? 'template.restored'
+            : changedPaths.includes('name')
+              ? 'template.renamed'
+              : 'template.updated';
+
+      await this.recordTemplateActivity({
+        data: { changed_paths: changedPaths },
+        eventType,
+        summary: summarizeTemplateChange(eventType, changedPaths),
+        template: saved,
+        user,
+      });
       this.events.emit(runtimeEvents.templateUpdated, {
         accountId: saved.accountId,
         templateId: saved.id,
@@ -410,40 +881,46 @@ export class TemplatesService {
     multipartFiles?: Record<string, UploadedBufferFile[]>,
   ): Promise<TemplateDocumentsUpdateResponseDto> {
     const template = await this.findAccountTemplateOrFail(user, templateId);
-    const documents = await this.resolveTemplateUpdateDocuments(
+    const operations = await this.resolveTemplateDocumentOperations(
       input,
       multipartFiles,
     );
+    const before = this.buildTemplateSnapshot(template);
     const oldFields = JSON.stringify(template.fields);
-    const documentAttachments = await this.replaceTemplateDocuments(
-      template,
-      documents,
-      input.merge ?? false,
-    );
-    const newSchema = documentAttachments.map(({ attachment, document }) => ({
-      attachment_uuid: attachment.uuid,
-      name: getBaseName(document.filename),
-      ...(document.dynamicSource ? { dynamic: true } : {}),
-      ...(document.pendingFields ? { pending_fields: true } : {}),
-    }));
-    const newFields = this.normalizeDocumentFields(
-      documents,
-      documentAttachments,
+    template.submitters = this.mergeSubmitters(
       template.submitters,
+      operations
+        .map((operation) => operation.document)
+        .filter((document): document is ResolvedPdfDocument => !!document),
+    );
+    const result = await this.applyTemplateDocumentOperations(
+      template,
+      operations,
+      Boolean(input.merge),
     );
 
-    template.schema = input.merge
-      ? [...template.schema, ...newSchema]
-      : newSchema;
-    template.fields =
-      oldFields === JSON.stringify(newFields) ? template.fields : newFields;
+    template.schema = result.schema;
+    template.fields = result.fields;
 
     try {
       const saved = await this.templates.save(template);
       const changed = oldFields !== JSON.stringify(saved.fields);
+      await this.recordTemplateActivity({
+        data: {
+          changed_paths: getChangedTemplatePaths(
+            before,
+            this.buildTemplateSnapshot(saved),
+          ),
+          merge: Boolean(input.merge),
+        },
+        eventType: 'template.documents.updated',
+        summary: 'Template documents updated',
+        template: saved,
+        user,
+      });
 
       return {
-        schema: newSchema,
+        schema: result.changedSchema,
         fields: changed ? saved.fields : null,
         submitters: changed ? saved.submitters : null,
         documents: await this.serializeTemplateDocuments(saved),
@@ -478,6 +955,14 @@ export class TemplatesService {
 
     try {
       const saved = await this.templates.save(template);
+      await this.recordTemplateActivity({
+        data: { permanently: false },
+        eventType: 'template.archived',
+        summary: 'Template archived',
+        template: saved,
+        user,
+        saveVersion: false,
+      });
       this.events.emit(runtimeEvents.templateArchived, {
         accountId: saved.accountId,
         templateId: saved.id,
@@ -541,6 +1026,198 @@ export class TemplatesService {
     );
   }
 
+  private async applyTemplateDocumentOperations(
+    template: Template,
+    operations: TemplateDocumentOperation[],
+    mergeDocuments: boolean,
+  ): Promise<{
+    changedSchema: Template['schema'];
+    fields: TemplateField[];
+    schema: Template['schema'];
+  }> {
+    if (mergeDocuments) {
+      return this.appendTemplateDocuments(template, operations);
+    }
+
+    const schema = deepClone(template.schema);
+    let fields = deepClone(template.fields);
+    const changedSchema: Template['schema'] = [];
+
+    for (const operation of operations) {
+      if (operation.remove) {
+        const index = this.findDocumentOperationIndex(schema, operation);
+        if (index === -1) {
+          throw new UnprocessableEntityException({
+            error: 'Document not found',
+          });
+        }
+
+        const [removed] = schema.splice(index, 1);
+        fields = fields.filter((field) =>
+          (field.areas ?? []).every(
+            (area) => area.attachment_uuid !== removed?.attachment_uuid,
+          ),
+        );
+        continue;
+      }
+
+      if (!operation.document) {
+        throw new UnprocessableEntityException({ error: 'File is missing' });
+      }
+
+      const [documentAttachment] = await this.replaceTemplateDocuments(
+        template,
+        [operation.document],
+        true,
+      );
+      const nextSchema = this.buildSchemaItem(documentAttachment);
+      const nextFields = this.normalizeDocumentFields(
+        [operation.document],
+        [documentAttachment],
+        template.submitters,
+      );
+      const index = this.findDocumentOperationIndex(schema, operation);
+
+      changedSchema.push(nextSchema);
+
+      if (operation.replace) {
+        if (index === -1) {
+          throw new UnprocessableEntityException({
+            error: 'Document not found',
+          });
+        }
+
+        const previousAttachmentUuid = schema[index]?.attachment_uuid;
+        schema[index] = nextSchema;
+        fields = this.rewriteOrReplaceDocumentFields(
+          fields,
+          previousAttachmentUuid,
+          nextSchema.attachment_uuid,
+          nextFields,
+        );
+        continue;
+      }
+
+      const insertAt = clampInsertIndex(operation.position, schema.length);
+      schema.splice(insertAt, 0, nextSchema);
+      fields.push(...nextFields);
+    }
+
+    return { changedSchema, fields, schema };
+  }
+
+  private async appendTemplateDocuments(
+    template: Template,
+    operations: TemplateDocumentOperation[],
+  ): Promise<{
+    changedSchema: Template['schema'];
+    fields: TemplateField[];
+    schema: Template['schema'];
+  }> {
+    const documents = operations
+      .map((operation) => operation.document)
+      .filter((document): document is ResolvedPdfDocument => !!document);
+
+    if (!documents.length) {
+      throw new UnprocessableEntityException({ error: 'File is missing' });
+    }
+
+    const documentAttachments = await this.replaceTemplateDocuments(
+      template,
+      documents,
+      true,
+    );
+    const changedSchema = documentAttachments.map((item) =>
+      this.buildSchemaItem(item),
+    );
+    const newFields = this.normalizeDocumentFields(
+      documents,
+      documentAttachments,
+      template.submitters,
+    );
+
+    return {
+      changedSchema,
+      fields: [...template.fields, ...newFields],
+      schema: [...template.schema, ...changedSchema],
+    };
+  }
+
+  private buildSchemaItem({
+    attachment,
+    document,
+  }: DocumentAttachment): Template['schema'][number] {
+    return {
+      attachment_uuid: attachment.uuid,
+      name: getBaseName(document.filename),
+      ...(document.dynamicSource ? { dynamic: true } : {}),
+      ...(document.pendingFields ? { pending_fields: true } : {}),
+    };
+  }
+
+  private findDocumentOperationIndex(
+    schema: Template['schema'],
+    operation: TemplateDocumentOperation,
+  ): number {
+    if (typeof operation.position === 'number') {
+      return operation.position >= 0 && operation.position < schema.length
+        ? operation.position
+        : -1;
+    }
+
+    if (operation.name) {
+      const normalizedName = getBaseName(operation.name);
+
+      return schema.findIndex((item) => item.name === normalizedName);
+    }
+
+    return -1;
+  }
+
+  private rewriteOrReplaceDocumentFields(
+    fields: TemplateField[],
+    previousAttachmentUuid: string | undefined,
+    nextAttachmentUuid: string | undefined,
+    fallbackFields: TemplateField[],
+  ): TemplateField[] {
+    if (!previousAttachmentUuid || !nextAttachmentUuid) {
+      return [...fields, ...fallbackFields];
+    }
+
+    const previousFields = fields.filter((field) =>
+      (field.areas ?? []).some(
+        (area) => area.attachment_uuid === previousAttachmentUuid,
+      ),
+    );
+
+    if (!previousFields.length) {
+      return [
+        ...fields.filter((field) =>
+          (field.areas ?? []).every(
+            (area) => area.attachment_uuid !== previousAttachmentUuid,
+          ),
+        ),
+        ...fallbackFields,
+      ];
+    }
+
+    return fields
+      .filter((field) =>
+        (field.areas ?? []).every(
+          (area) => area.attachment_uuid !== previousAttachmentUuid,
+        ),
+      )
+      .concat(
+        previousFields.map((field) => ({
+          ...field,
+          areas: (field.areas ?? []).map((area) => ({
+            ...area,
+            attachment_uuid: nextAttachmentUuid,
+          })),
+        })),
+      );
+  }
+
   private async createDynamicDocumentVersion(
     template: Template,
     uuid: string,
@@ -571,6 +1248,7 @@ export class TemplatesService {
   private async cloneTemplateAttachments(
     originalTemplate: Template,
     clonedTemplate: Template,
+    clonedSchema = clonedTemplate.schema,
   ): Promise<void> {
     const originalAttachments = await this.storageService.findRecordAttachments(
       {
@@ -588,8 +1266,7 @@ export class TemplatesService {
       originalSchemaItem,
     ] of originalTemplate.schema.entries()) {
       const originalAttachmentUuid = originalSchemaItem.attachment_uuid;
-      const clonedAttachmentUuid =
-        clonedTemplate.schema[index]?.attachment_uuid;
+      const clonedAttachmentUuid = clonedSchema[index]?.attachment_uuid;
 
       if (!originalAttachmentUuid || !clonedAttachmentUuid) {
         continue;
@@ -626,7 +1303,7 @@ export class TemplatesService {
   }
 
   private async resolvePdfDocuments(
-    input: Pick<CreateTemplateFromPdfDto, 'documents'>,
+    input: Pick<CreateTemplateFromPdfDto, 'documents' | 'remove_tags'>,
     multipartFiles?: Record<string, UploadedBufferFile[]>,
   ): Promise<ResolvedPdfDocument[]> {
     const multipartDocuments = [
@@ -644,7 +1321,10 @@ export class TemplatesService {
     });
 
     if (multipartDocuments.length) {
-      return this.extractAcroFieldsForDocuments(multipartDocuments);
+      return this.extractPdfFieldsForDocuments(
+        multipartDocuments,
+        input.remove_tags ?? false,
+      );
     }
 
     const documents = input.documents ?? [];
@@ -669,13 +1349,16 @@ export class TemplatesService {
       }),
     );
 
-    return this.extractAcroFieldsForDocuments(resolvedDocuments);
+    return this.extractPdfFieldsForDocuments(
+      resolvedDocuments,
+      input.remove_tags ?? false,
+    );
   }
 
-  private async resolveTemplateUpdateDocuments(
+  private async resolveTemplateDocumentOperations(
     input: UpdateTemplateDocumentsDto,
     multipartFiles?: Record<string, UploadedBufferFile[]>,
-  ): Promise<ResolvedPdfDocument[]> {
+  ): Promise<TemplateDocumentOperation[]> {
     const multipartFilesList = [
       ...(multipartFiles?.documents ?? []),
       ...(multipartFiles?.files ?? []),
@@ -689,7 +1372,9 @@ export class TemplatesService {
         ),
       );
 
-      return this.extractAcroFieldsForDocuments(documents);
+      return (await this.extractAcroFieldsForDocuments(documents)).map(
+        (document) => ({ document }),
+      );
     }
 
     const documents = input.documents ?? [];
@@ -698,32 +1383,146 @@ export class TemplatesService {
       throw new UnprocessableEntityException({ error: 'File is missing' });
     }
 
-    const resolvedDocuments = await Promise.all(
+    const operations = await Promise.all(
       documents.map(async (document) => {
-        const buffer = await this.resolveDocumentFile(document, {
-          requireHttpsUrl: true,
-        });
-
-        if (isDocxFilename(document.name)) {
-          return this.resolveDocxBufferDocument({
-            buffer,
-            fields: document.fields ?? [],
+        if (document.remove) {
+          return {
             name: document.name,
-          });
+            position: document.position,
+            remove: true,
+          } satisfies TemplateDocumentOperation;
         }
 
-        this.assertPdf(buffer, document.name, 'application/pdf');
+        if (document.type === 'blank') {
+          return {
+            document: await this.resolveBlankDocument({
+              name: document.name,
+              size: document.size,
+            }),
+            name: document.name,
+            position: document.position,
+            replace: document.replace,
+          } satisfies TemplateDocumentOperation;
+        }
+
+        if (document.html) {
+          return {
+            document: await this.resolveHtmlUpdateDocument(document),
+            name: document.name,
+            position: document.position,
+            replace: document.replace,
+          } satisfies TemplateDocumentOperation;
+        }
+
+        const file = document.file;
+        const name = document.name;
+
+        if (!file || !name) {
+          throw new UnprocessableEntityException({ error: 'File is missing' });
+        }
+
+        const buffer = await this.resolveDocumentFile(
+          {
+            file,
+            name,
+          },
+          {
+            requireHttpsUrl: true,
+          },
+        );
+
+        if (isDocxFilename(name)) {
+          return {
+            document: await this.resolveDocxBufferDocument({
+              buffer,
+              fields: document.fields ?? [],
+              name,
+            }),
+            name,
+            position: document.position,
+            replace: document.replace,
+          } satisfies TemplateDocumentOperation;
+        }
+
+        this.assertPdf(buffer, name, 'application/pdf');
 
         return {
-          buffer,
-          fields: document.fields ?? [],
-          filename: ensurePdfFilename(document.name),
-          pendingFields: false,
-        };
+          document: {
+            buffer,
+            fields: document.fields ?? [],
+            filename: ensurePdfFilename(name),
+            pendingFields: false,
+          },
+          name,
+          position: document.position,
+          replace: document.replace,
+        } satisfies TemplateDocumentOperation;
       }),
     );
 
-    return this.extractAcroFieldsForDocuments(resolvedDocuments);
+    const documentsToExtract = operations
+      .map((operation) => operation.document)
+      .filter((document): document is ResolvedPdfDocument => !!document);
+    const extractedDocuments =
+      await this.extractAcroFieldsForDocuments(documentsToExtract);
+    let documentIndex = 0;
+
+    return operations.map((operation) => {
+      if (!operation.document) {
+        return operation;
+      }
+
+      return {
+        ...operation,
+        document: extractedDocuments[documentIndex++],
+      };
+    });
+  }
+
+  private async resolveHtmlUpdateDocument(document: {
+    fields?: TemplateField[];
+    html?: string;
+    html_footer?: string;
+    html_header?: string;
+    name?: string;
+    size?: string;
+  }): Promise<ResolvedPdfDocument> {
+    const rendered = await this.documentConversionService.renderHtmlDocument({
+      html: document.html ?? '',
+      htmlFooter: document.html_footer,
+      htmlHeader: document.html_header,
+      name: document.name ?? `document-${Date.now()}`,
+      size: document.size,
+    });
+
+    return {
+      buffer: rendered.buffer,
+      dynamicSource: {
+        body: rendered.body,
+        head: rendered.head,
+        type: 'html',
+      },
+      fields: [...rendered.fields, ...(document.fields ?? [])],
+      filename: rendered.filename,
+      pendingFields: false,
+    };
+  }
+
+  private async resolveBlankDocument(input: {
+    name?: string;
+    size?: string;
+  }): Promise<ResolvedPdfDocument> {
+    const pageSize = getBlankPageSize(input.size);
+    const document = await PDFDocument.create();
+
+    document.addPage([pageSize.width, pageSize.height]);
+
+    return {
+      buffer: Buffer.from(await document.save()),
+      fields: [],
+      filename: ensurePdfFilename(input.name?.trim() || 'Blank Page'),
+      pendingFields: false,
+    };
   }
 
   private async resolveUploadedTemplateDocument(
@@ -812,6 +1611,7 @@ export class TemplatesService {
           buffer,
           fields: document.fields ?? [],
           name: document.name,
+          variables: document.variables ?? input.variables,
         });
       }),
     );
@@ -821,9 +1621,14 @@ export class TemplatesService {
     buffer: Buffer;
     fields: TemplateField[];
     name: string;
+    variables?: Record<string, unknown>;
   }): Promise<ResolvedPdfDocument> {
     this.assertDocx(input.buffer, input.name);
-    const prepared = this.docxFieldTagService.prepareDocument(input.buffer);
+    const sourceBuffer = this.docxVariableService.expandVariables(
+      input.buffer,
+      input.variables,
+    );
+    const prepared = this.docxFieldTagService.prepareDocument(sourceBuffer);
     const pdfBuffer = await this.documentConversionService.convertDocxToPdf({
       buffer: prepared.buffer,
       name: input.name,
@@ -836,14 +1641,37 @@ export class TemplatesService {
     return {
       buffer: pdfBuffer,
       dynamicSource: {
-        body: input.buffer.toString('base64'),
-        head: `docx:${input.name}:${this.documentConversionService.hashSource(input.buffer)}`,
+        body: sourceBuffer.toString('base64'),
+        head: `docx:${input.name}:${this.documentConversionService.hashSource(sourceBuffer)}`,
         type: 'docx',
       },
       fields: [...extractedFields, ...input.fields],
       filename: ensurePdfFilename(getBaseName(input.name)),
       pendingFields: false,
     };
+  }
+
+  private async extractPdfFieldsForDocuments(
+    documents: ResolvedPdfDocument[],
+    removeTags: boolean,
+  ): Promise<ResolvedPdfDocument[]> {
+    const acroDocuments = await this.extractAcroFieldsForDocuments(documents);
+
+    return Promise.all(
+      acroDocuments.map(async (document) => {
+        const tagged = await this.pdfTextTagService.extractAndMaybeRemoveTags({
+          pdf: document.buffer,
+          removeTags,
+        });
+
+        return {
+          ...document,
+          buffer: tagged.pdf,
+          fields: [...document.fields, ...tagged.fields],
+          pendingFields: document.pendingFields || tagged.fields.length > 0,
+        };
+      }),
+    );
   }
 
   private async extractAcroFieldsForDocuments(
@@ -1040,25 +1868,16 @@ export class TemplatesService {
       return;
     }
 
-    const folders = await this.folders.find({
-      where: {
-        accountId,
-        archivedAt: IsNull(),
-      },
-      relations: {
-        parentFolder: true,
-      },
-    });
-    const folderIds = folders
-      .filter((folder) => this.getFolderName(folder) === folderName)
-      .map((folder) => folder.id);
+    const folder = await this.findFolderByFullName(accountId, folderName);
 
-    if (!folderIds.length) {
+    if (!folder) {
       builder.andWhere('1 = 0');
       return;
     }
 
-    builder.andWhere('template.folder_id IN (:...folderIds)', { folderIds });
+    builder.andWhere('template.folder_id = :folderId', {
+      folderId: folder.id,
+    });
   }
 
   private async findAccountTemplateOrFail(
@@ -1089,13 +1908,24 @@ export class TemplatesService {
     user: User,
     folderName: string,
   ): Promise<TemplateFolder> {
-    const normalizedName = folderName.trim();
+    const normalizedName = this.normalizeFolderPath(folderName);
+    const [parentName, name] = this.splitFolderPath(normalizedName);
+    const parentFolder = parentName
+      ? await this.findOrCreateFolder(user, parentName)
+      : null;
     const existing = await this.folders.findOne({
       where: {
         accountId: user.accountId,
-        name: normalizedName,
-        parentFolderId: IsNull(),
+        name,
+        parentFolderId: parentFolder?.id ?? IsNull(),
         archivedAt: IsNull(),
+      },
+      relations: {
+        parentFolder: {
+          parentFolder: {
+            parentFolder: true,
+          },
+        },
       },
     });
 
@@ -1108,13 +1938,137 @@ export class TemplatesService {
         this.folders.create({
           accountId: user.accountId,
           authorId: user.id,
-          name: normalizedName,
-          parentFolderId: null,
+          name,
+          parentFolder,
+          parentFolderId: parentFolder?.id ?? null,
         }),
       );
     } catch (error) {
       throwDatabaseErrors(error);
     }
+  }
+
+  private async findAccountFolderOrFail(
+    user: User,
+    folderId: string,
+  ): Promise<TemplateFolder> {
+    try {
+      return await this.folders.findOneOrFail({
+        where: {
+          accountId: user.accountId,
+          id: folderId,
+          archivedAt: IsNull(),
+        },
+        relations: {
+          parentFolder: {
+            parentFolder: {
+              parentFolder: true,
+            },
+          },
+        },
+      });
+    } catch (error) {
+      throwIfNotFound(error, 'Folder not found');
+    }
+  }
+
+  private async findFolderByFullNameOrFail(
+    user: User,
+    folderName: string,
+  ): Promise<TemplateFolder> {
+    const folder = await this.findFolderByFullName(user.accountId, folderName);
+
+    if (!folder) {
+      throw new NotFoundException({ error: 'Folder not found' });
+    }
+
+    return folder;
+  }
+
+  private async findFolderByFullName(
+    accountId: string,
+    folderName: string,
+  ): Promise<TemplateFolder | null> {
+    const normalizedName = this.normalizeFolderPath(folderName);
+    const folders = await this.folders.find({
+      where: {
+        accountId,
+        archivedAt: IsNull(),
+      },
+      relations: {
+        parentFolder: {
+          parentFolder: {
+            parentFolder: true,
+          },
+        },
+      },
+    });
+
+    return (
+      folders.find((folder) => this.getFolderName(folder) === normalizedName) ??
+      null
+    );
+  }
+
+  private async toFolderResponse(
+    folder: TemplateFolder,
+  ): Promise<TemplateFolderResponseDto> {
+    const [templatesCount, subfoldersCount] = await Promise.all([
+      this.templates.count({
+        where: {
+          accountId: folder.accountId,
+          archivedAt: IsNull(),
+          folderId: folder.id,
+        },
+      }),
+      this.folders.count({
+        where: {
+          accountId: folder.accountId,
+          archivedAt: IsNull(),
+          parentFolderId: folder.id,
+        },
+      }),
+    ]);
+
+    return {
+      id: folder.id,
+      name: folder.name,
+      full_name: this.getFolderName(folder),
+      parent_folder_id: folder.parentFolderId,
+      templates_count: templatesCount,
+      subfolders_count: subfoldersCount,
+      created_at: folder.createdAt,
+      updated_at: folder.updatedAt,
+    };
+  }
+
+  private assertEditableFolder(folder: TemplateFolder): void {
+    if (!folder.parentFolderId && folder.name === TemplateFolder.DEFAULT_NAME) {
+      throw new UnprocessableEntityException({
+        error: 'Default folder cannot be modified',
+      });
+    }
+  }
+
+  private buildFolderPath(parent: string | undefined, name: string): string {
+    return [parent, name].filter(Boolean).join(' / ');
+  }
+
+  private normalizeFolderPath(folderName: string): string {
+    const normalizedName = folderName
+      .split('/')
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join(' / ');
+
+    return normalizedName || TemplateFolder.DEFAULT_NAME;
+  }
+
+  private splitFolderPath(folderName: string): [string | null, string] {
+    const parts = this.normalizeFolderPath(folderName).split(' / ');
+    const name = parts.pop() ?? TemplateFolder.DEFAULT_NAME;
+
+    return [parts.length ? parts.join(' / ') : null, name];
   }
 
   private normalizeUpdateBody(input: UpdateTemplateDto): UpdateTemplateDto {
@@ -1246,6 +2200,46 @@ export class TemplatesService {
     return { fields, preferences, schema, submitters };
   }
 
+  private mergeTemplateJson(
+    templates: Template[],
+    roles?: string[],
+  ): Pick<Template, 'fields' | 'schema' | 'submitters'> & {
+    sources: { schema: Template['schema']; template: Template }[];
+  } {
+    const fields: TemplateField[] = [];
+    const schema: Template['schema'] = [];
+    const submitters: TemplateSubmitter[] = [];
+    const sources: { schema: Template['schema']; template: Template }[] = [];
+
+    for (const template of templates) {
+      const cloned = this.cloneTemplateJson(template);
+      const schemaOffset = schema.length;
+
+      schema.push(...cloned.schema);
+      fields.push(...cloned.fields);
+      submitters.push(...cloned.submitters);
+      sources.push({
+        template,
+        schema: schema.slice(schemaOffset, schemaOffset + cloned.schema.length),
+      });
+    }
+
+    if (roles?.length) {
+      roles.forEach((role, index) => {
+        const submitter = submitters[index];
+
+        if (submitter) {
+          submitters[index] = { ...submitter, name: role };
+          return;
+        }
+
+        submitters.push({ name: role, uuid: randomUUID() });
+      });
+    }
+
+    return { fields, schema, sources, submitters };
+  }
+
   private rewriteFieldReferences(
     field: TemplateField,
     fieldUuidMap: Map<string, string>,
@@ -1306,6 +2300,88 @@ export class TemplatesService {
     return {
       id: template.id,
       archived_at: template.archivedAt,
+    };
+  }
+
+  private async recordTemplateActivity(input: {
+    data?: Record<string, unknown>;
+    eventType: string;
+    saveVersion?: boolean;
+    summary: string;
+    template: Template;
+    user: User;
+  }): Promise<void> {
+    const event = await this.templateEvents.save(
+      this.templateEvents.create({
+        accountId: input.template.accountId,
+        templateId: input.template.id,
+        userId: input.user.id,
+        eventType: input.eventType,
+        summary: input.summary,
+        eventTimestamp: new Date(),
+        data: input.data ?? {},
+      }),
+    );
+
+    if (input.saveVersion === false) {
+      return;
+    }
+
+    await this.saveTemplateVersion(input.template, input.user, {
+      event_id: event.id,
+      event_type: input.eventType,
+      summary: input.summary,
+      ...(input.data ?? {}),
+    });
+  }
+
+  private async saveTemplateVersion(
+    template: Template,
+    user: User,
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    const snapshot = {
+      ...this.buildTemplateSnapshot(template),
+      metadata,
+    };
+    const sha1 = createHash('sha1')
+      .update(JSON.stringify(snapshot))
+      .digest('hex');
+    const existing = await this.templateVersions.findOne({
+      where: {
+        templateId: template.id,
+        sha1,
+      },
+    });
+
+    if (existing) {
+      return;
+    }
+
+    await this.templateVersions.save(
+      this.templateVersions.create({
+        accountId: template.accountId,
+        authorId: user.id,
+        templateId: template.id,
+        data: snapshot,
+        sha1,
+      }),
+    );
+  }
+
+  private buildTemplateSnapshot(template: Template): Record<string, unknown> {
+    return {
+      archived_at: template.archivedAt?.toISOString() ?? null,
+      external_id: template.externalId,
+      fields: deepClone(template.fields),
+      folder_id: template.folderId,
+      name: template.name,
+      preferences: deepClone(template.preferences),
+      schema: deepClone(template.schema),
+      shared_link: template.sharedLink,
+      source: template.source,
+      submitters: deepClone(template.submitters),
+      variables_schema: deepClone(template.variablesSchema),
     };
   }
 
@@ -1387,7 +2463,7 @@ export class TemplatesService {
 
   private getFolderName(folder: TemplateFolder): string {
     if (folder.parentFolder) {
-      return `${folder.parentFolder.name} / ${folder.name}`;
+      return `${this.getFolderName(folder.parentFolder)} / ${folder.name}`;
     }
 
     return folder.name;
@@ -1406,10 +2482,30 @@ type ResolvedPdfDocument = {
   };
 };
 
+type TemplateDocumentOperation = {
+  document?: ResolvedPdfDocument;
+  name?: string;
+  position?: number;
+  remove?: boolean;
+  replace?: boolean;
+};
+
 type DocumentAttachment = {
   attachment: Awaited<ReturnType<StorageService['createPdfAttachment']>>;
   document: ResolvedPdfDocument;
 };
+
+const blankPageSizes: Record<string, { height: number; width: number }> = {
+  a4: { width: 595.28, height: 841.89 },
+  legal: { width: 612, height: 1008 },
+  letter: { width: 612, height: 792 },
+};
+
+function getBlankPageSize(size?: string): { height: number; width: number } {
+  const normalizedSize = size?.trim().toLowerCase() || 'letter';
+
+  return blankPageSizes[normalizedSize] ?? blankPageSizes.letter;
+}
 
 function getBaseName(filename: string): string {
   return basename(filename, extname(filename));
@@ -1433,8 +2529,79 @@ function isDocxFilename(filename: string): boolean {
   return filename.toLowerCase().endsWith('.docx');
 }
 
+function clampInsertIndex(
+  position: number | undefined,
+  length: number,
+): number {
+  if (typeof position !== 'number' || Number.isNaN(position)) {
+    return length;
+  }
+
+  return Math.max(0, Math.min(position, length));
+}
+
+function normalizeIdList(ids: unknown[]): string[] {
+  return ids
+    .map((id) => String(id).trim())
+    .filter((id, index, list) => id && list.indexOf(id) === index);
+}
+
 function deepClone<T>(value: T): T {
   return value == null ? value : (JSON.parse(JSON.stringify(value)) as T);
+}
+
+function getChangedTemplatePaths(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+): string[] {
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+
+  return Array.from(keys).filter(
+    (key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]),
+  );
+}
+
+function summarizeTemplateChange(
+  eventType: string,
+  changedPaths: string[],
+): string {
+  if (eventType === 'template.archived') {
+    return 'Template archived';
+  }
+
+  if (eventType === 'template.restored') {
+    return 'Template restored';
+  }
+
+  if (eventType === 'template.renamed') {
+    return 'Template renamed';
+  }
+
+  if (changedPaths.includes('fields')) {
+    return 'Template fields updated';
+  }
+
+  if (changedPaths.includes('preferences')) {
+    return 'Template preferences updated';
+  }
+
+  if (changedPaths.includes('schema')) {
+    return 'Template documents updated';
+  }
+
+  if (changedPaths.includes('submitters')) {
+    return 'Template recipients updated';
+  }
+
+  if (changedPaths.includes('shared_link')) {
+    return 'Template sharing updated';
+  }
+
+  if (changedPaths.includes('folder_id')) {
+    return 'Template moved to another folder';
+  }
+
+  return 'Template updated';
 }
 
 function mergeTemplatePreferences(

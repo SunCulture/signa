@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   images: {
+    unoptimized: process.env.NEXT_OUTPUT === "export",
     remotePatterns: [
       {
         hostname: "localhost",

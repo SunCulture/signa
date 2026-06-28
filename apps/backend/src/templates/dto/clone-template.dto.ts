@@ -21,6 +21,15 @@ export class CloneTemplateDto {
 
   @ApiPropertyOptional({
     description:
+      'Target team account id for team-scoped clones. Stored in template preferences for team-aware UI/API flows.',
+    example: '2',
+  })
+  @IsOptional()
+  @IsString()
+  team_id?: string;
+
+  @ApiPropertyOptional({
+    description:
       'Application-specific unique string key to identify this template.',
     example: 'crm-template-2',
   })

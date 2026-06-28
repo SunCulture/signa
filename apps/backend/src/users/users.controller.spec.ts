@@ -1,9 +1,17 @@
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from '../auth/auth.service';
+import { AbilityFactory } from '../authorization/ability.factory';
 import { User } from './entities/user.entity';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
+
+jest.mock('otplib', () => ({
+  generateSecret: jest.fn(() => 'JBSWY3DPEHPK3PXP'),
+  generateSync: jest.fn(() => '123456'),
+  generateURI: jest.fn(() => 'otpauth://totp/Signa:ada@example.com'),
+  verifySync: jest.fn(() => ({ valid: true })),
+}));
 
 describe('UsersController', () => {
   let controller: UsersController;
@@ -27,6 +35,7 @@ describe('UsersController', () => {
             resolveApiToken: jest.fn(),
           },
         },
+        AbilityFactory,
         {
           provide: JwtService,
           useValue: {

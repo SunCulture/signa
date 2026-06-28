@@ -1,12 +1,23 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import {
+  Body,
+  Controller,
+  Post,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiBody,
   ApiBearerAuth,
+  ApiConsumes,
   ApiOkResponse,
   ApiSecurity,
   ApiTags,
 } from '@nestjs/swagger';
 import { ApiOrJwtGuard } from '../auth/guards/api-or-jwt/api-or-jwt.guard';
 import { UserHydrationGuard } from '../auth/guards/user-hydration/user-hydration.guard';
+import type { UploadedBufferFile } from '../storage/storage.types';
 import {
   MergePdfsDto,
   MergePdfsResponseDto,
@@ -30,8 +41,36 @@ export class ToolsController {
   }
 
   @Post('verify')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data', 'application/json')
+  @ApiBody({
+    schema: {
+      oneOf: [
+        {
+          type: 'object',
+          required: ['file'],
+          properties: {
+            file: { type: 'string', format: 'binary' },
+          },
+        },
+        {
+          type: 'object',
+          required: ['file'],
+          properties: {
+            file: {
+              type: 'string',
+              description: 'Base64-encoded PDF for API compatibility.',
+            },
+          },
+        },
+      ],
+    },
+  })
   @ApiOkResponse({ type: VerifyPdfResponseDto })
-  verify(@Body() body: VerifyPdfDto): Promise<VerifyPdfResponseDto> {
-    return this.toolsService.verify(body);
+  verify(
+    @Body() body: VerifyPdfDto,
+    @UploadedFile() file?: UploadedBufferFile,
+  ): Promise<VerifyPdfResponseDto> {
+    return this.toolsService.verify(file?.buffer ?? body);
   }
 }

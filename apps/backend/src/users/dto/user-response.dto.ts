@@ -16,6 +16,9 @@ export class UserResponseDto {
   @ApiProperty({ example: 'admin' })
   role!: string;
 
+  @ApiProperty({ example: false })
+  otp_required_for_login!: boolean;
+
   @ApiProperty({ example: null, nullable: true })
   archived_at!: Date | null;
 }

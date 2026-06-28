@@ -1,6 +1,6 @@
 "use client";
 
-import { SendIcon, XIcon } from "lucide-react";
+import { SendIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -50,12 +50,9 @@ export function TemplateSendRecipientsDialog({
           onSubmit={sendRecipients.submitRecipients}
         >
           <DialogHeader className="border-b border-[var(--auth-border)] px-5 py-4">
-            <div className="flex items-center justify-between gap-4">
-              <DialogTitle className="text-lg font-bold">
-                Add New Recipients
-              </DialogTitle>
-              <DialogCloseButton onClose={() => onOpenChange(false)} />
-            </div>
+            <DialogTitle className="pr-8 text-lg font-bold">
+              Add New Recipients
+            </DialogTitle>
           </DialogHeader>
 
           <Tabs
@@ -157,19 +154,4 @@ function OptionalSmsNotice({
   return activeTab === "phone" || activeTab === "detailed" ? (
     <SmsDeliveryNotice />
   ) : null;
-}
-
-function DialogCloseButton({ onClose }: { onClose: () => void }) {
-  return (
-    <Button
-      aria-label="Close recipients dialog"
-      className="size-8 rounded-full text-[var(--auth-primary)]"
-      onClick={onClose}
-      size="icon"
-      type="button"
-      variant="ghost"
-    >
-      <XIcon data-icon="icon-only" />
-    </Button>
-  );
 }

@@ -15,6 +15,9 @@ export class AuthUserDto {
 
   @ApiProperty({ example: 'admin' })
   role!: string;
+
+  @ApiProperty({ example: false })
+  otp_required_for_login!: boolean;
 }
 
 export class AuthAccountDto {

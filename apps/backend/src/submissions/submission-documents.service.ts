@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
+import { AccountConfig } from '../accounts/entities/account-config.entity';
+import { PdfSignatureService } from '../pdf-signatures/pdf-signature.service';
 import { StorageAttachment } from '../storage/entities/storage-attachment.entity';
 import { StorageService } from '../storage/storage.service';
 import { Submitter } from '../submitters/entities/submitter.entity';
@@ -14,9 +16,18 @@ import { CompletedSubmitter } from './entities/completed-submitter.entity';
 import { DocumentGenerationEvent } from './entities/document-generation-event.entity';
 import { Submission } from './entities/submission.entity';
 import {
+  AuditTrailDocument,
   SourceDocument,
   SubmissionPdfGeneratorService,
 } from './submission-pdf-generator.service';
+
+type ResultGenerationOptions = {
+  documentId: string;
+  flatten: boolean;
+  signingCertificateName: string | null;
+  timestampServerUrl: string | null;
+  withSignatureId: boolean;
+};
 
 @Injectable()
 export class SubmissionDocumentsService {
@@ -27,8 +38,11 @@ export class SubmissionDocumentsService {
     private readonly completedSubmitters: Repository<CompletedSubmitter>,
     @InjectRepository(DocumentGenerationEvent)
     private readonly generationEvents: Repository<DocumentGenerationEvent>,
+    @InjectRepository(AccountConfig)
+    private readonly accountConfigs: Repository<AccountConfig>,
     private readonly storageService: StorageService,
     private readonly pdfGenerator: SubmissionPdfGeneratorService,
+    private readonly pdfSignatureService: PdfSignatureService,
   ) {}
 
   async getSubmissionDocuments(
@@ -67,7 +81,9 @@ export class SubmissionDocumentsService {
     return this.storageService.createBlobProxyUrl(auditTrail.blob, 3600);
   }
 
-  async getCombinedDocumentUrl(submission: Submission): Promise<string | null> {
+  async getCombinedDocumentAttachment(
+    submission: Submission,
+  ): Promise<StorageAttachment | null> {
     if (!this.isSubmissionCompleted(submission)) {
       return null;
     }
@@ -78,12 +94,18 @@ export class SubmissionDocumentsService {
       return null;
     }
 
-    const combined = await this.ensureMergedDocument(lastSubmitter, {
+    return this.ensureMergedDocument(lastSubmitter, {
       submission,
       withAudit: true,
     });
+  }
 
-    return this.storageService.createBlobProxyUrl(combined.blob, 3600);
+  async getCombinedDocumentUrl(submission: Submission): Promise<string | null> {
+    const combined = await this.getCombinedDocumentAttachment(submission);
+
+    return combined
+      ? this.storageService.createBlobProxyUrl(combined.blob, 3600)
+      : null;
   }
 
   async processSubmitterCompletion(submitter: Submitter): Promise<void> {
@@ -107,20 +129,36 @@ export class SubmissionDocumentsService {
     submitter: Submitter,
     submission = submitter.submission,
   ): Promise<StorageAttachment[]> {
+    const generationOptions = await this.getResultGenerationOptions(submission);
+    const valuesHash = this.buildValuesHash(submission, generationOptions);
     const existing = await this.storageService.findRecordAttachments({
       recordType: 'Submitter',
       recordId: submitter.id,
       name: 'documents',
     });
 
-    if (existing.length > 0) {
+    if (
+      existing.length > 0 &&
+      existing.every(
+        (attachment) => attachment.blob.metadata?.values_hash === valuesHash,
+      )
+    ) {
       return existing;
+    }
+
+    if (existing.length > 0) {
+      await this.storageService.deleteRecordAttachments({
+        recordType: 'Submitter',
+        recordId: submitter.id,
+        name: 'documents',
+      });
+      await this.deleteSubmissionMergedDocuments(submission);
     }
 
     const documents = await this.getSourceDocuments(submission);
     const fields = this.getSubmissionFields(submission);
     const values = this.buildSubmissionValues(submission);
-    const attachmentsByUuid = await this.getSubmitterAttachmentsByUuid(
+    const attachmentContext = await this.getSubmitterAttachmentsContext(
       submission.submitters ?? [submitter],
     );
 
@@ -131,16 +169,36 @@ export class SubmissionDocumentsService {
         document,
         fields,
         values,
-        attachmentsByUuid,
+        attachmentsByUuid: attachmentContext.attachmentsByUuid,
+        signatureMetadataByUuid: attachmentContext.signatureMetadataByUuid,
+        options: generationOptions,
+      });
+      const signed = await this.signArtifactPdf({
+        accountId: submission.accountId,
+        buffer: pdf,
+        contactInfo: submitter.email,
+        reason: 'Signed document',
+        signerName: submitter.name ?? submitter.email ?? 'Signa',
+        signingTime: submitter.completedAt ?? new Date(),
       });
 
       generated.push(
         await this.storageService.createPdfAttachment({
-          buffer: pdf,
+          buffer: signed.buffer,
           filename: document.filename,
           name: 'documents',
           recordType: 'Submitter',
           recordId: submitter.id,
+          metadata: {
+            cryptographic_signature_certificate:
+              signed.certificateName ?? undefined,
+            cryptographic_signature_timestamp_server:
+              signed.timestampServerUrl ?? undefined,
+            cryptographic_signed: signed.signed,
+            original_sha256: getAttachmentChecksum(document.attachment),
+            original_uuid: document.uuid,
+            values_hash: valuesHash,
+          },
         }),
       );
     }
@@ -151,7 +209,8 @@ export class SubmissionDocumentsService {
   async ensurePreviewDocuments(
     submission: Submission,
   ): Promise<StorageAttachment[]> {
-    const valuesHash = this.buildValuesHash(submission);
+    const generationOptions = await this.getResultGenerationOptions(submission);
+    const valuesHash = this.buildValuesHash(submission, generationOptions);
     const existing = await this.storageService.findRecordAttachments({
       recordType: 'Submission',
       recordId: submission.id,
@@ -176,7 +235,7 @@ export class SubmissionDocumentsService {
     const documents = await this.getSourceDocuments(submission);
     const fields = this.getSubmissionFields(submission);
     const values = this.buildSubmissionValues(submission);
-    const attachmentsByUuid = await this.getSubmitterAttachmentsByUuid(
+    const attachmentContext = await this.getSubmitterAttachmentsContext(
       submission.submitters ?? [],
     );
 
@@ -187,7 +246,9 @@ export class SubmissionDocumentsService {
         document,
         fields,
         values,
-        attachmentsByUuid,
+        attachmentsByUuid: attachmentContext.attachmentsByUuid,
+        signatureMetadataByUuid: attachmentContext.signatureMetadataByUuid,
+        options: generationOptions,
       });
 
       generated.push(
@@ -208,7 +269,8 @@ export class SubmissionDocumentsService {
   async ensurePreviewMergedDocument(
     submission: Submission,
   ): Promise<StorageAttachment> {
-    const valuesHash = this.buildValuesHash(submission);
+    const generationOptions = await this.getResultGenerationOptions(submission);
+    const valuesHash = this.buildValuesHash(submission, generationOptions);
     const [existing] = await this.storageService.findRecordAttachments({
       recordType: 'Submission',
       recordId: submission.id,
@@ -245,14 +307,31 @@ export class SubmissionDocumentsService {
     const submission = options.submission ?? submitter.submission;
     const withAudit = options.withAudit;
     const attachmentName = withAudit ? 'combined_document' : 'merged_document';
+    const generationOptions = await this.getResultGenerationOptions(submission);
+    const valuesHash = this.buildValuesHash(submission, {
+      ...generationOptions,
+      withAudit,
+    });
     const [existing] = await this.storageService.findRecordAttachments({
       recordType: 'Submission',
       recordId: submitter.submissionId,
       name: attachmentName,
     });
 
-    if (existing) {
+    if (existing?.blob.metadata?.values_hash === valuesHash) {
+      if (submitter.completedAt) {
+        await this.recordCompletedDocumentChecksum(submitter, existing);
+      }
+
       return existing;
+    }
+
+    if (existing) {
+      await this.storageService.deleteRecordAttachments({
+        recordType: 'Submission',
+        recordId: submitter.submissionId,
+        name: attachmentName,
+      });
     }
 
     const documents = await this.ensureResultDocuments(submitter, submission);
@@ -260,14 +339,38 @@ export class SubmissionDocumentsService {
       ? [...documents, await this.ensureAuditTrail(submission)]
       : documents;
     const merged = await this.pdfGenerator.mergePdfAttachments(attachments);
-
-    return this.storageService.createPdfAttachment({
+    const signed = await this.signArtifactPdf({
+      accountId: submission.accountId,
       buffer: merged,
+      contactInfo: submitter.email,
+      reason: withAudit
+        ? 'Combined signed document and audit trail'
+        : 'Merged signed document',
+      signerName: submitter.name ?? submitter.email ?? 'Signa',
+      signingTime: submitter.completedAt ?? new Date(),
+    });
+
+    const attachment = await this.storageService.createPdfAttachment({
+      buffer: signed.buffer,
       filename: `${this.getSubmissionBaseName(submission)}.pdf`,
       name: attachmentName,
       recordType: 'Submission',
       recordId: submitter.submissionId,
+      metadata: {
+        cryptographic_signature_certificate:
+          signed.certificateName ?? undefined,
+        cryptographic_signature_timestamp_server:
+          signed.timestampServerUrl ?? undefined,
+        cryptographic_signed: signed.signed,
+        values_hash: valuesHash,
+      },
     });
+
+    if (submitter.completedAt) {
+      await this.recordCompletedDocumentChecksum(submitter, attachment);
+    }
+
+    return attachment;
   }
 
   async ensureAuditTrail(submission: Submission): Promise<StorageAttachment> {
@@ -281,14 +384,38 @@ export class SubmissionDocumentsService {
       return existing;
     }
 
-    const buffer = await this.pdfGenerator.buildAuditTrail(submission);
+    const lastSubmitter = this.getLastCompletedSubmitter(submission);
+    const documents = lastSubmitter
+      ? await this.ensureResultDocuments(lastSubmitter, submission)
+      : [];
+    const sourceDocuments = await this.getSourceDocuments(submission);
+    const auditDocuments = buildAuditTrailDocuments(documents, sourceDocuments);
+    const buffer = await this.pdfGenerator.buildAuditTrail(
+      submission,
+      auditDocuments,
+    );
+    const signed = await this.signArtifactPdf({
+      accountId: submission.accountId,
+      buffer,
+      contactInfo: lastSubmitter?.email,
+      reason: 'Audit trail',
+      signerName: lastSubmitter?.name ?? lastSubmitter?.email ?? 'Signa',
+      signingTime: lastSubmitter?.completedAt ?? new Date(),
+    });
 
     return this.storageService.createPdfAttachment({
-      buffer,
+      buffer: signed.buffer,
       filename: `${this.getSubmissionBaseName(submission)}-audit-log.pdf`,
       name: 'audit_trail',
       recordType: 'Submission',
       recordId: submission.id,
+      metadata: {
+        cryptographic_signature_certificate:
+          signed.certificateName ?? undefined,
+        cryptographic_signature_timestamp_server:
+          signed.timestampServerUrl ?? undefined,
+        cryptographic_signed: signed.signed,
+      },
     });
   }
 
@@ -325,24 +452,31 @@ export class SubmissionDocumentsService {
     documents: StorageAttachment[],
   ): Promise<void> {
     for (const document of documents) {
-      const sha256 =
-        typeof document.blob.metadata?.sha256 === 'string'
-          ? document.blob.metadata.sha256
-          : null;
+      await this.recordCompletedDocumentChecksum(submitter, document);
+    }
+  }
 
-      if (!sha256) {
-        continue;
-      }
+  private async recordCompletedDocumentChecksum(
+    submitter: Submitter,
+    document: StorageAttachment,
+  ): Promise<void> {
+    const sha256 =
+      typeof document.blob.metadata?.sha256 === 'string'
+        ? document.blob.metadata.sha256
+        : null;
 
-      const exists = await this.completedDocuments.exists({
-        where: { sha256, submitterId: submitter.id },
-      });
+    if (!sha256) {
+      return;
+    }
 
-      if (!exists) {
-        await this.completedDocuments.save(
-          this.completedDocuments.create({ sha256, submitterId: submitter.id }),
-        );
-      }
+    const exists = await this.completedDocuments.exists({
+      where: { sha256, submitterId: submitter.id },
+    });
+
+    if (!exists) {
+      await this.completedDocuments.save(
+        this.completedDocuments.create({ sha256, submitterId: submitter.id }),
+      );
     }
   }
 
@@ -359,6 +493,20 @@ export class SubmissionDocumentsService {
         this.generationEvents.create({ submitterId, eventName }),
       );
     }
+  }
+
+  private async deleteSubmissionMergedDocuments(
+    submission: Submission,
+  ): Promise<void> {
+    await Promise.all(
+      ['merged_document', 'combined_document'].map((name) =>
+        this.storageService.deleteRecordAttachments({
+          recordType: 'Submission',
+          recordId: submission.id,
+          name,
+        }),
+      ),
+    );
   }
 
   private async getSourceDocuments(
@@ -390,9 +538,19 @@ export class SubmissionDocumentsService {
     );
   }
 
-  private async getSubmitterAttachmentsByUuid(
+  private async getSubmitterAttachmentsContext(
     submitters: Submitter[],
-  ): Promise<Map<string, StorageAttachment>> {
+  ): Promise<{
+    attachmentsByUuid: Map<string, StorageAttachment>;
+    signatureMetadataByUuid: Map<
+      string,
+      {
+        signedAt: Date;
+        signerEmail: string | null;
+        signerName: string | null;
+      }
+    >;
+  }> {
     const attachments = await Promise.all(
       submitters.map((submitter) =>
         this.storageService.findRecordAttachments({
@@ -402,10 +560,30 @@ export class SubmissionDocumentsService {
         }),
       ),
     );
+    const attachmentsByUuid = new Map<string, StorageAttachment>();
+    const signatureMetadataByUuid = new Map<
+      string,
+      {
+        signedAt: Date;
+        signerEmail: string | null;
+        signerName: string | null;
+      }
+    >();
 
-    return new Map(
-      attachments.flat().map((attachment) => [attachment.uuid, attachment]),
-    );
+    attachments.forEach((submitterAttachments, index) => {
+      const submitter = submitters[index];
+
+      for (const attachment of submitterAttachments) {
+        attachmentsByUuid.set(attachment.uuid, attachment);
+        signatureMetadataByUuid.set(attachment.uuid, {
+          signedAt: attachment.createdAt ?? submitter.completedAt ?? new Date(),
+          signerEmail: submitter.email,
+          signerName: submitter.name,
+        });
+      }
+    });
+
+    return { attachmentsByUuid, signatureMetadataByUuid };
   }
 
   private buildSubmissionValues(
@@ -427,9 +605,55 @@ export class SubmissionDocumentsService {
     return values;
   }
 
-  private buildValuesHash(submission: Submission): string {
+  private async getResultGenerationOptions(
+    submission: Submission,
+  ): Promise<ResultGenerationOptions> {
+    const configs = await this.accountConfigs.find({
+      where: {
+        accountId: submission.accountId,
+        key: In(['flatten_result_pdf', 'with_signature_id']),
+      },
+    });
+    const configByKey = new Map(configs.map((config) => [config.key, config]));
+    const [certificate, timestampServerUrl] = await Promise.all([
+      this.pdfSignatureService.loadDefaultCertificate(submission.accountId),
+      this.pdfSignatureService.getTimestampServerUrl(submission.accountId),
+    ]);
+
+    return {
+      documentId: createHash('sha256')
+        .update(submission.slug)
+        .digest('hex')
+        .toUpperCase(),
+      flatten: configByKey.get('flatten_result_pdf')?.value !== false,
+      signingCertificateName: certificate.name,
+      timestampServerUrl,
+      withSignatureId: configByKey.get('with_signature_id')?.value === true,
+    };
+  }
+
+  private signArtifactPdf(input: {
+    accountId: string;
+    buffer: Buffer;
+    contactInfo?: string | null;
+    reason: string;
+    signerName: string;
+    signingTime: Date;
+  }) {
+    return this.pdfSignatureService.signPdf(input);
+  }
+
+  private buildValuesHash(
+    submission: Submission,
+    generationOptions: Record<string, unknown>,
+  ): string {
     return createHash('sha256')
-      .update(JSON.stringify(this.buildSubmissionValues(submission)))
+      .update(
+        JSON.stringify({
+          generationOptions,
+          values: this.buildSubmissionValues(submission),
+        }),
+      )
       .digest('base64url');
   }
 
@@ -459,6 +683,43 @@ export class SubmissionDocumentsService {
       submission.name ?? submission.template?.name ?? 'document',
     );
   }
+}
+
+function buildAuditTrailDocuments(
+  resultDocuments: StorageAttachment[],
+  sourceDocuments: SourceDocument[],
+): AuditTrailDocument[] {
+  const sourceByUuid = new Map(
+    sourceDocuments.map((document) => [document.uuid, document]),
+  );
+
+  return resultDocuments.map((document) => {
+    const originalUuid =
+      typeof document.blob.metadata?.original_uuid === 'string'
+        ? document.blob.metadata.original_uuid
+        : null;
+    const source = originalUuid ? sourceByUuid.get(originalUuid) : undefined;
+
+    return {
+      filename: document.blob.filename,
+      originalSha256:
+        (typeof document.blob.metadata?.original_sha256 === 'string'
+          ? document.blob.metadata.original_sha256
+          : null) ?? (source ? getAttachmentChecksum(source.attachment) : null),
+      resultSha256:
+        typeof document.blob.metadata?.sha256 === 'string'
+          ? document.blob.metadata.sha256
+          : null,
+    };
+  });
+}
+
+function getAttachmentChecksum(attachment: StorageAttachment): string | null {
+  return (
+    (typeof attachment.blob.metadata?.sha256 === 'string'
+      ? attachment.blob.metadata.sha256
+      : null) ?? attachment.blob.checksum
+  );
 }
 
 function getSchemaDocumentName(

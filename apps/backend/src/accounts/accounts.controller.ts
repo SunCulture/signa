@@ -123,12 +123,14 @@ export class AccountsController {
   uploadSigningCertificate(
     @CurrentAccount() account: Account,
     @Body('name') name: string | undefined,
+    @Body('password') password: string | undefined,
     @UploadedFile() file: UploadedBufferFile,
   ): Promise<SigningCertificateResponseDto> {
     return this.accountsService.uploadSigningCertificate(
       account.id,
       name,
       file,
+      password,
     );
   }
 
@@ -148,6 +150,18 @@ export class AccountsController {
     @Body('name') name: string,
   ): Promise<SigningCertificateResponseDto> {
     return this.accountsService.deleteSigningCertificate(account.id, name);
+  }
+
+  @Patch('signing-certificates/timestamp-server')
+  @ApiOkResponse({ type: SigningCertificateListResponseDto })
+  updateTimestampServerUrl(
+    @CurrentAccount() account: Account,
+    @Body('timestamp_server_url') timestampServerUrl: string | null,
+  ): Promise<SigningCertificateListResponseDto> {
+    return this.accountsService.updateTimestampServerUrl(
+      account.id,
+      timestampServerUrl,
+    );
   }
 
   @Get('integrations')
@@ -194,6 +208,24 @@ export class AccountsController {
       account.id,
       provider,
     );
+  }
+
+  @Post('mail/test')
+  @ApiOkResponse({
+    schema: {
+      properties: {
+        ok: { type: 'boolean', example: true },
+      },
+    },
+  })
+  testMailTransport(
+    @CurrentAccount() account: Account,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<{ ok: true }> {
+    return this.accountsService.sendMailTransportTest({
+      accountId: account.id,
+      userId: request.session!.userId,
+    });
   }
 
   @Delete()

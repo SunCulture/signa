@@ -39,6 +39,7 @@ import { DeleteSubmissionQueryDto } from './dto/delete-submission-query.dto';
 import { EventFeedResponseDto } from './dto/event-feed-response.dto';
 import { ListSubmissionsQueryDto } from './dto/list-submissions-query.dto';
 import { SendEmailResponseDto } from './dto/send-email-response.dto';
+import { SubmissionMailEventsResponseDto } from './dto/submission-mail-event-response.dto';
 import { SubmissionInitResponseDto } from './dto/submission-init-response.dto';
 import {
   SubmissionDeleteResponseDto,
@@ -356,6 +357,19 @@ export class SubmissionMailController {
     @Param('id') submitterId: string,
   ): Promise<SendEmailResponseDto> {
     return this.submissionsService.sendSubmitterEmail(user, submitterId);
+  }
+
+  @Get('submissions/:id/mail-events')
+  @UseGuards(ApiOrJwtGuard, UserHydrationGuard)
+  @ApiTags('Submission Mail')
+  @ApiBearerAuth()
+  @ApiSecurity('X-Auth-Token')
+  @ApiOkResponse({ type: SubmissionMailEventsResponseDto })
+  listSubmissionMailEvents(
+    @CurrentUser() user: User,
+    @Param('id') submissionId: string,
+  ): Promise<SubmissionMailEventsResponseDto> {
+    return this.submissionsService.listSubmissionMailEvents(user, submissionId);
   }
 
   @Post('send_submission_email')

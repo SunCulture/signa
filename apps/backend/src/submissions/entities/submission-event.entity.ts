@@ -15,7 +15,7 @@ import { Submission } from './submission.entity';
 
 @Entity('submission_events')
 export class SubmissionEvent {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Index()
@@ -33,16 +33,16 @@ export class SubmissionEvent {
   @Column({ name: 'event_type', type: 'varchar', length: 255 })
   eventType!: string;
 
-  @Column({ name: 'event_timestamp', type: 'timestamptz' })
+  @Column({ name: 'event_timestamp' })
   eventTimestamp!: Date;
 
   @Column({ type: 'simple-json' })
   data!: SubmissionEventData;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => Account, { nullable: true, onDelete: 'CASCADE' })

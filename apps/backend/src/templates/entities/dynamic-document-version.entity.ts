@@ -14,7 +14,7 @@ import { TemplateFieldArea } from '../types/template-json';
 @Entity('dynamic_document_versions')
 @Index(['dynamicDocumentId', 'sha1'], { unique: true })
 export class DynamicDocumentVersion {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Column({ name: 'dynamic_document_id', type: 'bigint' })
@@ -26,10 +26,10 @@ export class DynamicDocumentVersion {
   @Column({ type: 'simple-json' })
   areas!: TemplateFieldArea[];
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => DynamicDocument, (document) => document.versions, {

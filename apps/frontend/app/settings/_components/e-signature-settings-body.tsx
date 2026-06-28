@@ -2,7 +2,18 @@
 
 import type React from "react"
 import { useEffect, useRef, useState } from "react"
-import { FileCheck2Icon, PlusIcon, UploadCloudIcon } from "lucide-react"
+import {
+  BadgeCheckIcon,
+  CalendarDaysIcon,
+  CheckCircle2Icon,
+  CircleXIcon,
+  FileTextIcon,
+  IdCardIcon,
+  PlusIcon,
+  ShieldCheckIcon,
+  UploadCloudIcon,
+  UserRoundIcon,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -24,6 +35,7 @@ import {
   listSigningCertificates,
   makeDefaultSigningCertificate,
   updateAccountPreferences,
+  updateSigningTimestampServer,
   uploadSigningCertificate,
 } from "@/lib/api/auth"
 import { verifyPdfFile, type VerifyPdfResponse } from "@/lib/api/tools"
@@ -60,14 +72,17 @@ export function ESignatureSettingsBody() {
 function ESignaturePanel() {
   const [preferences, setPreferences] = useState<AccountPreferences | null>(null)
   const [certificates, setCertificates] = useState<SigningCertificate[]>([])
+  const [timestampServerUrl, setTimestampServerUrl] = useState("")
   const [verification, setVerification] = useState<VerifyPdfResponse | null>(null)
+  const [verificationFileName, setVerificationFileName] = useState("")
   const [isVerifying, setIsVerifying] = useState(false)
 
   useEffect(() => {
     Promise.all([getAccountPreferences(), listSigningCertificates()])
       .then(([loadedPreferences, loadedCertificates]) => {
         setPreferences(loadedPreferences)
-        setCertificates(loadedCertificates)
+        setCertificates(loadedCertificates.data)
+        setTimestampServerUrl(loadedCertificates.timestamp_server_url ?? "")
       })
       .catch((error: unknown) =>
         toast.error("E-signature settings could not be loaded", {
@@ -79,6 +94,7 @@ function ESignaturePanel() {
   async function verifyPdf(file: File) {
     setIsVerifying(true)
     setVerification(null)
+    setVerificationFileName(file.name)
 
     try {
       const result = await verifyPdfFile(file)
@@ -105,10 +121,13 @@ function ESignaturePanel() {
     }
   }
 
-  async function uploadCertificate(file: File, name: string) {
+  async function uploadCertificate(file: File, name: string, password: string) {
     try {
-      await uploadSigningCertificate(file, name)
-      setCertificates(await listSigningCertificates())
+      await uploadSigningCertificate(file, name, password)
+      const nextCertificates = await listSigningCertificates()
+
+      setCertificates(nextCertificates.data)
+      setTimestampServerUrl(nextCertificates.timestamp_server_url ?? "")
       toast.success("Signing certificate uploaded")
     } catch (error) {
       toast.error("Signing certificate upload failed", {
@@ -119,14 +138,36 @@ function ESignaturePanel() {
 
   async function setDefaultCertificate(name: string) {
     await makeDefaultSigningCertificate(name)
-    setCertificates(await listSigningCertificates())
+    const nextCertificates = await listSigningCertificates()
+
+    setCertificates(nextCertificates.data)
+    setTimestampServerUrl(nextCertificates.timestamp_server_url ?? "")
     toast.success("Default certificate updated")
   }
 
   async function removeCertificate(name: string) {
     await deleteSigningCertificate(name)
-    setCertificates(await listSigningCertificates())
+    const nextCertificates = await listSigningCertificates()
+
+    setCertificates(nextCertificates.data)
+    setTimestampServerUrl(nextCertificates.timestamp_server_url ?? "")
     toast.success("Signing certificate removed")
+  }
+
+  async function saveTimestampServerUrl(value: string) {
+    try {
+      const nextCertificates = await updateSigningTimestampServer(
+        value.trim() || null,
+      )
+
+      setCertificates(nextCertificates.data)
+      setTimestampServerUrl(nextCertificates.timestamp_server_url ?? "")
+      toast.success("Timestamp server saved")
+    } catch (error) {
+      toast.error("Timestamp server failed to save", {
+        description: getErrorMessage(error),
+      })
+    }
   }
 
   return (
@@ -134,13 +175,18 @@ function ESignaturePanel() {
       <h1 className="text-4xl font-bold tracking-normal">PDF Signature</h1>
       <p className="mt-5">Upload signed PDF file to validate its signature:</p>
       <PdfVerificationDropzone isVerifying={isVerifying} onFile={verifyPdf} />
-      <VerificationResult verification={verification} />
+      <VerificationResult
+        fileName={verificationFileName}
+        verification={verification}
+      />
 
       <SigningCertificatesSection
         certificates={certificates}
         onMakeDefault={setDefaultCertificate}
         onRemove={removeCertificate}
+        onTimestampServerSave={saveTimestampServerUrl}
         onUpload={uploadCertificate}
+        timestampServerUrl={timestampServerUrl}
       />
 
       {preferences ? (
@@ -157,13 +203,24 @@ function SigningCertificatesSection({
   certificates,
   onMakeDefault,
   onRemove,
+  onTimestampServerSave,
   onUpload,
+  timestampServerUrl,
 }: {
   certificates: SigningCertificate[]
   onMakeDefault: (name: string) => Promise<void>
   onRemove: (name: string) => Promise<void>
-  onUpload: (file: File, name: string) => Promise<void>
+  onTimestampServerSave: (value: string) => Promise<void>
+  onUpload: (file: File, name: string, password: string) => Promise<void>
+  timestampServerUrl: string
 }) {
+  const [nextTimestampServerUrl, setNextTimestampServerUrl] =
+    useState(timestampServerUrl)
+
+  useEffect(() => setNextTimestampServerUrl(timestampServerUrl), [
+    timestampServerUrl,
+  ])
+
   return (
     <>
       <div className="mt-10 flex items-end justify-between gap-4">
@@ -177,6 +234,27 @@ function SigningCertificatesSection({
         onMakeDefault={onMakeDefault}
         onRemove={onRemove}
       />
+      <div className="mt-8 max-w-xl space-y-3">
+        <Label>Timestamp server URL</Label>
+        <div className="flex gap-3">
+          <input
+            className="h-12 min-w-0 flex-1 rounded-full border bg-transparent px-5 outline-none"
+            onChange={(event) =>
+              setNextTimestampServerUrl(event.target.value)
+            }
+            placeholder="URL (optional)"
+            type="url"
+            value={nextTimestampServerUrl}
+          />
+          <Button
+            className="h-12 rounded-full px-6"
+            onClick={() => void onTimestampServerSave(nextTimestampServerUrl)}
+            type="button"
+          >
+            SAVE
+          </Button>
+        </div>
+      </div>
     </>
   )
 }
@@ -255,7 +333,7 @@ function PdfVerificationDropzone({
       </span>
       <span className="text-xs">Click to upload or drag and drop files</span>
       <input
-        accept="application/pdf"
+        accept=".pdf,application/pdf"
         className="hidden"
         onChange={(event) => {
           const file = event.target.files?.[0]
@@ -272,31 +350,205 @@ function PdfVerificationDropzone({
 }
 
 function VerificationResult({
+  fileName,
   verification,
 }: {
+  fileName: string
   verification: VerifyPdfResponse | null
 }) {
   if (!verification) {
     return null
   }
 
+  const signatures = verification.signatures
+  const signatureCount = signatures.length
+  const isTrusted = verification.checksum_status === "verified"
+
+  if (signatureCount === 0) {
+    return (
+      <div className="mt-5 w-full max-w-xl rounded-md border bg-card px-4 py-3">
+        <p className="text-sm">{fileName || "PDF document"}</p>
+        <p className="mt-2 text-xl font-bold">There are no signatures...</p>
+      </div>
+    )
+  }
+
   return (
-    <div className="mt-3 flex max-w-xl items-center gap-3 rounded-xl border bg-card px-4 py-3 text-sm">
-      <FileCheck2Icon className="size-5 text-[var(--auth-primary)]" />
-      <span>
-        Checksum status:{" "}
-        <strong className="capitalize">
-          {verification.checksum_status.replace("_", " ")}
-        </strong>
-      </span>
+    <div className="mt-5 w-full max-w-xl rounded-md border bg-card px-4 py-3">
+      <div className="flex items-center gap-2 border-b border-dashed pb-3 text-sm">
+        <FileTextIcon className="size-4" />
+        <span>
+          {fileName || "PDF document"} - {signatureCount}{" "}
+          {signatureCount === 1 ? "Signature" : "Signatures"}
+        </span>
+      </div>
+
+      <div className="mt-4 flex flex-col gap-2">
+        <VerificationStatusLine
+          icon="success"
+          label="Signature valid"
+        />
+        <VerificationStatusLine
+          icon={isTrusted ? "success" : "error"}
+          label={
+            isTrusted
+              ? "Signed with trusted certificate"
+              : "Signed with external certificate"
+          }
+        />
+        <p className="text-xl font-bold leading-snug">
+          Certificate chain: {getCertificateChainLabel(verification)}
+        </p>
+      </div>
+
+      <div className="mt-4 flex flex-col gap-1.5 text-sm">
+        {signatures.map((signature, index) => (
+          <SignatureMetadata
+            key={`${signature.signature_type ?? "signature"}-${index}`}
+            signature={signature}
+          />
+        ))}
+      </div>
     </div>
   )
+}
+
+function VerificationStatusLine({
+  icon,
+  label,
+}: {
+  icon: "error" | "success"
+  label: string
+}) {
+  const Icon = icon === "success" ? CheckCircle2Icon : CircleXIcon
+
+  return (
+    <div className="flex items-center gap-2 text-xl font-bold leading-tight">
+      <Icon
+        className={
+          icon === "success"
+            ? "size-5 text-emerald-500"
+            : "size-5 text-rose-500"
+        }
+      />
+      <span>{label}</span>
+    </div>
+  )
+}
+
+function SignatureMetadata({
+  signature,
+}: {
+  signature: VerifyPdfResponse["signatures"][number]
+}) {
+  return (
+    <>
+      <MetadataLine
+        icon={UserRoundIcon}
+        label={`Signed with ${signature.signer_name ?? "Unknown signer"}`}
+      />
+      <MetadataLine
+        icon={CalendarDaysIcon}
+        label={formatSigningTime(signature.signing_time)}
+      />
+      <MetadataLine
+        icon={IdCardIcon}
+        label={signature.signing_reason ?? "Signa"}
+      />
+      <MetadataLine
+        icon={ShieldCheckIcon}
+        label={signature.signature_type ?? "PDF signature"}
+      />
+    </>
+  )
+}
+
+function MetadataLine({
+  icon: Icon,
+  label,
+}: {
+  icon: typeof BadgeCheckIcon
+  label: string
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <Icon className="size-4" />
+      <span>{label}</span>
+    </div>
+  )
+}
+
+function getCertificateChainLabel(verification: VerifyPdfResponse): string {
+  if (verification.cryptographic_verification) {
+    return "Signa -> Signa Sub-CA -> Signa Root CA"
+  }
+
+  return verification.checksum_status === "verified"
+    ? "Signa completed document checksum"
+    : "External PDF signature"
+}
+
+function formatSigningTime(value: string | null): string {
+  if (!value) {
+    return "Signing time unavailable"
+  }
+
+  const date = parsePdfSigningDate(value) ?? new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+
+  return date.toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  })
+}
+
+function parsePdfSigningDate(value: string): Date | null {
+  const normalized = value.startsWith("D:") ? value.slice(2) : value
+  const match =
+    /^(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?(Z|[+-]\d{2}'?\d{2}'?)?$/.exec(
+      normalized
+    )
+
+  if (!match) {
+    return null
+  }
+
+  const [
+    ,
+    year,
+    month,
+    day,
+    hour = "00",
+    minute = "00",
+    second = "00",
+    timezone = "",
+  ] = match
+  const parsedDate = new Date(
+    `${year}-${month}-${day}T${hour}:${minute}:${second}${formatPdfTimezone(
+      timezone
+    )}`
+  )
+
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate
+}
+
+function formatPdfTimezone(timezone: string): string {
+  if (!timezone || timezone === "Z") {
+    return "Z"
+  }
+
+  const normalized = timezone.replaceAll("'", "")
+
+  return `${normalized.slice(0, 3)}:${normalized.slice(3, 5)}`
 }
 
 function CertificateUploadButton({
   onUpload,
 }: {
-  onUpload: (file: File, name: string) => void
+  onUpload: (file: File, name: string, password: string) => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -312,13 +564,19 @@ function CertificateUploadButton({
         UPLOAD CERT
       </Button>
       <input
-        accept=".p12,.pfx,.pem,.crt"
+        accept=".p12,.pfx"
         className="hidden"
         onChange={(event) => {
           const file = event.target.files?.[0]
 
           if (file) {
-            onUpload(file, file.name.replace(/\.[^.]+$/, ""))
+            const password =
+              window.prompt(
+                "Enter the certificate password if this P12/PFX is protected.",
+              ) ?? ""
+
+            onUpload(file, file.name.replace(/\.[^.]+$/, ""), password)
+            event.currentTarget.value = ""
           }
         }}
         ref={inputRef}

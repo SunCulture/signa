@@ -12,11 +12,15 @@ import { User } from '../../users/entities/user.entity';
 
 @Entity('access_tokens')
 export class AccessToken {
-  @PrimaryGeneratedColumn({ type: 'bigint' })
+  @PrimaryGeneratedColumn()
   id!: string;
 
   @Column({ name: 'user_id', type: 'bigint' })
   userId!: string;
+
+  @Index()
+  @Column({ name: 'team_id', type: 'bigint', nullable: true })
+  teamId!: string | null;
 
   @Index({ unique: true })
   @Column({ type: 'text' })
@@ -25,19 +29,19 @@ export class AccessToken {
   @Column({ type: 'text' })
   token!: string;
 
-  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
+  @Column({ type: 'simple-json', default: '[]' })
   permissions!: string[];
 
-  @Column({ name: 'last_used_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'last_used_at', type: 'timestamp', nullable: true })
   lastUsedAt!: Date | null;
 
-  @Column({ name: 'revoked_at', type: 'timestamptz', nullable: true })
+  @Column({ name: 'revoked_at', type: 'timestamp', nullable: true })
   revokedAt!: Date | null;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })

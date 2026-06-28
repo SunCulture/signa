@@ -55,6 +55,15 @@ export type TemplateFieldArea = {
   [key: string]: unknown;
 };
 
+export type TemplateCustomFieldArea = {
+  h?: number;
+  option_uuid?: string;
+  w?: number;
+  x?: number;
+  y?: number;
+  [key: string]: unknown;
+};
+
 export type TemplateEditorField = {
   areas: TemplateFieldArea[];
   name: string;
@@ -62,6 +71,22 @@ export type TemplateEditorField = {
   submitter_uuid?: string;
   type: EditorFieldType;
   uuid: string;
+  [key: string]: unknown;
+};
+
+export type TemplateCustomField = {
+  areas?: TemplateCustomFieldArea[];
+  default_value?: unknown;
+  description?: string;
+  name: string;
+  options?: unknown;
+  preferences?: Record<string, unknown>;
+  readonly?: boolean;
+  required?: boolean;
+  title?: string;
+  type: EditorFieldType;
+  uuid: string;
+  validation?: unknown;
   [key: string]: unknown;
 };
 
@@ -104,6 +129,11 @@ export type FieldDragPayload =
   | {
       kind: "new";
       type: EditorFieldType;
+    }
+  | {
+      customFieldUuid: string;
+      kind: "custom";
+      type: EditorFieldType;
     };
 
 export const FIELD_DRAG_MIME_TYPE = "application/x-signa-template-field";
@@ -137,7 +167,7 @@ export const fieldTypes: FieldTypeDefinition[] = [
   { icon: Columns3Icon, label: "Cells", type: "cells" },
   { icon: StampIcon, label: "Stamp", type: "stamp" },
   { icon: CreditCardIcon, label: "Payment", type: "payment" },
-  { icon: PhoneIcon, label: "Phone", locked: true, type: "phone" },
+  { icon: PhoneIcon, label: "Phone", type: "phone" },
 ];
 
 export const fieldValidationOptions = [
@@ -200,6 +230,98 @@ export function createTemplateField({
   field.name = buildDefaultFieldName(type, typeFields.length);
 
   return field;
+}
+
+export function createTemplateFieldFromCustom({
+  area,
+  customField,
+  fields,
+  submitter,
+}: {
+  area: TemplateFieldArea;
+  customField: TemplateCustomField;
+  fields: TemplateEditorField[];
+  submitter: TemplateSubmitter;
+}): TemplateEditorField {
+  const field = createTemplateField({
+    area,
+    fields,
+    submitter,
+    type: customField.type,
+  });
+
+  applyCustomFieldAttributes(field, customField);
+
+  return field;
+}
+
+export function buildTemplateCustomField(
+  field: TemplateEditorField,
+): TemplateCustomField {
+  const customField: TemplateCustomField = {
+    ...structuredClone(field),
+    uuid: crypto.randomUUID(),
+  };
+
+  delete customField.submitter_uuid;
+  delete customField.prefillable;
+  delete customField.conditions;
+  customField.areas = field.areas.flatMap((area) => {
+    if (area.page === null || area.page === undefined) {
+      return [];
+    }
+
+    const customArea: TemplateCustomFieldArea = { ...area };
+
+    delete customArea.attachment_uuid;
+    delete customArea.page;
+
+    return [customArea];
+  });
+
+  return customField;
+}
+
+export function normalizeTemplateCustomFields(
+  fields: unknown[],
+): TemplateCustomField[] {
+  return fields.flatMap((field) => {
+    if (!isRecord(field)) {
+      return [];
+    }
+
+    const normalized = normalizeTemplateCustomField(field);
+
+    return normalized ? [normalized] : [];
+  });
+}
+
+export function applyCustomFieldAttributes(
+  field: TemplateEditorField,
+  customField: TemplateCustomField,
+): void {
+  const skipKeys = new Set([
+    "areas",
+    "conditions",
+    "prefillable",
+    "role",
+    "submitter_uuid",
+    "uuid",
+  ]);
+
+  Object.entries(customField).forEach(([key, value]) => {
+    if (skipKeys.has(key) || value === null || value === undefined) {
+      return;
+    }
+
+    if (key === "options") {
+      field.options = normalizeCustomFieldOptions(value);
+      return;
+    }
+
+    field[key] =
+      typeof value === "object" ? structuredClone(value) : value;
+  });
 }
 
 export function buildFieldTypeUpdate(
@@ -286,6 +408,69 @@ export function normalizeTemplateFields(
         type,
         uuid,
       } satisfies TemplateEditorField,
+    ];
+  });
+}
+
+function normalizeTemplateCustomField(
+  field: Record<string, unknown>,
+): TemplateCustomField | null {
+  const type = normalizeFieldType(field.type);
+  const uuid =
+    typeof field.uuid === "string" ? field.uuid : crypto.randomUUID();
+  const name = typeof field.name === "string" ? field.name : "";
+  const areas = Array.isArray(field.areas)
+    ? field.areas.flatMap(normalizeCustomFieldArea)
+    : [];
+
+  if (!name && !type) {
+    return null;
+  }
+
+  return {
+    ...field,
+    areas,
+    name,
+    type,
+    uuid,
+  } satisfies TemplateCustomField;
+}
+
+function normalizeCustomFieldArea(area: unknown): TemplateCustomFieldArea[] {
+  if (!isRecord(area)) {
+    return [];
+  }
+
+  return [
+    {
+      ...area,
+      h: getFiniteNumber(area.h, 0.04),
+      w: getFiniteNumber(area.w, 0.2),
+      x: getFiniteNumber(area.x, 0),
+      y: getFiniteNumber(area.y, 0),
+    },
+  ];
+}
+
+function normalizeCustomFieldOptions(value: unknown): TemplateFieldOption[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((option) => {
+    if (typeof option === "string") {
+      return [{ uuid: crypto.randomUUID(), value: option }];
+    }
+
+    if (!isRecord(option)) {
+      return [];
+    }
+
+    return [
+      {
+        uuid: crypto.randomUUID(),
+        value: typeof option.value === "string" ? option.value : "",
+      },
     ];
   });
 }
@@ -709,6 +894,17 @@ export function readFieldDragPayload(
           typeof payload.optionUuid === "string"
             ? payload.optionUuid
             : undefined,
+      };
+    }
+
+    if (
+      payload.kind === "custom" &&
+      typeof payload.customFieldUuid === "string"
+    ) {
+      return {
+        customFieldUuid: payload.customFieldUuid,
+        kind: "custom",
+        type: normalizeFieldType(payload.type),
       };
     }
 

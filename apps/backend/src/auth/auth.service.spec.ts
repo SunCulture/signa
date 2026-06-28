@@ -3,8 +3,17 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { EmailVerificationCodeService } from '../mail/email-verification-code.service';
+import { MailService } from '../mail/mail.service';
 import { AuthService } from './auth.service';
 import { AccessToken } from './entities/access-token.entity';
+
+jest.mock('otplib', () => ({
+  generateSecret: jest.fn(() => 'JBSWY3DPEHPK3PXP'),
+  generateSync: jest.fn(() => '123456'),
+  generateURI: jest.fn(() => 'otpauth://totp/Signa:ada@example.com'),
+  verifySync: jest.fn(() => ({ valid: true })),
+}));
 
 type MockRepository<T extends object> = Pick<
   Repository<T>,
@@ -56,8 +65,20 @@ describe('AuthService', () => {
           useValue: dataSource,
         },
         {
+          provide: EmailVerificationCodeService,
+          useValue: {
+            verifyAuthenticatorCode: jest.fn().mockReturnValue(true),
+          },
+        },
+        {
           provide: JwtService,
           useValue: jwtService,
+        },
+        {
+          provide: MailService,
+          useValue: {
+            sendPasswordReset: jest.fn().mockResolvedValue({ status: 'sent' }),
+          },
         },
       ],
     }).compile();
