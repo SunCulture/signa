@@ -42,6 +42,7 @@ import {
 } from "@/lib/api/webhooks"
 import { queryKeys } from "@/lib/api/query-keys"
 import { useRealtimeEvents } from "@/lib/realtime/use-realtime-events"
+import { useTestMode } from "@/lib/hooks/use-test-mode"
 import { SettingsSidebar } from "./settings-sidebar"
 
 const newWebhookId = "__new_webhook__"
@@ -61,8 +62,14 @@ export function WebhooksSettingsBody() {
 function WebhooksPanel() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const queryClient = useQueryClient()
+  const { isPending: isTestModePending, isTestMode, setTestMode } =
+    useTestMode()
+  const webhooksQueryKey = useMemo(
+    () => [...queryKeys.webhooks.list(), { isTestMode }],
+    [isTestMode],
+  )
   const webhooksQuery = useQuery({
-    queryKey: queryKeys.webhooks.list(),
+    queryKey: webhooksQueryKey,
     queryFn: listWebhooks,
   })
   const webhooks = webhooksQuery.data?.data ?? []
@@ -91,7 +98,11 @@ function WebhooksPanel() {
         <div className="flex items-center gap-4">
           <label className="flex items-center gap-2 text-sm font-medium">
             <span>Test mode</span>
-            <Switch />
+            <Switch
+              checked={isTestMode}
+              disabled={isTestModePending}
+              onCheckedChange={setTestMode}
+            />
           </label>
           {webhooks.length > 0 ? (
             <Button
@@ -131,7 +142,7 @@ function WebhooksPanel() {
         selectedWebhook={selectedWebhook}
         onSaved={(webhook) => {
           queryClient.setQueryData<{ data: WebhookUrl[] }>(
-            queryKeys.webhooks.list(),
+            webhooksQueryKey,
             (current) => ({
               data: upsertWebhook(current?.data ?? [], webhook),
             })
@@ -140,7 +151,7 @@ function WebhooksPanel() {
         }}
         onDeleted={(webhookId) => {
           queryClient.setQueryData<{ data: WebhookUrl[] }>(
-            queryKeys.webhooks.list(),
+            webhooksQueryKey,
             (current) => ({
               data: (current?.data ?? []).filter(
                 (webhook) => webhook.id !== webhookId

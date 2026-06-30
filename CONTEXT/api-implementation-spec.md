@@ -34,6 +34,8 @@ Signa currently has a Nest global prefix of `/api`. DocuSeal Cloud examples use 
 - Forbidden response: JSON `{ "error": "Not authorized" }`, HTTP 403 unless DocuSeal returns a testing/production API-key mismatch message.
 - Validation response: JSON `{ "error": "<message>" }`, HTTP 422.
 - Rate limit response: JSON `{ "error": "Too many requests" }`, HTTP 429.
+- Backend i18n: supported locales are `en`, `sw`, and `fr`. Locale resolution uses the authenticated account locale first, then explicit query/header values, then `Accept-Language`, and falls back to English. Validation uses `nestjs-i18n` while preserving Signa's existing response envelope, and service code can emit keyed errors through `localizedError(i18n_key, fallback, args)` without changing public API contracts.
+- Mail i18n: queued mail payloads carry a locale snapshot. Backend-owned mail subjects/actions can translate by locale, but account/template-custom email subjects and bodies remain user-controlled content and are not auto-translated.
 - Pagination: list endpoints return `{ data: [...], pagination: { count, next, prev } }`.
 - Pagination defaults: `limit` default 10, maximum 100.
 - Pagination cursors: DocuSeal sorts by descending `id`. `after` means IDs lower than the cursor; `before` means IDs greater than the cursor.
@@ -69,6 +71,10 @@ Signa implementation rules:
 - Use account-scoped uniqueness where DocuSeal behavior is account-local.
 - Keep testing accounts as separate linked accounts if we want DocuSeal-compatible test/prod API-key behavior.
 - Preserve DocuSeal's wrong-environment error behavior where possible: if a production API key accesses a testing record, or vice versa, return a specific not-found/wrong-key style message instead of leaking cross-tenant data.
+- Test mode follows DocuSeal's linked-account model, not a boolean flag: `POST /api/testing-account` creates/reuses a linked testing account and testing admin user, returns a JWT scoped to that testing account, and keeps `trueUserId`/`trueAccountId` in the web-session claim so `DELETE /api/testing-account` can return to production.
+- API-token resolution now records production/testing account context on the tenant object. Template and submission lookups implement the first wrong-environment message pass; extend the same behavior to submitters, webhooks, and tools as those API surfaces are hardened.
+- Template sharing with test mode is explicit: `POST /api/templates/:id/testing-sharing` creates/removes a `template_sharings` row for the linked testing account, and template responses include `shared_with_test_mode`.
+- Generated result PDFs and audit trails receive test-mode labeling when the submission account is a linked testing account. This mirrors DocuSeal's "not for production use" behavior while preserving Signa's existing `with_signature_id` preference.
 - Treat global config fallback as an explicit self-hosted mode decision; do not add hidden global fallback behavior by default.
 
 Initial Signa tenancy tables to plan:
@@ -94,7 +100,7 @@ Account settings preference scope:
 - Defaults mirror DocuSeal account settings behavior where practical: typed signatures, resubmission, decline, pre-fill signatures, and expiring download links are enabled unless explicitly disabled; stricter auth/compliance features are opt-in.
 - Current supported keys: `receive_completed_email`, `bcc_emails`, `submitter_reminders`, `force_mfa`, `with_signature_id`, `require_signing_reason`, `allow_typed_signature`, `allow_to_resubmit`, `allow_to_decline`, `allow_to_delegate`, `form_prefill_signature`, `download_links_expire`, `download_links_auth`, `combine_pdf_result_key`, `enforce_signing_order`, `with_file_links`, `hipaa`, `cfr_part_11`, `knowledge_based_authentication`, `esigning_preference`, `flatten_result_pdf`, `document_filename_format`, `submitter_invitation_email`, `submitter_documents_copy_email`, `submitter_completed_email`, `form_completed_message`, `form_completed_button`, `form_with_confetti`, and `policy_links`.
 - Notification parity note: DocuSeal stores completed-notification email enablement as a user config and BCC/reminders as account configs. Signa currently exposes all three through account preferences for a simpler tenant-level settings page; split to user-level config later if per-user notification preferences become required.
-- E-signature/personalization parity note: Signa stores company logo as an account-scoped storage attachment and PKCS#12/PFX signing certificate settings in `encrypted_configs`, matching DocuSeal's account-level settings boundary. Certificate-backed cryptographic PDF signing is implemented with `@signpdf/signer-p12`; HexaPDF-grade certificate-chain verification, RFC3161 timestamp embedding, and LTV remain pending.
+- E-signature/personalization parity note: Signa stores company logo as an account-scoped storage attachment and PKCS#12/PFX signing certificate settings in `encrypted_configs`, matching DocuSeal's account-level settings boundary. Certificate-backed PDF signing is implemented with `@signpdf/signer-p12` and defaults to the PAdES `ETSI.CAdES.detached` SubFilter through `@signpdf/utils`; HexaPDF-grade certificate-chain verification, RFC3161 timestamp embedding, and LTV remain pending.
 - Profile parity note: DocuSeal stores per-user signature and initials as ActiveStorage attachments with `user_configs` values keyed by `signature` and `initials`. Signa mirrors that boundary with `UserConfig`, storage attachments on `record_type='User'`, draw/upload frontend modals, and signed blob URLs.
 - Authenticator 2FA uses `otplib` for secret generation, otpauth provisioning URI generation, and TOTP verification. Signa stores the secret on `users.otp_secret`, toggles `users.otp_required_for_login`, and rejects login without a valid OTP once enabled.
 
@@ -115,23 +121,23 @@ Team management scope:
 
 Team endpoints:
 
-| Method | Path                                      | Operation                      | Status |
-| ------ | ----------------------------------------- | ------------------------------ | ------ |
-| GET    | `/teams`                                  | List active/archived teams     | Done   |
-| POST   | `/teams`                                  | Create an account team         | Done   |
-| GET    | `/teams/{id}`                             | Get a team                     | Done   |
-| PATCH  | `/teams/{id}`                             | Update team name/description   | Done   |
-| DELETE | `/teams/{id}`                             | Archive a team                 | Done   |
-| GET    | `/teams/{id}/members`                     | List team members              | Done   |
-| POST   | `/teams/{id}/members`                     | Add or restore a team member   | Done   |
-| PATCH  | `/teams/{id}/members/{memberId}`          | Change a team member role      | Done   |
-| DELETE | `/teams/{id}/members/{memberId}`          | Remove a team member           | Done   |
-| GET    | `/teams/{id}/invitations`                 | List team invitations          | Done   |
-| POST   | `/teams/{id}/invitations`                 | Create a team invitation       | Done   |
-| DELETE | `/teams/{id}/invitations/{invitationId}`  | Revoke a pending invitation    | Done   |
-| POST   | `/team-invitations/{token}/accept`        | Accept a pending invitation    | Done   |
-| POST   | `/teams/{id}/impersonate`                 | Issue team-scoped web session  | Done   |
-| POST   | `/teams/{id}/api-token`                   | Issue team-scoped API token    | Done   |
+| Method | Path                                     | Operation                     | Status |
+| ------ | ---------------------------------------- | ----------------------------- | ------ |
+| GET    | `/teams`                                 | List active/archived teams    | Done   |
+| POST   | `/teams`                                 | Create an account team        | Done   |
+| GET    | `/teams/{id}`                            | Get a team                    | Done   |
+| PATCH  | `/teams/{id}`                            | Update team name/description  | Done   |
+| DELETE | `/teams/{id}`                            | Archive a team                | Done   |
+| GET    | `/teams/{id}/members`                    | List team members             | Done   |
+| POST   | `/teams/{id}/members`                    | Add or restore a team member  | Done   |
+| PATCH  | `/teams/{id}/members/{memberId}`         | Change a team member role     | Done   |
+| DELETE | `/teams/{id}/members/{memberId}`         | Remove a team member          | Done   |
+| GET    | `/teams/{id}/invitations`                | List team invitations         | Done   |
+| POST   | `/teams/{id}/invitations`                | Create a team invitation      | Done   |
+| DELETE | `/teams/{id}/invitations/{invitationId}` | Revoke a pending invitation   | Done   |
+| POST   | `/team-invitations/{token}/accept`       | Accept a pending invitation   | Done   |
+| POST   | `/teams/{id}/impersonate`                | Issue team-scoped web session | Done   |
+| POST   | `/teams/{id}/api-token`                  | Issue team-scoped API token   | Done   |
 
 Team action parity notes:
 
@@ -149,22 +155,22 @@ User management scope:
 
 User endpoints:
 
-| Method | Path              | Operation                         | Status |
-| ------ | ----------------- | --------------------------------- | ------ |
-| GET    | `/profile`        | Current user profile              | Done   |
-| PATCH  | `/profile`        | Update current user profile       | Done   |
-| PATCH  | `/profile/password` | Update current user password    | Done   |
-| GET/POST/DELETE | `/profile/signature` | Manage current user signature | Done |
-| GET/POST/DELETE | `/profile/initials` | Manage current user initials | Done |
-| GET    | `/profile/mfa`    | Current user 2FA status           | Done   |
-| POST   | `/profile/mfa/setup` | Start authenticator 2FA setup  | Done   |
-| POST   | `/profile/mfa`    | Enable authenticator 2FA          | Done   |
-| DELETE | `/profile/mfa`    | Disable authenticator 2FA         | Done   |
-| GET    | `/users`          | List active/archived users        | Done   |
-| POST   | `/users`          | Create or restore a user          | Done   |
-| POST   | `/users/import`   | Bulk import normalized user rows  | Done   |
-| PATCH  | `/users/{id}`     | Update user profile/role/MFA      | Done   |
-| DELETE | `/users/{id}`     | Archive user                      | Done   |
+| Method          | Path                 | Operation                        | Status |
+| --------------- | -------------------- | -------------------------------- | ------ |
+| GET             | `/profile`           | Current user profile             | Done   |
+| PATCH           | `/profile`           | Update current user profile      | Done   |
+| PATCH           | `/profile/password`  | Update current user password     | Done   |
+| GET/POST/DELETE | `/profile/signature` | Manage current user signature    | Done   |
+| GET/POST/DELETE | `/profile/initials`  | Manage current user initials     | Done   |
+| GET             | `/profile/mfa`       | Current user 2FA status          | Done   |
+| POST            | `/profile/mfa/setup` | Start authenticator 2FA setup    | Done   |
+| POST            | `/profile/mfa`       | Enable authenticator 2FA         | Done   |
+| DELETE          | `/profile/mfa`       | Disable authenticator 2FA        | Done   |
+| GET             | `/users`             | List active/archived users       | Done   |
+| POST            | `/users`             | Create or restore a user         | Done   |
+| POST            | `/users/import`      | Bulk import normalized user rows | Done   |
+| PATCH           | `/users/{id}`        | Update user profile/role/MFA     | Done   |
+| DELETE          | `/users/{id}`        | Archive user                     | Done   |
 
 ## Public Endpoint Inventory
 
@@ -241,7 +247,7 @@ Signa status:
 
 - Implemented tenant-scoped retrieval with submitters, template, creator, optional events, optional fields, status, completion timestamp, values, and generated documents.
 - Completed submissions now lazily generate audit trail and combined-document URLs when document serialization is requested.
-- Generated completed PDFs persist original document UUID/SHA-256 metadata plus result SHA-256 metadata, are cryptographically signed with the account default PKCS#12 certificate, and generated audit trails print original/result SHA-256 evidence in the DocuSeal audit-trail style.
+- Generated completed PDFs persist original document UUID/SHA-256 metadata plus result SHA-256 metadata, are signed with the account default PKCS#12 certificate using the PAdES `ETSI.CAdES.detached` SubFilter by default, and generated audit trails print original/result SHA-256 evidence in the DocuSeal audit-trail style.
 - Remaining gap: generated PDFs are value-stamped with `pdf-lib`, but DocuSeal's HexaPDF/PDFium-grade flattening, LTV, PDF/A, RFC3161 timestamp server embedding, and certificate-chain verification behavior are not complete.
 
 #### GET `/submissions/{id}/events`
@@ -475,11 +481,11 @@ Behavior:
 
 Submitters are individual signers within a submission.
 
-| Method | Path               | Operation           | Priority | Status  |
-| ------ | ------------------ | ------------------- | -------- | ------- |
-| GET    | `/submitters`      | List all submitters | P0       | Done    |
-| GET    | `/submitters/{id}` | Get a submitter     | P0       | Done    |
-| PUT    | `/submitters/{id}` | Update a submitter  | P0       | Done    |
+| Method | Path               | Operation           | Priority | Status |
+| ------ | ------------------ | ------------------- | -------- | ------ |
+| GET    | `/submitters`      | List all submitters | P0       | Done   |
+| GET    | `/submitters/{id}` | Get a submitter     | P0       | Done   |
+| PUT    | `/submitters/{id}` | Update a submitter  | P0       | Done   |
 
 #### GET `/submitters`
 
@@ -559,21 +565,22 @@ Signa status:
 
 Templates are reusable signing forms with documents, submitters, and fields.
 
-| Method | Path                        | Operation                                | Priority | Status |
-| ------ | --------------------------- | ---------------------------------------- | -------- | ------ |
-| GET    | `/templates`                | List all templates                       | P0       | Done   |
-| GET    | `/templates/{id}`           | Get a template                           | P0       | Done   |
-| POST   | `/templates`                | Create a blank builder template          | P0       | Done   |
-| POST   | `/templates/pdf`            | Create a template from PDF               | P0       | Done   |
-| POST   | `/templates/docx`           | Create a template from Word DOCX         | P1       | Done   |
-| POST   | `/templates/html`           | Create a template from HTML              | P1       | Done   |
-| POST   | `/templates/{id}/clone`     | Clone a template                         | P1       | Done   |
-| POST   | `/templates/merge`          | Merge templates                          | P1       | Done   |
-| PUT    | `/templates/{id}`           | Update a template                        | P0       | Done   |
-| PUT    | `/templates/{id}/documents` | Update template documents                | P0       | Done   |
-| GET    | `/templates/{id}/events`    | List template activity events            | P1       | Done   |
-| GET    | `/templates/{id}/versions`  | List template version snapshots          | P1       | Done   |
-| DELETE | `/templates/{id}`           | Archive or permanently delete a template | P0       | Done   |
+| Method | Path                                     | Operation                                            | Priority | Status |
+| ------ | ---------------------------------------- | ---------------------------------------------------- | -------- | ------ |
+| GET    | `/templates`                             | List all templates                                   | P0       | Done   |
+| GET    | `/templates/{id}`                        | Get a template                                       | P0       | Done   |
+| POST   | `/templates`                             | Create a blank builder template                      | P0       | Done   |
+| POST   | `/templates/pdf`                         | Create a template from PDF                           | P0       | Done   |
+| POST   | `/templates/docx`                        | Create a template from Word DOCX                     | P1       | Done   |
+| POST   | `/templates/html`                        | Create a template from HTML                          | P1       | Done   |
+| POST   | `/templates/{id}/clone`                  | Clone a template                                     | P1       | Done   |
+| POST   | `/templates/merge`                       | Merge templates                                      | P1       | Done   |
+| PUT    | `/templates/{id}`                        | Update a template                                    | P0       | Done   |
+| PUT    | `/templates/{id}/documents`              | Update template documents                            | P0       | Done   |
+| PUT    | `/templates/{id}/google-drive-documents` | Import Google Drive documents/images into a template | P2       | Done   |
+| GET    | `/templates/{id}/events`                 | List template activity events                        | P1       | Done   |
+| GET    | `/templates/{id}/versions`               | List template version snapshots                      | P1       | Done   |
+| DELETE | `/templates/{id}`                        | Archive or permanently delete a template             | P0       | Done   |
 
 #### GET `/templates`
 
@@ -657,7 +664,7 @@ Signa status:
 
 - Implemented account-scoped blank template creation with DocuSeal-style default submitter fallback (`First Party`), empty `schema`, empty `fields`, empty `preferences`, and `source=native`.
 - Records template activity/version snapshots and emits `template.created` lifecycle events.
-- Dashboard `CREATE` uses this endpoint, then adds a generated blank PDF page through `PUT /api/templates/{id}/documents` before redirecting to the builder.
+- Dashboard `CREATE` uses this endpoint and opens the builder with an empty document dropzone, matching DocuSeal's blank builder flow before the first upload/import.
 
 Blank page document support:
 
@@ -818,6 +825,25 @@ Signa status:
 - Rebuilds schema and normalized fields for uploaded/replaced documents, including standard AcroForm extraction when explicit fields are not supplied.
 - Returns `schema`, changed `fields`, changed `submitters`, and serialized document URLs.
 
+#### PUT `/templates/{id}/google-drive-documents`
+
+Purpose:
+
+- Import documents selected from Google Drive into an existing builder template.
+
+Body fields:
+
+- `access_token`: short-lived Google OAuth access token with Drive file access.
+- `files[]`: Google Picker selected files with `id`, optional `name`, optional `mime_type`.
+- `merge`: whether to append to existing documents or replace them.
+
+Signa status:
+
+- Implemented DocuSeal-style Google Drive import entry points from the template dashboard create modal, dashboard dropzone, editor empty canvas, and editor add-document menu.
+- Frontend uses Google Identity Services plus Google Picker with Drive file scope and multi-select, mirroring DocuSeal's picker flow while avoiding persisted Google tokens.
+- Backend fetches Drive metadata, downloads binary PDFs/images through Drive `files.get?alt=media`, exports Google Workspace documents to PDF through Drive `files.export`, converts images into one-page PDFs, then sends the result through the same template document processing pipeline used by uploads.
+- Records template activity/version snapshots for Google Drive document imports.
+
 #### DELETE `/templates/{id}`
 
 Query params:
@@ -837,21 +863,21 @@ Behavior:
 
 These are present in `docuseal/config/routes.rb` but are not part of the public API docs/OpenAPI inventory. Treat them as internal compatibility candidates after the public API is stable.
 
-| Method | Path                              | Purpose                                     | Priority | Status |
-| ------ | --------------------------------- | ------------------------------------------- | -------- | ------ |
-| GET    | `/api/user`                       | Current API user                            | P2       | Done   |
-| POST   | `/api/attachments`                | Upload signer/template attachments          | P2       | Done   |
-| POST   | `/api/submitter_email_clicks`     | Track email clicks                          | P2       | Done   |
-| POST   | `/api/submitter_sms_clicks`       | Track SMS clicks                            | P2       | Done   |
-| POST   | `/api/submitter_form_views`       | Track form views                            | P2       | Done   |
-| POST   | `/api/submissions/init`           | Legacy/init submission creation shape       | P2       | Done   |
-| GET    | `/api/templates/{id}/submissions` | List submissions for template               | P2       | Done   |
-| POST   | `/api/templates/{id}/submissions` | Create submission for template nested route | P2       | Done   |
-| GET    | `/api/templates/{id}/submissions/export` | Export template submissions as CSV/XLSX | P2       | Done   |
-| POST   | `/api/tools/merge`                | Merge base64 PDFs                           | P2       | Done   |
-| POST   | `/api/tools/verify`               | Verify PDF signatures/checksum              | P2       | Done   |
-| GET    | `/api/events/form/{type}`         | Form webhook event listing                  | P2       | Done   |
-| GET    | `/api/events/submission/{type}`   | Submission webhook event listing            | P2       | Done   |
+| Method | Path                                     | Purpose                                     | Priority | Status |
+| ------ | ---------------------------------------- | ------------------------------------------- | -------- | ------ |
+| GET    | `/api/user`                              | Current API user                            | P2       | Done   |
+| POST   | `/api/attachments`                       | Upload signer/template attachments          | P2       | Done   |
+| POST   | `/api/submitter_email_clicks`            | Track email clicks                          | P2       | Done   |
+| POST   | `/api/submitter_sms_clicks`              | Track SMS clicks                            | P2       | Done   |
+| POST   | `/api/submitter_form_views`              | Track form views                            | P2       | Done   |
+| POST   | `/api/submissions/init`                  | Legacy/init submission creation shape       | P2       | Done   |
+| GET    | `/api/templates/{id}/submissions`        | List submissions for template               | P2       | Done   |
+| POST   | `/api/templates/{id}/submissions`        | Create submission for template nested route | P2       | Done   |
+| GET    | `/api/templates/{id}/submissions/export` | Export template submissions as CSV/XLSX     | P2       | Done   |
+| POST   | `/api/tools/merge`                       | Merge base64 PDFs                           | P2       | Done   |
+| POST   | `/api/tools/verify`                      | Verify PDF signatures/checksum              | P2       | Done   |
+| GET    | `/api/events/form/{type}`                | Form webhook event listing                  | P2       | Done   |
+| GET    | `/api/events/submission/{type}`          | Submission webhook event listing            | P2       | Done   |
 
 Implemented dashboard/send compatibility routes:
 
@@ -887,7 +913,7 @@ Behavior:
 
 Remaining caveat:
 
-- `POST /api/tools/verify` currently verifies Signa-generated checksum presence for completed documents, returns the checked SHA-256, parses PDF validity, and reports detected embedded PDF signatures as `unsupported` for certificate-chain cryptographic verification. Full DocuSeal/HexaPDF-style certificate-chain verification is still pending behind a dedicated verifier decision.
+- `POST /api/tools/verify` currently verifies Signa-generated checksum presence for completed documents, returns the checked SHA-256, parses PDF validity, reports detected embedded PDF signatures, reports PAdES SubFilter status, and calculates structural ByteRange SHA-256 coverage. Full DocuSeal/HexaPDF-style certificate-chain verification is still pending behind a dedicated verifier decision.
 
 Events observed in controllers:
 

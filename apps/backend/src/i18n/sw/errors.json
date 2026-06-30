@@ -1,0 +1,7 @@
+{
+  "internal_server_error": "Hitilafu ya ndani ya seva",
+  "not_authenticated": "Hujaingia",
+  "record_not_found": "Rekodi haijapatikana",
+  "request_failed": "Ombi limeshindwa",
+  "validation_failed": "Uthibitishaji umeshindikana"
+}

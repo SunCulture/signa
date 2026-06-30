@@ -60,7 +60,7 @@ export class IdentityVerification {
   @Column({ type: 'simple-json' })
   data!: Record<string, unknown>;
 
-  @Column({ name: 'verified_at', type: 'timestamp', nullable: true })
+  @Column({ name: 'verified_at', type: Date, nullable: true })
   verifiedAt!: Date | null;
 
   @CreateDateColumn({ name: 'created_at' })

@@ -8,7 +8,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, extname } from 'node:path';
 import { PDFDocument } from 'pdf-lib';
+import sharp from 'sharp';
 import { Brackets, IsNull, Repository, SelectQueryBuilder } from 'typeorm';
+import { AccountsService } from '../accounts/accounts.service';
 import { throwDatabaseErrors, throwIfNotFound } from '../common/utils/error';
 import { runtimeEvents } from '../runtime/runtime-events';
 import { StorageService } from '../storage/storage.service';
@@ -22,6 +24,7 @@ import { CreateTemplateFromHtmlDto } from './dto/create-template-from-html.dto';
 import { CreateTemplateFromPdfDto } from './dto/create-template-from-pdf.dto';
 import { DeleteTemplateFolderQueryDto } from './dto/delete-template-folder-query.dto';
 import { DeleteTemplateQueryDto } from './dto/delete-template-query.dto';
+import { ImportGoogleDriveDocumentsDto } from './dto/google-drive-documents.dto';
 import { ListTemplateFoldersQueryDto } from './dto/list-template-folders-query.dto';
 import { ListTemplatesQueryDto } from './dto/list-templates-query.dto';
 import { MergeTemplatesDto } from './dto/merge-templates.dto';
@@ -43,6 +46,7 @@ import { DynamicDocumentVersion } from './entities/dynamic-document-version.enti
 import { DynamicDocument } from './entities/dynamic-document.entity';
 import { TemplateEvent } from './entities/template-event.entity';
 import { TemplateFolder } from './entities/template-folder.entity';
+import { TemplateSharing } from './entities/template-sharing.entity';
 import { Template } from './entities/template.entity';
 import { TemplateVersion } from './entities/template-version.entity';
 import { PdfAcroFormService } from './pdf-acro-form/pdf-acro-form.service';
@@ -67,6 +71,8 @@ export class TemplatesService {
     private readonly templateEvents: Repository<TemplateEvent>,
     @InjectRepository(TemplateVersion)
     private readonly templateVersions: Repository<TemplateVersion>,
+    @InjectRepository(TemplateSharing)
+    private readonly templateSharings: Repository<TemplateSharing>,
     @InjectRepository(DynamicDocument)
     private readonly dynamicDocuments: Repository<DynamicDocument>,
     @InjectRepository(DynamicDocumentVersion)
@@ -77,6 +83,7 @@ export class TemplatesService {
     private readonly docxFieldTagService: DocxFieldTagService,
     private readonly docxVariableService: DocxVariableService,
     private readonly pdfTextTagService: PdfTextTagService,
+    private readonly accountsService: AccountsService,
     private readonly events: EventEmitter2,
   ) {}
 
@@ -89,19 +96,37 @@ export class TemplatesService {
       .leftJoinAndSelect('template.author', 'author')
       .leftJoinAndSelect('template.folder', 'folder')
       .leftJoinAndSelect('folder.parentFolder', 'parentFolder')
-      .where('template.account_id = :accountId', { accountId: user.accountId });
+      .leftJoin(
+        TemplateSharing,
+        'testing_sharing',
+        'testing_sharing.template_id = template.id AND testing_sharing.account_id = :accountId',
+        { accountId: user.accountId },
+      )
+      .where(
+        new Brackets((where) => {
+          where
+            .where('template.account_id = :accountId', {
+              accountId: user.accountId,
+            })
+            .orWhere('testing_sharing.id IS NOT NULL');
+        }),
+      );
 
     if (query.archived) {
       builder.withDeleted();
     }
 
     this.applyFilters(builder, query);
-    await this.applyFolderFilter(
-      builder,
+    const accountContext = await this.accountsService.getTestingAccountContext(
       user.accountId,
-      query.folder ??
-        (query.archived ? undefined : TemplateFolder.DEFAULT_NAME),
     );
+    const folderName =
+      query.folder ??
+      (query.archived ? undefined : TemplateFolder.DEFAULT_NAME);
+
+    if (!accountContext.isTestMode || query.folder) {
+      await this.applyFolderFilter(builder, user.accountId, folderName);
+    }
 
     const templates = await builder
       .orderBy('template.id', 'DESC')
@@ -864,6 +889,59 @@ export class TemplatesService {
     }
   }
 
+  async updateTestingSharing(
+    user: User,
+    templateId: string,
+    enabled: boolean,
+  ): Promise<TemplateResponseDto> {
+    const template = await this.findAccountTemplateOrFail(user, templateId);
+    const testingContext = await this.accountsService.findOrCreateTestingUser({
+      accountId: user.accountId,
+      userId: user.id,
+    });
+
+    if (enabled) {
+      const existing = await this.templateSharings.findOne({
+        where: {
+          accountId: testingContext.account.id,
+          templateId: template.id,
+        },
+      });
+
+      if (!existing) {
+        await this.templateSharings.save(
+          this.templateSharings.create({
+            ability: 'manage',
+            accountId: testingContext.account.id,
+            templateId: template.id,
+          }),
+        );
+      }
+    } else {
+      await this.templateSharings.delete({
+        accountId: testingContext.account.id,
+        templateId: template.id,
+      });
+    }
+
+    await this.recordTemplateActivity({
+      data: {
+        shared_with_test_mode: enabled,
+        testing_account_id: testingContext.account.id,
+      },
+      eventType: 'template.updated',
+      summary: enabled
+        ? 'Template shared with Test mode'
+        : 'Template unshared from Test mode',
+      template,
+      user,
+    });
+
+    return this.toTemplateResponse(
+      await this.findAccountTemplateOrFail(user, template.id),
+    );
+  }
+
   async getTemplateDocumentDownloadUrls(
     user: User,
     templateId: string,
@@ -915,6 +993,63 @@ export class TemplatesService {
         },
         eventType: 'template.documents.updated',
         summary: 'Template documents updated',
+        template: saved,
+        user,
+      });
+
+      return {
+        schema: result.changedSchema,
+        fields: changed ? saved.fields : null,
+        submitters: changed ? saved.submitters : null,
+        documents: await this.serializeTemplateDocuments(saved),
+      };
+    } catch (error) {
+      throwDatabaseErrors(error);
+    }
+  }
+
+  async importGoogleDriveDocuments(
+    user: User,
+    templateId: string,
+    input: ImportGoogleDriveDocumentsDto,
+  ): Promise<TemplateDocumentsUpdateResponseDto> {
+    const template = await this.findAccountTemplateOrFail(user, templateId);
+    const documents = await Promise.all(
+      input.files.map((file) =>
+        this.resolveGoogleDriveDocument(input.access_token, file),
+      ),
+    );
+    const operations = (
+      await this.extractAcroFieldsForDocuments(documents)
+    ).map((document) => ({ document }));
+    const before = this.buildTemplateSnapshot(template);
+    const oldFields = JSON.stringify(template.fields);
+
+    template.submitters = this.mergeSubmitters(template.submitters, documents);
+    const result = await this.applyTemplateDocumentOperations(
+      template,
+      operations,
+      input.merge ?? true,
+    );
+
+    template.schema = result.schema;
+    template.fields = result.fields;
+
+    try {
+      const saved = await this.templates.save(template);
+      const changed = oldFields !== JSON.stringify(saved.fields);
+
+      await this.recordTemplateActivity({
+        data: {
+          changed_paths: getChangedTemplatePaths(
+            before,
+            this.buildTemplateSnapshot(saved),
+          ),
+          google_drive_file_ids: input.files.map((file) => file.id),
+          merge: input.merge ?? true,
+        },
+        eventType: 'template.documents.updated',
+        summary: 'Template documents imported from Google Drive',
         template: saved,
         user,
       });
@@ -1546,6 +1681,148 @@ export class TemplatesService {
     };
   }
 
+  private async resolveGoogleDriveDocument(
+    accessToken: string,
+    file: { id: string; mime_type?: string; name?: string },
+  ): Promise<ResolvedPdfDocument> {
+    const metadata = await this.fetchGoogleDriveFileMetadata(
+      accessToken,
+      file.id,
+    );
+    const name = file.name || metadata.name || 'Google Drive document';
+    const mimeType = file.mime_type || metadata.mimeType || '';
+    const isWorkspaceDocument = mimeType.startsWith(
+      'application/vnd.google-apps.',
+    );
+    const downloaded = isWorkspaceDocument
+      ? await this.exportGoogleDriveFile(accessToken, file.id)
+      : await this.downloadGoogleDriveFile(accessToken, file.id);
+    const contentType = downloaded.contentType || mimeType;
+
+    if (isImageMimeType(contentType)) {
+      return this.resolveImageBufferDocument(
+        downloaded.buffer,
+        downloaded.filename || name,
+      );
+    }
+
+    const filename = ensurePdfFilename(
+      isWorkspaceDocument ? name : downloaded.filename || name,
+    );
+
+    this.assertPdf(downloaded.buffer, filename, downloaded.contentType);
+
+    return {
+      buffer: downloaded.buffer,
+      fields: [],
+      filename,
+      pendingFields: false,
+    };
+  }
+
+  private async fetchGoogleDriveFileMetadata(
+    accessToken: string,
+    fileId: string,
+  ): Promise<{ mimeType?: string; name?: string }> {
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
+        fileId,
+      )}?fields=id,name,mimeType`,
+      { headers: this.getGoogleDriveHeaders(accessToken) },
+    );
+
+    if (!response.ok) {
+      throw new UnprocessableEntityException({
+        error: 'Unable to read Google Drive file metadata',
+      });
+    }
+
+    return (await response.json()) as { mimeType?: string; name?: string };
+  }
+
+  private async downloadGoogleDriveFile(
+    accessToken: string,
+    fileId: string,
+  ): Promise<{ buffer: Buffer; contentType: string; filename: string }> {
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
+        fileId,
+      )}?alt=media`,
+      { headers: this.getGoogleDriveHeaders(accessToken) },
+    );
+
+    if (!response.ok) {
+      throw new UnprocessableEntityException({
+        error: 'Unable to download Google Drive file',
+      });
+    }
+
+    return {
+      buffer: Buffer.from(await response.arrayBuffer()),
+      contentType: response.headers.get('content-type') ?? 'application/pdf',
+      filename: parseContentDispositionFilename(
+        response.headers.get('content-disposition'),
+      ),
+    };
+  }
+
+  private async exportGoogleDriveFile(
+    accessToken: string,
+    fileId: string,
+  ): Promise<{ buffer: Buffer; contentType: string; filename: string }> {
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
+        fileId,
+      )}/export?mimeType=application/pdf`,
+      { headers: this.getGoogleDriveHeaders(accessToken) },
+    );
+
+    if (!response.ok) {
+      throw new UnprocessableEntityException({
+        error: 'Unable to export Google Drive file as PDF',
+      });
+    }
+
+    return {
+      buffer: Buffer.from(await response.arrayBuffer()),
+      contentType: 'application/pdf',
+      filename: parseContentDispositionFilename(
+        response.headers.get('content-disposition'),
+      ),
+    };
+  }
+
+  private getGoogleDriveHeaders(accessToken: string): HeadersInit {
+    return { Authorization: `Bearer ${accessToken}` };
+  }
+
+  private async resolveImageBufferDocument(
+    buffer: Buffer,
+    filename: string,
+  ): Promise<ResolvedPdfDocument> {
+    const png = await sharp(buffer, { animated: false, failOn: 'none' })
+      .rotate()
+      .png()
+      .toBuffer();
+    const pdf = await PDFDocument.create();
+    const image = await pdf.embedPng(png);
+    const page = pdf.addPage([image.width, image.height]);
+
+    page.drawImage(image, {
+      height: image.height,
+      width: image.width,
+      x: 0,
+      y: 0,
+    });
+
+    return {
+      buffer: Buffer.from(await pdf.save()),
+      fields: [],
+      filename: ensurePdfFilename(getBaseName(filename)),
+      pendingFields: false,
+    };
+  }
+
   private async resolveHtmlDocuments(
     input: CreateTemplateFromHtmlDto,
   ): Promise<ResolvedPdfDocument[]> {
@@ -1885,23 +2162,85 @@ export class TemplatesService {
     templateId: string,
     options: { withDeleted?: boolean } = {},
   ): Promise<Template> {
-    try {
-      return await this.templates.findOneOrFail({
-        withDeleted: options.withDeleted,
-        where: {
-          id: templateId,
-          accountId: user.accountId,
+    const template = await this.templates.findOne({
+      withDeleted: options.withDeleted,
+      where: {
+        id: templateId,
+        accountId: user.accountId,
+      },
+      relations: {
+        author: true,
+        folder: {
+          parentFolder: true,
         },
-        relations: {
-          author: true,
-          folder: {
-            parentFolder: true,
-          },
-        },
-      });
-    } catch (error) {
-      throwIfNotFound(error, 'Template not found');
+      },
+    });
+
+    if (template) {
+      return template;
     }
+
+    const accountContext = await this.accountsService.getTestingAccountContext(
+      user.accountId,
+    );
+
+    if (accountContext.isTestMode) {
+      const sharedTemplate = await this.templates
+        .createQueryBuilder('template')
+        .leftJoinAndSelect('template.author', 'author')
+        .leftJoinAndSelect('template.folder', 'folder')
+        .leftJoinAndSelect('folder.parentFolder', 'parentFolder')
+        .innerJoin(
+          TemplateSharing,
+          'testing_sharing',
+          'testing_sharing.template_id = template.id AND testing_sharing.account_id = :accountId',
+          { accountId: user.accountId },
+        )
+        .where('template.id = :templateId', { templateId })
+        .withDeleted()
+        .getOne();
+
+      if (
+        sharedTemplate &&
+        (options.withDeleted || !sharedTemplate.archivedAt)
+      ) {
+        return sharedTemplate;
+      }
+
+      if (accountContext.productionAccountId) {
+        const productionTemplate = await this.templates.findOne({
+          where: {
+            accountId: accountContext.productionAccountId,
+            id: templateId,
+          },
+          withDeleted: options.withDeleted,
+        });
+
+        if (productionTemplate) {
+          throw new NotFoundException({
+            error:
+              'Template not found using testing API key; Use production API key to access production data.',
+          });
+        }
+      }
+    } else if (accountContext.testingAccountId) {
+      const testingTemplate = await this.templates.findOne({
+        where: {
+          accountId: accountContext.testingAccountId,
+          id: templateId,
+        },
+        withDeleted: options.withDeleted,
+      });
+
+      if (testingTemplate) {
+        throw new NotFoundException({
+          error:
+            'Template not found using production API key; Use testing API key to access test mode data.',
+        });
+      }
+    }
+
+    throw new NotFoundException({ error: 'Template not found' });
   }
 
   private async findOrCreateFolder(
@@ -2388,6 +2727,20 @@ export class TemplatesService {
   private async toTemplateResponse(
     template: Template,
   ): Promise<TemplateResponseDto> {
+    const accountContext = await this.accountsService.getTestingAccountContext(
+      template.accountId,
+    );
+    const sharedWithTestMode = accountContext.testingAccountId
+      ? Boolean(
+          await this.templateSharings.findOne({
+            where: {
+              accountId: accountContext.testingAccountId,
+              templateId: template.id,
+            },
+          }),
+        )
+      : false;
+
     return {
       id: template.id,
       archived_at: template.archivedAt,
@@ -2404,6 +2757,7 @@ export class TemplatesService {
       external_id: template.externalId,
       folder_id: template.folderId,
       shared_link: template.sharedLink,
+      shared_with_test_mode: sharedWithTestMode,
       application_key: template.externalId,
       folder_name: this.getFolderName(template.folder),
       variables_schema: template.variablesSchema,
@@ -2527,6 +2881,10 @@ function isUrl(value: string): boolean {
 
 function isDocxFilename(filename: string): boolean {
   return filename.toLowerCase().endsWith('.docx');
+}
+
+function isImageMimeType(value: string): boolean {
+  return value.toLowerCase().startsWith('image/');
 }
 
 function clampInsertIndex(
@@ -2674,4 +3032,17 @@ function rewriteSubmitterReference(
   }
 
   (submitter as Record<string, unknown>)[key] = uuidMap.get(value) ?? value;
+}
+
+function parseContentDispositionFilename(value: string | null): string {
+  if (!value) {
+    return '';
+  }
+
+  const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
+  const quotedMatch = value.match(/filename="([^"]+)"/i);
+  const plainMatch = value.match(/filename=([^;]+)/i);
+  const filename = utf8Match?.[1] ?? quotedMatch?.[1] ?? plainMatch?.[1] ?? '';
+
+  return filename ? decodeURIComponent(filename.trim()) : '';
 }

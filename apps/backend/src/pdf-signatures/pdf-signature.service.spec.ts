@@ -1,5 +1,6 @@
-import { getRepositoryToken } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { PDFDocument } from 'pdf-lib';
 import { Repository } from 'typeorm';
 import { EncryptedConfig } from '../accounts/entities/encrypted-config.entity';
@@ -16,6 +17,7 @@ type MockRepository<T extends object> = Partial<
 
 describe('PdfSignatureService', () => {
   let service: PdfSignatureService;
+  let config: { get: jest.Mock };
   let encryptedConfigs: MockRepository<EncryptedConfig>;
   const configs = new Map<string, EncryptedConfig>();
 
@@ -32,15 +34,18 @@ describe('PdfSignatureService', () => {
       }),
       save: jest.fn((config: EncryptedConfig) => {
         const saved = {
+          ...config,
           accountId: 'account-1',
           id: String(configs.size + 1),
-          ...config,
         };
 
         configs.set(saved.key, saved);
 
         return Promise.resolve(saved);
       }),
+    };
+    config = {
+      get: jest.fn((_key: string, fallback: unknown) => fallback),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -49,6 +54,10 @@ describe('PdfSignatureService', () => {
         {
           provide: getRepositoryToken(EncryptedConfig),
           useValue: encryptedConfigs,
+        },
+        {
+          provide: ConfigService,
+          useValue: config,
         },
       ],
     }).compile();
@@ -72,10 +81,33 @@ describe('PdfSignatureService', () => {
 
     expect(result.signed).toBe(true);
     expect(result.certificateName).toBe(signaDefaultCertificateName);
+    expect(result.signatureSubFilter).toBe('ETSI.CAdES.detached');
     expect(result.buffer.toString('latin1')).toContain('/ByteRange');
+    expect(result.buffer.toString('latin1')).toContain(
+      '/SubFilter /ETSI.CAdES.detached',
+    );
     expect(
       configs.has(`${signingCertificatePrefix}${signaDefaultCertificateName}`),
     ).toBe(true);
+  });
+
+  it('can use the legacy Adobe detached SubFilter when configured', async () => {
+    config.get.mockReturnValueOnce('adobe');
+    const pdf = await PDFDocument.create();
+
+    pdf.addPage([200, 200]);
+
+    const result = await service.signPdf({
+      accountId: 'account-1',
+      buffer: Buffer.from(await pdf.save()),
+      reason: 'Signed document',
+      signerName: 'Ada Lovelace',
+    });
+
+    expect(result.signatureSubFilter).toBe('adbe.pkcs7.detached');
+    expect(result.buffer.toString('latin1')).toContain(
+      '/SubFilter /adbe.pkcs7.detached',
+    );
   });
 
   it('stores timestamp server URLs', async () => {

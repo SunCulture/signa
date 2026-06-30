@@ -1,0 +1,27 @@
+{
+  "constraints": {
+    "arrayMaxSize": "{property} contient trop d'éléments",
+    "arrayMinSize": "{property} ne contient pas assez d'éléments",
+    "isArray": "{property} doit être une liste",
+    "isBoolean": "{property} doit être vrai ou faux",
+    "isDateString": "{property} doit être une date valide",
+    "isEmail": "{property} doit être une adresse email valide",
+    "isEnum": "{property} doit être l'une des valeurs autorisées",
+    "isIn": "{property} doit être l'une des valeurs autorisées",
+    "isInt": "{property} doit être un entier",
+    "isNumber": "{property} doit être un nombre",
+    "isObject": "{property} doit être un objet",
+    "isOptional": "{property} est facultatif",
+    "isString": "{property} doit être du texte",
+    "isUrl": "{property} doit être une URL valide",
+    "max": "{property} est trop grand",
+    "maxLength": "{property} est trop long",
+    "min": "{property} est trop petit",
+    "minLength": "{property} est trop court",
+    "unknown": "{property} est invalide"
+  },
+  "messages": {
+    "forbidden_field": "{property} n'est pas autorisé",
+    "failed": "La validation a échoué"
+  }
+}

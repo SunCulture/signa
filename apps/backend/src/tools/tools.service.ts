@@ -51,15 +51,9 @@ export class ToolsService {
       checksum_status: isChecksumFound ? 'verified' : 'not_found',
       sha256: checksum,
       cryptographic_verification: false,
-      signatures: detectPdfSignatures(file).map((signature) => ({
-        verification_result: [
-          'unsupported: cryptographic PDF signature validation requires a dedicated verifier service',
-        ],
-        signer_name: signature.signerName,
-        signing_reason: signature.signingReason,
-        signing_time: signature.signingTime,
-        signature_type: signature.signatureType,
-      })),
+      signatures: detectPdfSignatures(file).map((signature) =>
+        this.toSignatureVerificationResponse(signature, isChecksumFound),
+      ),
     };
   }
 
@@ -120,14 +114,51 @@ export class ToolsService {
       throw new UnprocessableEntityException({ error: 'Malformed PDF' });
     }
   }
+
+  private toSignatureVerificationResponse(
+    signature: DetectedPdfSignature,
+    isChecksumFound: boolean,
+  ) {
+    const messages = [
+      isChecksumFound
+        ? 'checksum_verified: final PDF bytes match a completed Signa document'
+        : 'checksum_not_found: final PDF bytes were not found in completed Signa documents',
+      signature.byteRange.valid
+        ? 'byte_range_valid: PDF signature ByteRange is structurally valid'
+        : 'byte_range_invalid: PDF signature ByteRange is malformed or outside the file bounds',
+      signature.signatureType === padesSubFilter
+        ? 'pades_subfilter: signature uses ETSI.CAdES.detached'
+        : 'legacy_subfilter: signature does not use ETSI.CAdES.detached',
+      'cryptographic_verification_pending: certificate-chain validation requires the dedicated PDF verifier service',
+    ];
+
+    return {
+      byte_range_sha256: signature.byteRange.sha256,
+      byte_range_valid: signature.byteRange.valid,
+      pades_compliant_sub_filter: signature.signatureType === padesSubFilter,
+      verification_result: messages,
+      signer_name: signature.signerName,
+      signing_reason: signature.signingReason,
+      signing_time: signature.signingTime,
+      signature_type: signature.signatureType,
+    };
+  }
 }
 
 type DetectedPdfSignature = {
+  byteRange: PdfSignatureByteRange;
   signerName: string | null;
   signingReason: string | null;
   signingTime: string | null;
   signatureType: string | null;
 };
+
+type PdfSignatureByteRange = {
+  sha256: string | null;
+  valid: boolean;
+};
+
+const padesSubFilter = 'ETSI.CAdES.detached';
 
 function detectPdfSignatures(file: Buffer): DetectedPdfSignature[] {
   const text = file.toString('latin1');
@@ -137,12 +168,51 @@ function detectPdfSignatures(file: Buffer): DetectedPdfSignature[] {
     const signatureObject = extractPdfObjectContaining(text, match.index ?? 0);
 
     return {
+      byteRange: inspectByteRange(file, match[0]),
       signerName: extractPdfString(signatureObject, 'Name'),
       signingReason: extractPdfString(signatureObject, 'Reason'),
       signingTime: normalizePdfDate(extractPdfString(signatureObject, 'M')),
       signatureType: extractPdfName(signatureObject, 'SubFilter'),
     };
   });
+}
+
+function inspectByteRange(
+  file: Buffer,
+  byteRangeText: string,
+): PdfSignatureByteRange {
+  const values = byteRangeText.match(/\d+/g)?.map(Number) ?? [];
+
+  if (
+    values.length !== 4 ||
+    values.some((value) => !Number.isSafeInteger(value))
+  ) {
+    return { sha256: null, valid: false };
+  }
+
+  const [firstOffset, firstLength, secondOffset, secondLength] = values;
+  const firstEnd = firstOffset + firstLength;
+  const secondEnd = secondOffset + secondLength;
+  const isValid =
+    firstOffset === 0 &&
+    firstLength >= 0 &&
+    secondOffset >= firstEnd &&
+    secondLength >= 0 &&
+    secondEnd <= file.byteLength;
+
+  if (!isValid) {
+    return { sha256: null, valid: false };
+  }
+
+  const signedBytes = Buffer.concat([
+    file.subarray(firstOffset, firstEnd),
+    file.subarray(secondOffset, secondEnd),
+  ]);
+
+  return {
+    sha256: createHash('sha256').update(signedBytes).digest('base64url'),
+    valid: true,
+  };
 }
 
 function extractPdfObjectContaining(text: string, index: number): string {

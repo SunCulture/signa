@@ -20,6 +20,7 @@ export class MailEventListener {
     event: SubmitterMailEvent,
   ): Promise<void> {
     await this.enqueue(runtimeJobNames.deliverSignatureRequestEmail, {
+      locale: event.locale,
       submitterId: event.submitterId,
     });
   }
@@ -37,6 +38,7 @@ export class MailEventListener {
   @OnEvent(runtimeEvents.formCompleted)
   async handleFormCompleted(event: SubmitterMailEvent): Promise<void> {
     await this.enqueue(runtimeJobNames.deliverCompletedEmail, {
+      locale: event.locale,
       submitterId: event.submitterId,
     });
   }
@@ -44,6 +46,7 @@ export class MailEventListener {
   @OnEvent(runtimeEvents.formDeclined)
   async handleFormDeclined(event: SubmitterMailEvent): Promise<void> {
     await this.enqueue(runtimeJobNames.deliverDeclinedEmail, {
+      locale: event.locale,
       submitterId: event.submitterId,
       reason: event.reason,
     });
@@ -54,6 +57,7 @@ export class MailEventListener {
     event: SubmitterMailEvent,
   ): Promise<void> {
     await this.enqueue(runtimeJobNames.deliverDocumentsCopyEmail, {
+      locale: event.locale,
       submitterId: event.submitterId,
     });
   }

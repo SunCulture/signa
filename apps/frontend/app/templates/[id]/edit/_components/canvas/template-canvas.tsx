@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
+import { UploadCloudIcon } from "lucide-react";
 import type { TemplateDocument, TemplateResponse } from "@/lib/api/templates";
+import { cn } from "@/lib/utils";
 import { DocumentPageImage } from "./document-page-image";
 import {
   getDocumentDisplayName,
@@ -16,8 +19,11 @@ export function TemplateCanvas({
   activeFieldType,
   documents,
   fields,
+  isUploadingDocument,
   isSavingFields,
   onAddSubmitter,
+  onAddDocument,
+  onAddGoogleDriveDocuments,
   onCopySelectedFields,
   onCreateField,
   onDeleteField,
@@ -37,8 +43,11 @@ export function TemplateCanvas({
   activeFieldType: EditorFieldType | null;
   documents: TemplateDocument[];
   fields: TemplateEditorField[];
+  isUploadingDocument: boolean;
   isSavingFields: boolean;
   onAddSubmitter: (fieldUuid?: string) => Promise<void>;
+  onAddDocument: (file: File) => Promise<void>;
+  onAddGoogleDriveDocuments: () => Promise<void>;
   onCopySelectedFields: (fieldUuid?: string) => void;
   onCreateField: (area: TemplateFieldArea) => Promise<void>;
   onDeleteField: (fieldUuid: string) => Promise<void>;
@@ -115,12 +124,108 @@ export function TemplateCanvas({
             />
           ))
         ) : (
-          <div className="flex min-h-[990px] items-center justify-center rounded border border-[var(--auth-input-border)] bg-white text-sm text-muted-foreground shadow-sm">
-            Document preview is not available yet.
-          </div>
+          <EmptyTemplateDropzone
+            isUploading={isUploadingDocument}
+            onAddDocument={onAddDocument}
+            onAddGoogleDriveDocuments={onAddGoogleDriveDocuments}
+          />
         )}
       </div>
     </section>
+  );
+}
+
+function EmptyTemplateDropzone({
+  isUploading,
+  onAddDocument,
+  onAddGoogleDriveDocuments,
+}: {
+  isUploading: boolean;
+  onAddDocument: (file: File) => Promise<void>;
+  onAddGoogleDriveDocuments: () => Promise<void>;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [isDragEntering, setIsDragEntering] = useState(false);
+
+  function uploadFirstFile(files: FileList | File[]) {
+    const file = Array.from(files).at(0);
+
+    if (!file || isUploading) {
+      return;
+    }
+
+    void onAddDocument(file);
+  }
+
+  return (
+    <div
+      className="flex min-h-[320px] items-start justify-center pt-8"
+      onDragEnter={() => setIsDragEntering(true)}
+      onDragLeave={() => setIsDragEntering(false)}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault();
+        setIsDragEntering(false);
+        uploadFirstFile(event.dataTransfer.files);
+      }}
+    >
+      <label
+        className={cn(
+          "relative flex h-60 w-full max-w-[820px] cursor-pointer items-center justify-center rounded-md border-2 border-dashed border-[var(--auth-input-border)] bg-transparent text-[var(--auth-primary)] transition-colors",
+          "hover:bg-[var(--auth-muted)]/45",
+          isDragEntering
+            ? "border-[var(--auth-primary)] bg-[var(--auth-muted)]/60"
+            : "",
+          isUploading ? "cursor-wait opacity-60" : "",
+        )}
+      >
+        <input
+          ref={inputRef}
+          accept="image/*,application/pdf,application/zip,application/json,.docx"
+          className="hidden"
+          disabled={isUploading}
+          multiple
+          onChange={(event) => {
+            uploadFirstFile(event.target.files ?? []);
+            event.target.value = "";
+          }}
+          type="file"
+        />
+        <div className="pointer-events-none flex flex-col items-center text-center">
+          <UploadCloudIcon
+            className={cn("mb-2 size-10 stroke-[1.5]", {
+              "animate-pulse": isUploading,
+            })}
+          />
+          <div className="mb-1 text-lg font-semibold">
+            {isUploading ? "Uploading" : "Add documents or images"}
+          </div>
+          <div className="text-sm">
+            <span className="font-semibold">Click to upload</span> or drag and
+            drop files
+          </div>
+          <button
+            className="pointer-events-auto mt-2 flex items-center text-sm hover:underline"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void onAddGoogleDriveDocuments();
+            }}
+            type="button"
+          >
+            <span>Or add from</span>
+            <Image
+              alt=""
+              className="ml-1 size-4"
+              height={16}
+              src="/images/drive-logo.png"
+              width={16}
+            />
+            <span className="ml-1 font-semibold">Google Drive</span>
+          </button>
+        </div>
+      </label>
+    </div>
   );
 }
 

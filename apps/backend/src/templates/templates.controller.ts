@@ -32,6 +32,7 @@ import { CreateTemplateFromHtmlDto } from './dto/create-template-from-html.dto';
 import { CreateTemplateFromPdfDto } from './dto/create-template-from-pdf.dto';
 import { DeleteTemplateFolderQueryDto } from './dto/delete-template-folder-query.dto';
 import { DeleteTemplateQueryDto } from './dto/delete-template-query.dto';
+import { ImportGoogleDriveDocumentsDto } from './dto/google-drive-documents.dto';
 import { ListTemplateFoldersQueryDto } from './dto/list-template-folders-query.dto';
 import { ListTemplatesQueryDto } from './dto/list-templates-query.dto';
 import { MergeTemplatesDto } from './dto/merge-templates.dto';
@@ -215,6 +216,16 @@ export class TemplatesController {
     return this.templatesService.updateTemplate(user, templateId, body);
   }
 
+  @Post(':id/testing-sharing')
+  @ApiOkResponse({ type: TemplateResponseDto })
+  updateTestingSharing(
+    @CurrentUser() user: User,
+    @Param('id') templateId: string,
+    @Body('value') value: boolean,
+  ): Promise<TemplateResponseDto> {
+    return this.templatesService.updateTestingSharing(user, templateId, value);
+  }
+
   @Get(':id/documents')
   @ApiOkResponse({
     schema: {
@@ -253,6 +264,20 @@ export class TemplatesController {
       templateId,
       body,
       files,
+    );
+  }
+
+  @Put(':id/google-drive-documents')
+  @ApiOkResponse({ type: TemplateDocumentsUpdateResponseDto })
+  importGoogleDriveDocuments(
+    @CurrentUser() user: User,
+    @Param('id') templateId: string,
+    @Body() body: ImportGoogleDriveDocumentsDto,
+  ): Promise<TemplateDocumentsUpdateResponseDto> {
+    return this.templatesService.importGoogleDriveDocuments(
+      user,
+      templateId,
+      body,
     );
   }
 

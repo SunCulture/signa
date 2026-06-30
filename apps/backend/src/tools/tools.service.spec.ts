@@ -80,7 +80,7 @@ describe('ToolsService', () => {
         blob: {
           contentType: 'application/pdf',
           metadata: { sha256 },
-        } as StorageBlob,
+        } as unknown as StorageBlob,
       } as StorageAttachment,
     ]);
 
@@ -117,10 +117,38 @@ trailer
     await expect(service.verify(signedPdf)).resolves.toMatchObject({
       signatures: [
         {
+          byte_range_valid: false,
+          pades_compliant_sub_filter: false,
           signer_name: 'Ada Lovelace',
           signing_reason: 'Signed document',
           signing_time: "20260622120000+03'00'",
           signature_type: 'adbe.pkcs7.detached',
+        },
+      ],
+    });
+  });
+
+  it('extracts PAdES signature metadata and ByteRange hashes', async () => {
+    const signedPdf = buildSignedPdfFixture({
+      signerName: 'Ada Lovelace',
+      subFilter: 'ETSI.CAdES.detached',
+    });
+    const expectedByteRangeSha256 = createHash('sha256')
+      .update(
+        Buffer.concat([signedPdf.subarray(0, 120), signedPdf.subarray(220)]),
+      )
+      .digest('base64url');
+
+    jest.spyOn(PDFDocument, 'load').mockResolvedValueOnce({} as PDFDocument);
+
+    await expect(service.verify(signedPdf)).resolves.toMatchObject({
+      signatures: [
+        {
+          byte_range_sha256: expectedByteRangeSha256,
+          byte_range_valid: true,
+          pades_compliant_sub_filter: true,
+          signer_name: 'Ada Lovelace',
+          signature_type: 'ETSI.CAdES.detached',
         },
       ],
     });
@@ -150,4 +178,31 @@ async function buildPdfBase64(): Promise<string> {
   pdf.addPage([200, 200]);
 
   return Buffer.from(await pdf.save()).toString('base64');
+}
+
+function buildSignedPdfFixture(input: {
+  signerName: string;
+  subFilter: string;
+}): Buffer {
+  const prefix = `%PDF-1.7
+1 0 obj
+<<
+/Type /Sig
+/Filter /Adobe.PPKLite
+/SubFilter /${input.subFilter}
+/Name (${input.signerName})
+/M (D:20260622120000+03'00')
+/Reason (Signed document)
+/ByteRange [0 120 220 60]
+`;
+  const suffix = `
+>>
+endobj
+trailer
+<<>>
+%%EOF`;
+  const placeholderLength = 220 - prefix.length;
+  const content = `${prefix}${'0'.repeat(Math.max(0, placeholderLength))}${suffix}`;
+
+  return Buffer.from(content.padEnd(280, '\n'), 'latin1');
 }

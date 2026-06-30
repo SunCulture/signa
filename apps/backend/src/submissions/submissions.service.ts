@@ -12,11 +12,13 @@ import {
   Brackets,
   DataSource,
   EntityManager,
+  EntityNotFoundError,
   ObjectLiteral,
   Repository,
   SelectQueryBuilder,
 } from 'typeorm';
-import { throwDatabaseErrors, throwIfNotFound } from '../common/utils/error';
+import { AccountsService } from '../accounts/accounts.service';
+import { throwDatabaseErrors } from '../common/utils/error';
 import { EmailMessage } from '../mail/entities/email-message.entity';
 import { runtimeEvents } from '../runtime/runtime-events';
 import { StorageService } from '../storage/storage.service';
@@ -84,6 +86,7 @@ export class SubmissionsService {
     private readonly dataSource: DataSource,
     private readonly templatesService: TemplatesService,
     private readonly storageService: StorageService,
+    private readonly accountsService: AccountsService,
     private readonly config: ConfigService,
     private readonly submissionDocumentsService: SubmissionDocumentsService,
     private readonly documentGenerationQueue: DocumentGenerationQueueService,
@@ -1644,38 +1647,79 @@ export class SubmissionsService {
     submissionId: string,
     includeRelations: boolean,
   ): Promise<Submission> {
+    const relations = includeRelations
+      ? {
+          submitters: true,
+          submissionEvents: true,
+          template: {
+            folder: {
+              parentFolder: true,
+            },
+          },
+          createdByUser: true,
+        }
+      : undefined;
+    const order = includeRelations
+      ? ({
+          submitters: {
+            id: 'ASC',
+          },
+          submissionEvents: {
+            eventTimestamp: 'ASC',
+          },
+        } as const)
+      : undefined;
+
     try {
       return await this.submissions.findOneOrFail({
         where: {
           id: submissionId,
           accountId: user.accountId,
         },
-        relations: includeRelations
-          ? {
-              submitters: true,
-              submissionEvents: true,
-              template: {
-                folder: {
-                  parentFolder: true,
-                },
-              },
-              createdByUser: true,
-            }
-          : undefined,
-        order: includeRelations
-          ? {
-              submitters: {
-                id: 'ASC',
-              },
-              submissionEvents: {
-                eventTimestamp: 'ASC',
-              },
-            }
-          : undefined,
+        relations,
+        order,
       });
     } catch (error) {
-      throwIfNotFound(error, 'Submission not found');
+      if (!(error instanceof EntityNotFoundError)) {
+        throw error;
+      }
     }
+
+    const accountContext = await this.accountsService.getTestingAccountContext(
+      user.accountId,
+    );
+
+    if (accountContext.isTestMode && accountContext.productionAccountId) {
+      const productionSubmission = await this.submissions.findOne({
+        where: {
+          accountId: accountContext.productionAccountId,
+          id: submissionId,
+        },
+      });
+
+      if (productionSubmission) {
+        throw new NotFoundException({
+          error:
+            'Submission not found using testing API key; Use production API key to access production data.',
+        });
+      }
+    } else if (accountContext.testingAccountId) {
+      const testingSubmission = await this.submissions.findOne({
+        where: {
+          accountId: accountContext.testingAccountId,
+          id: submissionId,
+        },
+      });
+
+      if (testingSubmission) {
+        throw new NotFoundException({
+          error:
+            'Submission not found using production API key; Use testing API key to access test mode data.',
+        });
+      }
+    }
+
+    throw new NotFoundException({ error: 'Submission not found' });
   }
 
   private async toSubmissionResponse(

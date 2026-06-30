@@ -72,6 +72,13 @@
   - API-key guards enforce least-privilege resource permissions for templates, submissions, submitters, webhooks, tools, and users while preserving DocuSeal-compatible `X-Auth-Token` authentication;
   - frontend renders the API settings page with masked/revealed token controls, rotation, copy action, test-mode switch, permission toggles, and cURL examples;
   - migration still required for `access_tokens.permissions`, `access_tokens.last_used_at`, and `access_tokens.revoked_at`.
+- Implemented the first DocuSeal-compatible Test mode pass:
+  - `POST /api/testing-account` creates/reuses a linked testing account and testing admin user through `account_linked_accounts`, returning a JWT scoped to the testing account while preserving the production `trueUserId`/`trueAccountId`;
+  - `DELETE /api/testing-account` exits test mode and returns a production JWT;
+  - frontend user menu, settings sidebar, API settings, and webhooks settings test-mode toggles now call the real switch endpoints and display a persistent test-mode alert with an exit action;
+  - API-token tenant resolution now carries production/testing account metadata, and template/submission lookup returns DocuSeal-style wrong-environment messages when the requested record exists in the linked production/test account;
+  - `POST /api/templates/:id/testing-sharing` toggles sharing a production template with the linked testing account, and the API/Embedding preferences switch is wired to that endpoint;
+  - result PDF and audit-trail generation now marks linked testing-account outputs as test-mode/not-for-production artifacts.
 - Generated the Templates module with the Nest CLI.
 - Added module-local TypeORM entities for templates, template folders, template accesses, template sharings, and template versions based on DocuSeal Rails schema.
 - Added `ApiOrJwtGuard` so DocuSeal-style API endpoints can accept either Bearer JWT or `X-Auth-Token`, matching DocuSeal's signed-in-or-token API behavior.
@@ -118,6 +125,17 @@
 - Implemented submitter update behavior for profile fields, email/phone normalization, metadata, values, `application_key`/`external_id`, preferences, readonly/field override snapshots, API completion timestamps, and `api_complete_form` event persistence.
 - Added submitters service tests for tenant-scoped listing, DocuSeal response shape, update/completion behavior, and completed/declined update rejection.
 - Added `/settings/account` frontend page with DocuSeal-style account form, preference toggles, compliance cards, and live backend persistence.
+- Added shared frontend i18n infrastructure for logged-in surfaces:
+  - auth locale selection now persists to local storage and registration sends the selected supported account locale instead of the browser locale;
+  - saved account locale hydrates the auth session cache, document language, settings sidebar/header, user menu, and account settings page without requiring a refresh;
+  - `/settings/account` now translates account labels, preference/compliance labels, tooltips, danger-zone copy, and action buttons for English, Swahili, and French;
+  - remaining large workflow screens should adopt `useAppI18n()` incrementally instead of adding isolated translation state.
+- Added backend i18n foundations with `nestjs-i18n`:
+  - global `InternationalizationModule` supports English, Swahili, and French catalogs for errors, validation, mail labels, and audit labels;
+  - locale resolution uses the authenticated account locale first, then query/header/`Accept-Language`, with English fallback;
+  - global validation now uses `I18nValidationPipe` while preserving Signa's existing exception response shape;
+  - keyed service errors can use `localizedError(i18n_key, fallback, args)` for translated messages without changing API contracts;
+  - mail jobs and template sends carry locale snapshots, and backend-owned mail subjects/actions translate while account/template-custom email content remains user-controlled.
 - Wired frontend document upload from the templates dashboard to `POST /api/templates/pdf` with ReUI/Sonner upload progress and redirect to `/templates/:id/edit`.
 - Replaced the placeholder `/templates` sample cards with a backend-backed DocuSeal-style templates dashboard:
   - reads real templates from `GET /api/templates`;
@@ -145,6 +163,10 @@
   - template detail renders a grouped activity timeline (`Today`, `This week`, `This month`, `Older`) using Signa's existing design language.
 - Fixed archived template listing parity for TypeORM soft deletes by using `withDeleted()` when `archived=true`; restore and permanent delete also use soft-deleted lookup when needed.
 - Added the first DocuSeal-style template editor shell at `/templates/[id]/edit`, backed by `GET /api/templates/:id`, rendering uploaded document preview, left document rail, top actions, and right field palette.
+- Added DocuSeal-style Google Drive document import:
+  - frontend Google Drive buttons on the dashboard create modal, dashboard upload dropzone, editor empty canvas, and editor add-document menu now open Google Picker instead of placeholder toasts;
+  - backend exposes `PUT /api/templates/:id/google-drive-documents`, exports Google Workspace files to PDF, downloads Drive PDFs, converts Drive images to one-page PDFs, and feeds all imported files through the existing template document processing pipeline;
+  - Google Drive import records template activity/version events and uses short-lived Google Identity Services access tokens rather than persisting Drive OAuth tokens.
 - Expanded the template editor document rail:
   - renders all template documents from backend schema order;
   - keeps the add-document control fixed at the bottom while thumbnails scroll;
@@ -346,9 +368,9 @@
   - embedded PDF `{{...}}` text-tag extraction is implemented through `pdftotext -bbox`; `remove_tags` visually covers tag text in the source PDF before storage. Full content-stream text deletion remains a future hardening task because the current Node stack does not expose HexaPDF-equivalent safe PDF text editing.
   - DOCX embedded `{{...}}` signing-field tag extraction is implemented through marker geometry after LibreOffice conversion; searchable marker cleanup is still tracked as a PDF text cleanup hardening task.
   - DOCX `[[variable]]` dynamic content expansion is implemented before LibreOffice conversion for XML document parts and supports nested variable paths like `[[account.name]]`; rich DOCX table/list generation remains pending.
-  - Generated result PDFs stamp supported values onto pages with `pdf-lib` and are signed with `@signpdf/signer-p12`, but DocuSeal's HexaPDF/PDFium-grade flattening, annotation preservation, rotation edge cases, PDF/A output, RFC3161 timestamp server embedding, and LTV are not complete.
+  - Generated result PDFs stamp supported values onto pages with `pdf-lib` and are signed with `@signpdf/signer-p12`; signatures now default to the PAdES `ETSI.CAdES.detached` SubFilter through `@signpdf/utils`, with `PDF_SIGNATURE_SUBFILTER=adobe` reserved for legacy compatibility. DocuSeal's HexaPDF/PDFium-grade flattening, annotation preservation, rotation edge cases, PDF/A output, RFC3161 timestamp server embedding, and LTV are not complete.
   - E-Signature certificate upload/list/default/remove is implemented for settings management and those certificates are used by the PDF result-signing engine.
-  - PDF signature verification currently validates parseability and Signa completion checksum matches using stored completed-document SHA-256 values and reports embedded signature metadata; true DocuSeal/HexaPDF-style cryptographic certificate-chain verification remains pending.
+  - PDF signature verification currently validates parseability, Signa completion checksum matches using stored completed-document SHA-256 values, embedded signature metadata, PAdES SubFilter status, and structural ByteRange SHA-256 coverage; true DocuSeal/HexaPDF-style cryptographic certificate-chain verification remains pending.
   - XFA form support is not implemented; `pdf-lib` does not support XFA.
   - AcroForm extraction is standard-form only; DocuSeal's HexaPDF edge-case coverage is broader than our current `pdf-lib` extractor.
 - Infrastructure gaps:
@@ -379,6 +401,8 @@
 
 ## Todo
 
+- Continue migrating backend service-thrown plain error strings to `localizedError(...)` keys.
+- Localize remaining backend-owned email template copy, generated PDF/audit labels, and event labels while keeping account/template-custom content user-controlled.
 - Continue mapping OpenAPI request/response schemas into Zod contracts in `@repo/shared`; first stable response schemas for templates, submissions, submitters, documents, and pagination are implemented.
 - Decide a text-geometry/removal engine for embedded `{{...}}` text tags; current stack does not provide safe full removal parity.
 - Implement embedded text-tag removal/extraction for PDF templates.

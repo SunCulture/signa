@@ -5,7 +5,8 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
+import { randomBytes } from 'node:crypto';
 import { throwDatabaseErrors, throwIfNotFound } from '../common/utils/error';
 import { MailService } from '../mail/mail.service';
 import {
@@ -19,6 +20,9 @@ import { PdfSignatureService } from '../pdf-signatures/pdf-signature.service';
 import { StorageAttachment } from '../storage/entities/storage-attachment.entity';
 import { StorageService } from '../storage/storage.service';
 import { UploadedBufferFile } from '../storage/storage.types';
+import { TeamMember } from '../teams/entities/team-member.entity';
+import { Team } from '../teams/entities/team.entity';
+import { createTeamSlug } from '../teams/team-slug';
 import { User } from '../users/entities/user.entity';
 import {
   accountPreferenceDefinitions,
@@ -61,6 +65,7 @@ export class AccountsService {
     private readonly users: Repository<User>,
     @InjectRepository(EncryptedConfig)
     private readonly encryptedConfigs: Repository<EncryptedConfig>,
+    private readonly dataSource: DataSource,
     private readonly storageService: StorageService,
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
@@ -97,6 +102,197 @@ export class AccountsService {
         accountType: options.accountType,
       },
     });
+  }
+
+  findTestingLinkByTestingAccountId(
+    linkedAccountId: string,
+  ): Promise<AccountLinkedAccount | null> {
+    return this.linkedAccounts.findOne({
+      where: {
+        accountType: 'testing',
+        linkedAccountId,
+      },
+    });
+  }
+
+  async getTestingAccountContext(accountId: string): Promise<{
+    isTestMode: boolean;
+    productionAccountId: string | null;
+    testingAccountId: string | null;
+  }> {
+    const productionLink =
+      await this.findTestingLinkByTestingAccountId(accountId);
+
+    if (productionLink) {
+      return {
+        isTestMode: true,
+        productionAccountId: productionLink.accountId,
+        testingAccountId: accountId,
+      };
+    }
+
+    const testingLink = await this.findLinkedAccount({
+      accountId,
+      accountType: 'testing',
+    });
+
+    return {
+      isTestMode: false,
+      productionAccountId: accountId,
+      testingAccountId: testingLink?.linkedAccountId ?? null,
+    };
+  }
+
+  async findOrCreateTestingUser(options: {
+    accountId: string;
+    userId: string;
+  }): Promise<{
+    account: Account;
+    trueAccount: Account;
+    trueUser: User;
+    user: User;
+  }> {
+    return this.dataSource.transaction(async (manager) => {
+      const accounts = manager.getRepository(Account);
+      const links = manager.getRepository(AccountLinkedAccount);
+      const teams = manager.getRepository(Team);
+      const teamMembers = manager.getRepository(TeamMember);
+      const users = manager.getRepository(User);
+      const trueAccount = await accounts.findOne({
+        where: { id: options.accountId, archivedAt: IsNull() },
+      });
+      const trueUser = await users.findOne({
+        where: {
+          accountId: options.accountId,
+          archivedAt: IsNull(),
+          id: options.userId,
+        },
+      });
+
+      if (!trueAccount || !trueUser) {
+        throw new NotFoundException({ error: 'Account not found' });
+      }
+
+      const existingLink = await links.findOne({
+        where: {
+          accountId: trueAccount.id,
+          accountType: 'testing',
+        },
+        relations: {
+          linkedAccount: true,
+        },
+      });
+
+      if (existingLink?.linkedAccount) {
+        const existingUser = await users.findOne({
+          where: {
+            accountId: existingLink.linkedAccountId,
+            archivedAt: IsNull(),
+            role: 'admin',
+          },
+          order: { id: 'ASC' },
+        });
+
+        if (existingUser) {
+          if (existingUser.encryptedPassword !== trueUser.encryptedPassword) {
+            existingUser.encryptedPassword = trueUser.encryptedPassword;
+            await users.save(existingUser);
+          }
+
+          return {
+            account: existingLink.linkedAccount,
+            trueAccount,
+            trueUser,
+            user: existingUser,
+          };
+        }
+      }
+
+      const testingAccount =
+        existingLink?.linkedAccount ??
+        (await accounts.save(
+          accounts.create({
+            locale: trueAccount.locale,
+            name: `Testing - ${trueAccount.name}`,
+            timezone: trueAccount.timezone,
+          }),
+        ));
+
+      if (!existingLink) {
+        await links.save(
+          links.create({
+            accountId: trueAccount.id,
+            accountType: 'testing',
+            linkedAccountId: testingAccount.id,
+          }),
+        );
+      }
+
+      const testingUser = await users.save(
+        users.create({
+          accountId: testingAccount.id,
+          email: this.buildTestingEmail(trueUser.email, testingAccount.id),
+          encryptedPassword: trueUser.encryptedPassword,
+          firstName: trueUser.firstName ?? 'Testing',
+          lastName: trueUser.lastName ?? 'Environment',
+          role: 'admin',
+        }),
+      );
+      const team = await teams.save(
+        teams.create({
+          accountId: testingAccount.id,
+          createdByUserId: testingUser.id,
+          name: testingAccount.name,
+          slug: createTeamSlug(testingAccount.name),
+        }),
+      );
+
+      await teamMembers.save(
+        teamMembers.create({
+          accountId: testingAccount.id,
+          role: 'manager',
+          teamId: team.id,
+          userId: testingUser.id,
+        }),
+      );
+
+      return {
+        account: testingAccount,
+        trueAccount,
+        trueUser,
+        user: testingUser,
+      };
+    });
+  }
+
+  async findProductionUserForTestingSession(options: {
+    accountId: string;
+    trueAccountId?: string;
+    trueUserId?: string;
+  }): Promise<{ account: Account; user: User }> {
+    const link =
+      options.trueAccountId && options.trueUserId
+        ? null
+        : await this.findTestingLinkByTestingAccountId(options.accountId);
+    const accountId = options.trueAccountId ?? link?.accountId;
+    const userId = options.trueUserId;
+
+    if (!accountId || !userId) {
+      throw new NotFoundException({ error: 'Testing account not found' });
+    }
+
+    const [account, user] = await Promise.all([
+      this.accounts.findOne({ where: { id: accountId, archivedAt: IsNull() } }),
+      this.users.findOne({
+        where: { accountId, archivedAt: IsNull(), id: userId },
+      }),
+    ]);
+
+    if (!account || !user) {
+      throw new NotFoundException({ error: 'Testing account not found' });
+    }
+
+    return { account, user };
   }
 
   async getAccount(accountId: string): Promise<AccountResponseDto> {
@@ -816,6 +1012,13 @@ export class AccountsService {
     }
 
     return certificate;
+  }
+
+  private buildTestingEmail(email: string, testingAccountId: string): string {
+    const [localPart, domain = 'signa.local'] = email.toLowerCase().split('@');
+    const suffix = randomBytes(6).toString('hex');
+
+    return `${localPart}+testing-${testingAccountId}-${suffix}@${domain}`;
   }
 
   toAccountResponse(account: Account): AccountResponseDto {

@@ -269,17 +269,15 @@ export function FieldAreaOverlay({
       />
       {shouldShowLabel ? (
         <div
-          className="field-area-controls absolute left-0 top-[-25px] z-10 flex h-[25px] w-max max-w-80 items-center overflow-hidden whitespace-nowrap rounded-t border bg-white text-sm font-medium leading-none text-[var(--auth-primary)] shadow-sm"
-          style={{ borderColor: roleColor }}
+          className="field-area-controls absolute left-0 top-[-25px] z-10 flex h-[25px] w-max max-w-80 items-center overflow-hidden whitespace-nowrap rounded-t border border-slate-200 bg-white text-sm font-medium leading-none text-[var(--auth-primary)] shadow-sm"
         >
           <button
             aria-label={`Move ${title}`}
-            className="flex h-full w-5 shrink-0 cursor-grab items-center justify-center border-r text-[var(--auth-label)] hover:bg-red-50 active:cursor-grabbing"
+            className="flex h-full w-5 shrink-0 cursor-grab items-center justify-center border-r border-slate-200 text-[var(--auth-label)] hover:bg-red-50 active:cursor-grabbing"
             onPointerCancel={() => setInteraction(null)}
             onPointerDown={(event) => startInteraction("move", event)}
             onPointerMove={updateInteraction}
             onPointerUp={finishInteraction}
-            style={{ borderColor: roleColor }}
             type="button"
           >
             <GripVerticalIcon className="size-3.5" />
@@ -288,8 +286,7 @@ export function FieldAreaOverlay({
             <DropdownMenuTrigger asChild>
               <button
                 aria-label={`Change ${title} role`}
-                className="roles-dropdown flex h-full w-7 shrink-0 items-center justify-center border-r"
-                style={{ borderColor: roleColor }}
+                className="roles-dropdown flex h-full w-7 shrink-0 items-center justify-center border-r border-slate-200"
                 onClick={(event) => {
                   event.stopPropagation();
                   onSelectField(field.uuid);
@@ -441,10 +438,9 @@ export function FieldAreaOverlay({
           )}
           <div
             className={cn(
-              "ml-1 flex h-full shrink-0 items-center gap-0.5 border-l pl-1",
+              "ml-1 flex h-full shrink-0 items-center gap-0.5 border-l border-slate-200 pl-1",
               !isSelected && conditionCount === 0 ? "hidden" : "",
             )}
-            style={{ borderColor: `${roleColor}66` }}
           >
             {conditionCount > 0 ? (
               <ConditionCountBadge field={field} fields={fields} />

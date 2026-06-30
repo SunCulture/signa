@@ -32,6 +32,15 @@ export class AuthAccountDto {
 
   @ApiProperty({ example: 'en-US' })
   locale!: string;
+
+  @ApiProperty({ example: false })
+  is_test_mode!: boolean;
+
+  @ApiProperty({ example: null, nullable: true })
+  production_account_id!: string | null;
+
+  @ApiProperty({ example: null, nullable: true })
+  testing_account_id!: string | null;
 }
 
 export class AuthResponseDto {

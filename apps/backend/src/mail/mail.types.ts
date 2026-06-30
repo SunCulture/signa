@@ -42,6 +42,7 @@ export type SendTemplateMailInput = {
   to: MailAddress | MailAddress[];
   subject: string;
   template: MailTemplateName;
+  locale?: string | null;
   context?: Record<string, unknown>;
   from?: MailAddress | string;
   replyTo?: MailAddress | string | null;
@@ -77,20 +78,25 @@ export type SubmitterMailEvent = {
 
 export type MailJobMap = {
   [runtimeJobNames.deliverCompletedEmail]: {
+    locale?: string | null;
     submitterId: string;
   };
   [runtimeJobNames.deliverDeclinedEmail]: {
+    locale?: string | null;
     submitterId: string;
     reason?: string | null;
   };
   [runtimeJobNames.deliverDocumentsCopyEmail]: {
+    locale?: string | null;
     submitterId: string;
   };
   [runtimeJobNames.deliverReminderEmail]: {
+    locale?: string | null;
     reminderIndex: number;
     submitterId: string;
   };
   [runtimeJobNames.deliverSignatureRequestEmail]: {
+    locale?: string | null;
     submitterId: string;
   };
   [runtimeJobNames.deliverSubmitterVerificationEmail]: {

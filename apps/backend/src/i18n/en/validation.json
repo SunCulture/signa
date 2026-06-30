@@ -1,0 +1,27 @@
+{
+  "constraints": {
+    "arrayMaxSize": "{property} has too many items",
+    "arrayMinSize": "{property} does not have enough items",
+    "isArray": "{property} must be a list",
+    "isBoolean": "{property} must be true or false",
+    "isDateString": "{property} must be a valid date",
+    "isEmail": "{property} must be a valid email address",
+    "isEnum": "{property} must be one of the allowed values",
+    "isIn": "{property} must be one of the allowed values",
+    "isInt": "{property} must be an integer",
+    "isNumber": "{property} must be a number",
+    "isObject": "{property} must be an object",
+    "isOptional": "{property} is optional",
+    "isString": "{property} must be text",
+    "isUrl": "{property} must be a valid URL",
+    "max": "{property} is too large",
+    "maxLength": "{property} is too long",
+    "min": "{property} is too small",
+    "minLength": "{property} is too short",
+    "unknown": "{property} is invalid"
+  },
+  "messages": {
+    "forbidden_field": "{property} is not allowed",
+    "failed": "Validation failed"
+  }
+}

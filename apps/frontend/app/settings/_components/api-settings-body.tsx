@@ -32,6 +32,7 @@ import {
   updateApiTokenPermissions,
 } from "@/lib/api/auth"
 import { apiUrl } from "@/lib/api/http"
+import { useTestMode } from "@/lib/hooks/use-test-mode"
 import { SettingsSidebar } from "./settings-sidebar"
 
 const permissionLabels: Record<ApiTokenPermission, string> = {
@@ -81,17 +82,22 @@ export function ApiSettingsBody() {
   const [visibleToken, setVisibleToken] = useState<string | null>(null)
   const [password, setPassword] = useState("")
   const [isBusy, setIsBusy] = useState(false)
+  const { isPending: isTestModePending, isTestMode, setTestMode } =
+    useTestMode()
   const displayedToken = visibleToken ?? apiToken?.token ?? ""
 
   useEffect(() => {
     getApiToken()
-      .then(setApiToken)
+      .then((token) => {
+        setApiToken(token)
+        setVisibleToken(null)
+      })
       .catch((error: unknown) =>
         toast.error("API token could not be loaded", {
           description: getErrorMessage(error),
         })
       )
-  }, [])
+  }, [isTestMode])
 
   const enabledPermissions = useMemo(
     () => new Set(apiToken?.permissions ?? []),
@@ -184,7 +190,11 @@ export function ApiSettingsBody() {
           <h1 className="text-4xl font-bold tracking-normal">API</h1>
           <label className="flex items-center gap-2 text-sm font-medium">
             <span>Test mode</span>
-            <Switch />
+            <Switch
+              checked={isTestMode}
+              disabled={isTestModePending}
+              onCheckedChange={setTestMode}
+            />
           </label>
         </div>
 

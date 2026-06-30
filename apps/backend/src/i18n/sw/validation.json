@@ -1,0 +1,27 @@
+{
+  "constraints": {
+    "arrayMaxSize": "{property} ina vipengee vingi sana",
+    "arrayMinSize": "{property} haina vipengee vya kutosha",
+    "isArray": "{property} lazima iwe orodha",
+    "isBoolean": "{property} lazima iwe kweli au si kweli",
+    "isDateString": "{property} lazima iwe tarehe sahihi",
+    "isEmail": "{property} lazima iwe barua pepe sahihi",
+    "isEnum": "{property} lazima iwe mojawapo ya thamani zinazoruhusiwa",
+    "isIn": "{property} lazima iwe mojawapo ya thamani zinazoruhusiwa",
+    "isInt": "{property} lazima iwe nambari kamili",
+    "isNumber": "{property} lazima iwe nambari",
+    "isObject": "{property} lazima iwe kitu",
+    "isOptional": "{property} si lazima",
+    "isString": "{property} lazima iwe maandishi",
+    "isUrl": "{property} lazima iwe URL sahihi",
+    "max": "{property} ni kubwa sana",
+    "maxLength": "{property} ni ndefu sana",
+    "min": "{property} ni ndogo sana",
+    "minLength": "{property} ni fupi sana",
+    "unknown": "{property} si sahihi"
+  },
+  "messages": {
+    "forbidden_field": "{property} hairuhusiwi",
+    "failed": "Uthibitishaji umeshindikana"
+  }
+}

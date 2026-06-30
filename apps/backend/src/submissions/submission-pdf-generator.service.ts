@@ -39,6 +39,7 @@ export class SubmissionPdfGeneratorService {
 
     const options = input.options ?? {
       flatten: true,
+      isTestMode: false,
       withSignatureId: false,
     };
 
@@ -46,8 +47,12 @@ export class SubmissionPdfGeneratorService {
       flattenSourceForm(pdf);
     }
 
-    if (options.withSignatureId && options.documentId) {
+    if ((options.withSignatureId || options.isTestMode) && options.documentId) {
       drawDocumentId(pdf, options.documentId, font);
+    }
+
+    if (options.isTestMode) {
+      drawTestingFooter(pdf, font);
     }
 
     for (const field of input.fields) {
@@ -110,6 +115,7 @@ export class SubmissionPdfGeneratorService {
   async buildAuditTrail(
     submission: Submission,
     documents: AuditTrailDocument[] = [],
+    options: { isTestMode?: boolean } = {},
   ): Promise<Buffer> {
     const pdf = await PDFDocument.create();
     const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -120,13 +126,18 @@ export class SubmissionPdfGeneratorService {
     );
     let y = 742;
 
-    page.drawText('Audit Trail', {
-      x: 48,
-      y,
-      size: 22,
-      font: boldFont,
-      color: rgb(0.08, 0.2, 0.36),
-    });
+    page.drawText(
+      options.isTestMode
+        ? 'Testing Log - Not for Production Use'
+        : 'Audit Trail',
+      {
+        x: 48,
+        y,
+        size: 22,
+        font: boldFont,
+        color: rgb(0.08, 0.2, 0.36),
+      },
+    );
     y -= 34;
 
     for (const line of buildAuditSummaryLines(submission)) {
@@ -293,6 +304,7 @@ type PdfBox = {
 type PdfResultOptions = {
   documentId?: string;
   flatten: boolean;
+  isTestMode?: boolean;
   withSignatureId: boolean;
 };
 
@@ -389,6 +401,18 @@ function drawDocumentId(
       size: 6,
       font,
       color: rgb(0.02, 0.08, 0.16),
+    });
+  }
+}
+
+function drawTestingFooter(pdf: PDFDocument, font: PDFFont): void {
+  for (const page of pdf.getPages()) {
+    page.drawText('TEST MODE - NOT FOR PRODUCTION USE', {
+      x: 8,
+      y: 8,
+      size: 7,
+      font,
+      color: rgb(0.78, 0.09, 0.09),
     });
   }
 }

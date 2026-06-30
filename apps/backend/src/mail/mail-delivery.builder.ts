@@ -75,6 +75,7 @@ export class MailDeliveryBuilder {
 
     return {
       accountId: submitter.accountId,
+      locale: submitter.account?.locale,
       to: this.submitterAddress(submitter),
       subject: subject ?? defaultTemplate.subject,
       template: 'submitter-invitation',
@@ -131,6 +132,7 @@ export class MailDeliveryBuilder {
 
     return {
       accountId: submitter.accountId,
+      locale: submitter.account?.locale,
       to: this.submitterAddress(submitter),
       subject: subject ?? defaultTemplate.subject,
       template: 'submitter-invitation-reminder',
@@ -163,6 +165,7 @@ export class MailDeliveryBuilder {
 
     return {
       accountId: submitter.accountId,
+      locale: submitter.account?.locale,
       to: this.submitterAddress(submitter),
       subject: 'Email verification',
       template: 'submitter-otp-verification',
@@ -224,6 +227,7 @@ export class MailDeliveryBuilder {
     return [
       {
         accountId: submitter.accountId,
+        locale: submitter.account?.locale,
         to: userAddress(recipient),
         subject: subject ?? defaultTemplate.subject,
         template: 'submitter-completed',
@@ -288,6 +292,7 @@ export class MailDeliveryBuilder {
     });
     const input: SendTemplateMailInput = {
       accountId: submitter.accountId,
+      locale: submitter.account?.locale,
       to: recipients,
       subject: subject ?? defaultTemplate.subject,
       template: 'submitter-documents-copy',
@@ -325,6 +330,7 @@ export class MailDeliveryBuilder {
     return [
       {
         accountId: submitter.accountId,
+        locale: submitter.account?.locale,
         to: userAddress(recipient),
         subject,
         template: 'submitter-declined',

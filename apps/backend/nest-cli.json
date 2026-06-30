@@ -12,6 +12,10 @@
       {
         "include": "mail/defaults/**/*",
         "outDir": "dist/src"
+      },
+      {
+        "include": "i18n/**/*",
+        "outDir": "dist/src"
       }
     ],
     "watchAssets": true

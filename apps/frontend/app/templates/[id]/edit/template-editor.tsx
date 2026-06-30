@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -9,6 +9,7 @@ import {
   DownloadIcon,
   EyeIcon,
   PenLineIcon,
+  PencilIcon,
   Redo2Icon,
   SaveIcon,
   SlidersHorizontalIcon,
@@ -60,6 +61,7 @@ export function TemplateEditor() {
     addDocument,
     addDroppedField,
     addFieldWithoutDrawing,
+    addGoogleDriveDocuments,
     addSubmitter,
     canRedo,
     canUndo,
@@ -94,6 +96,7 @@ export function TemplateEditor() {
     removeSubmitter,
     renameDocument,
     renameSubmitter,
+    renameTemplate,
     replaceDocument,
     reorderDocumentFields,
     resolvePendingImportedFields,
@@ -117,6 +120,7 @@ export function TemplateEditor() {
     updateFieldArea,
     updateDocumentConditions,
     updateTemplateSharedLink,
+    updateTemplateTestingShare,
     undoTemplateChange,
   } = editor;
 
@@ -158,9 +162,10 @@ export function TemplateEditor() {
             />
             <ArrowLeftIcon className="absolute size-6 text-[var(--auth-primary)] opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
           </Link>
-          <h1 className="truncate text-3xl font-bold tracking-normal">
-            {currentTemplate.name}
-          </h1>
+          <TemplateTitleInlineEditor
+            name={currentTemplate.name}
+            onRename={renameTemplate}
+          />
         </div>
 
         <TemplateEditorHistoryControls
@@ -266,6 +271,7 @@ export function TemplateEditor() {
           onOpenChange={setIsPreferencesOpen}
           onSave={saveTemplatePreferences}
           onSharedLinkChange={updateTemplateSharedLink}
+          onTestingShareChange={updateTemplateTestingShare}
         />
       ) : null}
       {isRecipientsOpen ? (
@@ -281,6 +287,7 @@ export function TemplateEditor() {
           isUploadingDocument={isUploadingDocument}
           onAddBlankPage={addBlankPage}
           onAddDocument={addDocument}
+          onAddGoogleDriveDocuments={addGoogleDriveDocuments}
           onEditDocument={setEditingDocumentUuid}
           onMoveDocument={moveDocument}
           onRenameDocument={renameDocument}
@@ -297,7 +304,10 @@ export function TemplateEditor() {
           activeFieldType={activeFieldType}
           documents={currentTemplate.documents}
           fields={currentFields}
+          isUploadingDocument={isUploadingDocument}
           isSavingFields={isSavingFields}
+          onAddDocument={addDocument}
+          onAddGoogleDriveDocuments={addGoogleDriveDocuments}
           onAddSubmitter={addSubmitter}
           onCopySelectedFields={copySelectedFields}
           onDropField={addDroppedField}
@@ -344,6 +354,100 @@ export function TemplateEditor() {
         />
       </div>
     </main>
+  );
+}
+
+function TemplateTitleInlineEditor({
+  name,
+  onRename,
+}: {
+  name: string;
+  onRename: (name: string) => Promise<void>;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const isCommittingRef = useRef(false);
+  const [draftName, setDraftName] = useState(name);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (isEditing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [isEditing]);
+
+  async function saveName() {
+    if (isCommittingRef.current) {
+      return;
+    }
+
+    isCommittingRef.current = true;
+    const nextName = draftName.trim() || name;
+
+    setIsEditing(false);
+
+    if (nextName === name) {
+      setDraftName(name);
+      isCommittingRef.current = false;
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      await onRename(nextName);
+    } catch {
+      setDraftName(name);
+    } finally {
+      setIsSaving(false);
+      isCommittingRef.current = false;
+    }
+  }
+
+  function startEditing() {
+    setDraftName(name);
+    setIsEditing(true);
+  }
+
+  if (isEditing) {
+    return (
+      <input
+        aria-label="Template name"
+        className="min-w-0 max-w-[42vw] bg-transparent text-3xl font-bold tracking-normal outline-none ring-0 focus:outline-none focus:ring-0"
+        disabled={isSaving}
+        onBlur={() => void saveName()}
+        onChange={(event) => setDraftName(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            void saveName();
+          }
+
+          if (event.key === "Escape") {
+            event.preventDefault();
+            setDraftName(name);
+            setIsEditing(false);
+          }
+        }}
+        ref={inputRef}
+        style={{ width: `${Math.max(1, draftName.length)}ch` }}
+        value={draftName}
+      />
+    );
+  }
+
+  return (
+    <button
+      className="group/title flex min-w-0 items-center gap-2 rounded-md px-1 text-left hover:bg-[var(--auth-muted)]"
+      disabled={isSaving}
+      onClick={startEditing}
+      type="button"
+    >
+      <span className="truncate text-3xl font-bold tracking-normal">{name}</span>
+      <PencilIcon className="size-5 shrink-0 text-[var(--auth-primary)] opacity-0 transition-opacity group-hover/title:opacity-100" />
+      {isSaving ? <Spinner className="size-4 shrink-0" /> : null}
+    </button>
   );
 }
 

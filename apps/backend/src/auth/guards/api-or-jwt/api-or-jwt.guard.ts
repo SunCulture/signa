@@ -71,7 +71,11 @@ export class ApiOrJwtGuard implements CanActivate {
       request.session = {
         userId: payload.userId,
         accountId: payload.accountId,
+        isTestMode: payload.isTestMode,
         role: payload.role,
+        teamId: payload.teamId,
+        trueAccountId: payload.trueAccountId,
+        trueUserId: payload.trueUserId,
       };
       return true;
     } catch {

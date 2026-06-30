@@ -5,12 +5,14 @@ import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api/http";
 import {
+  addTemplateGoogleDriveDocuments,
   getAccountCustomFields,
   getTemplate,
   saveAccountCustomFields,
   type TemplateResponse,
   updateTemplate,
 } from "@/lib/api/templates";
+import { pickGoogleDriveDocuments } from "@/lib/google-drive/picker";
 import {
   buildTemplateCustomField,
   normalizeTemplateFields,
@@ -490,10 +492,64 @@ export function useTemplateEditorController() {
     }
   }
 
+  async function addGoogleDriveDocuments() {
+    const existingUuids = new Set(
+      currentTemplate.documents.map((document) => document.uuid),
+    );
+
+    setIsUploadingDocument(true);
+    toast.loading("Opening Google Drive", { id: "template-document-upload" });
+
+    try {
+      const picked = await pickGoogleDriveDocuments();
+
+      if (!picked.files.length) {
+        toast.info("No Google Drive files selected", {
+          id: "template-document-upload",
+        });
+        return;
+      }
+
+      toast.loading("Importing Google Drive files", {
+        description: `${picked.files.length} selected`,
+        id: "template-document-upload",
+      });
+
+      await addTemplateGoogleDriveDocuments(currentTemplate.id, {
+        access_token: picked.accessToken,
+        files: picked.files,
+        merge: true,
+      });
+
+      const refreshedTemplate = await getTemplate(currentTemplate.id);
+      const addedDocument =
+        refreshedTemplate.documents.find(
+          (document) => !existingUuids.has(document.uuid),
+        ) ?? refreshedTemplate.documents.at(-1);
+
+      setTemplate(refreshedTemplate);
+      setSelectedDocumentUuid(addedDocument?.uuid ?? null);
+      toast.success("Google Drive document added", {
+        id: "template-document-upload",
+      });
+    } catch (error) {
+      toast.error("Google Drive import failed", {
+        description:
+          error instanceof Error
+            ? error.message
+            : "Document could not be imported.",
+        id: "template-document-upload",
+      });
+    } finally {
+      setIsUploadingDocument(false);
+    }
+  }
+
   return {
     activeFieldType,
     addBlankPage: documentActions.addBlankPage,
     addDocument: documentActions.addDocument,
+    addGoogleDriveDocuments,
     addCustomFieldWithoutDrawing: fieldActions.addCustomFieldWithoutDrawing,
     addDroppedField: fieldActions.addDroppedField,
     addFieldWithoutDrawing: fieldActions.addFieldWithoutDrawing,
@@ -531,6 +587,7 @@ export function useTemplateEditorController() {
     removeSubmitter: submitterActions.removeSubmitter,
     renameDocument: documentActions.renameDocument,
     renameSubmitter: submitterActions.renameSubmitter,
+    renameTemplate: templateActions.renameTemplate,
     replaceDocument: documentActions.replaceDocument,
     reorderDocumentFields: documentActions.reorderDocumentFields,
     resolvePendingImportedFields: templateActions.resolvePendingImportedFields,
@@ -554,6 +611,7 @@ export function useTemplateEditorController() {
     updateFieldArea: fieldActions.updateFieldArea,
     updateDocumentConditions: documentActions.updateDocumentConditions,
     updateTemplateSharedLink: templateActions.updateTemplateSharedLink,
+    updateTemplateTestingShare: templateActions.updateTemplateTestingShare,
     undoTemplateChange,
     error,
     goBackToTemplates,

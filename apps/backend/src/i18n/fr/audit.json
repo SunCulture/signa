@@ -1,0 +1,11 @@
+{
+  "events": {
+    "email_failed": "Échec de l'envoi de l'email",
+    "email_sent": "Email envoyé",
+    "email_skipped": "Email ignoré",
+    "form_completed": "Formulaire terminé",
+    "form_declined": "Formulaire refusé",
+    "form_started": "Formulaire commencé",
+    "template_updated": "Modèle mis à jour"
+  }
+}

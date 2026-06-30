@@ -62,16 +62,16 @@ export class EmailMessage {
   @Column({ name: 'provider_response', type: 'text', nullable: true })
   providerResponse!: string | null;
 
-  @Column({ name: 'queued_at', type: 'timestamp', nullable: true })
+  @Column({ name: 'queued_at', type: Date, nullable: true })
   queuedAt!: Date | null;
 
-  @Column({ name: 'sent_at', type: 'timestamp', nullable: true })
+  @Column({ name: 'sent_at', type: Date, nullable: true })
   sentAt!: Date | null;
 
-  @Column({ name: 'skipped_at', type: 'timestamp', nullable: true })
+  @Column({ name: 'skipped_at', type: Date, nullable: true })
   skippedAt!: Date | null;
 
-  @Column({ name: 'failed_at', type: 'timestamp', nullable: true })
+  @Column({ name: 'failed_at', type: Date, nullable: true })
   failedAt!: Date | null;
 
   @Column({ type: 'simple-json' })

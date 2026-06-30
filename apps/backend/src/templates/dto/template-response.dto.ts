@@ -48,6 +48,9 @@ export class TemplateResponseDto {
   @ApiProperty({ example: false })
   shared_link: boolean;
 
+  @ApiProperty({ example: false })
+  shared_with_test_mode: boolean;
+
   @ApiPropertyOptional({ example: 'crm-template-1', nullable: true })
   application_key: string | null;
 

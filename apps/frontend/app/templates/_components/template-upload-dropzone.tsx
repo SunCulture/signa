@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { type MouseEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckIcon, UploadCloudIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -11,7 +11,13 @@ import {
   DropzoneEmptyState,
 } from "@/components/kibo-ui/dropzone";
 import { Spinner } from "@/components/ui/spinner";
-import { createTemplateFromDocument } from "@/lib/api/templates";
+import {
+  addTemplateGoogleDriveDocuments,
+  createTemplate,
+  createTemplateFromDocument,
+} from "@/lib/api/templates";
+import { pickGoogleDriveDocuments } from "@/lib/google-drive/picker";
+import { useAppI18n } from "@/lib/i18n/use-app-i18n";
 
 const acceptedDocumentTypes = {
   "application/pdf": [".pdf"],
@@ -20,8 +26,14 @@ const acceptedDocumentTypes = {
   ],
 };
 
-export function TemplateUploadDropzone() {
+export function TemplateUploadDropzone({
+  folderName,
+}: {
+  folderName?: string;
+}) {
   const router = useRouter();
+  const { dictionary } = useAppI18n();
+  const text = dictionary.templates;
   const [files, setFiles] = useState<File[]>();
   const [isUploading, setIsUploading] = useState(false);
   const toastId = useRef<string | number | undefined>(undefined);
@@ -36,26 +48,32 @@ export function TemplateUploadDropzone() {
     setFiles(acceptedFiles);
     setIsUploading(true);
     toastId.current = toast.custom(
-      () => <UploadToast message={`Preparing ${file.name}...`} />,
+      () => (
+        <UploadToast
+          message={interpolate(text.toasts.preparingUpload, {
+            file: file.name,
+          })}
+        />
+      ),
       { duration: Infinity },
     );
 
     try {
       toast.custom(
-        () => <UploadToast message={`Uploading ${file.name}...`} />,
+        () => <UploadToast message={`${text.toasts.uploadingDocument}...`} />,
         {
           duration: Infinity,
           id: toastId.current,
         },
       );
 
-      const template = await createTemplateFromDocument(file);
+      const template = await createTemplateFromDocument(file, folderName);
 
       toast.custom(
         () => (
           <UploadSuccessToast
-            description="Opening template editor."
-            title={`${file.name} uploaded`}
+            description={text.toasts.openingEditor}
+            title={`${file.name} - ${text.toasts.documentUploaded}`}
           />
         ),
         {
@@ -66,9 +84,9 @@ export function TemplateUploadDropzone() {
       router.push(`/templates/${template.id}/edit`);
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Upload failed. Try again.";
+        error instanceof Error ? error.message : `${text.toasts.uploadFailed}.`;
 
-      toast.error("Document upload failed", {
+      toast.error(text.toasts.uploadFailed, {
         description: message,
         classNames: { icon: "text-destructive" },
       });
@@ -78,30 +96,118 @@ export function TemplateUploadDropzone() {
     }
   }
 
+  async function handleGoogleDriveImport(event: MouseEvent<HTMLButtonElement>) {
+    event.stopPropagation();
+
+    setIsUploading(true);
+    toastId.current = toast.custom(
+      () => <UploadToast message={text.uploadDropzone.openingDrive} />,
+      { duration: Infinity },
+    );
+
+    try {
+      const picked = await pickGoogleDriveDocuments();
+
+      if (picked.files.length === 0) {
+        toast.info(text.toasts.driveNoFiles, { id: toastId.current });
+        return;
+      }
+
+      const firstFileName = picked.files.at(0)?.name?.trim();
+      const template = await createTemplate({
+        folder_name: folderName,
+        name: firstFileName || text.create.title,
+        shared_link: true,
+      });
+
+      toast.custom(
+        () => <UploadToast message={`${text.toasts.openingDrive}...`} />,
+        { duration: Infinity, id: toastId.current },
+      );
+
+      await addTemplateGoogleDriveDocuments(template.id, {
+        access_token: picked.accessToken,
+        files: picked.files,
+        merge: true,
+      });
+
+      toast.custom(
+        () => (
+          <UploadSuccessToast
+            description={text.toasts.openingEditor}
+            title={text.toasts.driveImported}
+          />
+        ),
+        {
+          duration: 4000,
+          id: toastId.current,
+        },
+      );
+      router.push(`/templates/${template.id}/edit`);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : `${text.toasts.driveImportFailed}.`;
+
+      toast.error(text.toasts.driveImportFailed, {
+        description: message,
+        classNames: { icon: "text-destructive" },
+        id: toastId.current,
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  }
+
   return (
-    <Dropzone
-      accept={acceptedDocumentTypes}
-      className="min-h-52 rounded-2xl border-dashed border-[var(--auth-input-border)] bg-transparent text-center hover:border-[var(--auth-primary)] hover:bg-card"
-      disabled={isUploading}
-      maxFiles={1}
-      onDrop={handleDrop}
-      src={files}
-    >
-      <DropzoneEmptyState>
-        <div className="flex flex-col items-center justify-center">
-          <UploadCloudIcon className="mb-2 text-[var(--auth-primary)]" />
-          <span className="text-base font-bold">Upload a New Document</span>
-          <span className="mt-2 text-sm">Click to upload or drag and drop</span>
-          <span className="mt-8 text-sm">
-            Or add from{" "}
-            <span className="font-bold text-[var(--auth-primary)]">
-              Google Drive
+    <div className="relative">
+      <Dropzone
+        accept={acceptedDocumentTypes}
+        className="min-h-52 rounded-2xl border-dashed border-[var(--auth-input-border)] bg-transparent pb-14 text-center hover:border-[var(--auth-primary)] hover:bg-card"
+        disabled={isUploading}
+        maxFiles={1}
+        onDrop={handleDrop}
+        src={files}
+      >
+        <DropzoneEmptyState>
+          <div className="flex flex-col items-center justify-center">
+            <UploadCloudIcon className="mb-2 text-[var(--auth-primary)]" />
+            <span className="text-base font-bold">
+              {text.uploadDropzone.title}
             </span>
-          </span>
-        </div>
-      </DropzoneEmptyState>
-      <DropzoneContent />
-    </Dropzone>
+            <span className="mt-2 text-sm">
+              {text.uploadDropzone.body}
+            </span>
+          </div>
+        </DropzoneEmptyState>
+        <DropzoneContent />
+      </Dropzone>
+      <div className="pointer-events-none absolute inset-x-0 bottom-10 flex justify-center text-sm">
+        <span>
+          {text.uploadDropzone.orAddFrom}{" "}
+          <button
+            className="pointer-events-auto font-bold text-[var(--auth-primary)] underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isUploading}
+            onClick={handleGoogleDriveImport}
+            type="button"
+          >
+            {text.uploadDropzone.drive}
+          </button>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function interpolate(
+  value: string,
+  replacements: Record<string, string>,
+): string {
+  return Object.entries(replacements).reduce(
+    (current, [key, replacement]) =>
+      current.replaceAll(`{${key}}`, replacement),
+    value,
   );
 }
 

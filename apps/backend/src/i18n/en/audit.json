@@ -1,0 +1,11 @@
+{
+  "events": {
+    "email_failed": "Email delivery failed",
+    "email_sent": "Email sent",
+    "email_skipped": "Email skipped",
+    "form_completed": "Form completed",
+    "form_declined": "Form declined",
+    "form_started": "Form started",
+    "template_updated": "Template updated"
+  }
+}

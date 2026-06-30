@@ -11,6 +11,7 @@ import { createCacheOptions } from './cache/cache-options';
 import { DatabaseModule } from './database/database.module';
 import validationSchema from './env.schema';
 import { HealthModule } from './health/health.module';
+import { InternationalizationModule } from './internationalization/internationalization.module';
 import { MailModule } from './mail/mail.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { RuntimeModule } from './runtime/runtime.module';
@@ -56,6 +57,7 @@ import { StartFormModule } from './start-form/start-form.module';
       }),
     }),
     RuntimeModule,
+    InternationalizationModule,
     RealtimeModule,
     DatabaseModule,
     HealthModule,

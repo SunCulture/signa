@@ -6,6 +6,7 @@ import {
   getTemplateDocumentDownloads,
   updateTemplate,
   updateTemplatePreferences,
+  updateTemplateTestingSharing,
   type TemplateResponse,
 } from "@/lib/api/templates";
 import {
@@ -135,6 +136,51 @@ export function createTemplateEditorTemplateActions(context: Context) {
     }
   }
 
+  async function updateTemplateTestingShare(sharedWithTestMode: boolean) {
+    const previousSharedWithTestMode = currentTemplate.shared_with_test_mode;
+
+    setTemplate((previousTemplate) =>
+      previousTemplate?.id === currentTemplate.id
+        ? {
+            ...previousTemplate,
+            shared_with_test_mode: sharedWithTestMode,
+          }
+        : previousTemplate,
+    );
+    setIsUpdatingSharedLink(true);
+
+    try {
+      const updatedTemplate = await updateTemplateTestingSharing(
+        currentTemplate.id,
+        sharedWithTestMode,
+      );
+
+      setTemplate(updatedTemplate);
+      toast.success(
+        sharedWithTestMode
+          ? "Template shared with Test mode"
+          : "Template unshared from Test mode",
+      );
+    } catch (saveError) {
+      const message =
+        saveError instanceof Error
+          ? saveError.message
+          : "Test mode sharing could not be updated.";
+
+      toast.error("Test mode sharing update failed", { description: message });
+      setTemplate((previousTemplate) =>
+        previousTemplate?.id === currentTemplate.id
+          ? {
+              ...previousTemplate,
+              shared_with_test_mode: previousSharedWithTestMode,
+            }
+          : previousTemplate,
+      );
+    } finally {
+      setIsUpdatingSharedLink(false);
+    }
+  }
+
   async function downloadTemplateDocuments() {
     setIsDownloadingTemplateDocuments(true);
 
@@ -152,6 +198,33 @@ export function createTemplateEditorTemplateActions(context: Context) {
       toast.error("Download failed", { description: message });
     } finally {
       setIsDownloadingTemplateDocuments(false);
+    }
+  }
+
+  async function renameTemplate(name: string) {
+    const nextName = name.trim() || currentTemplate.name;
+
+    if (nextName === currentTemplate.name) {
+      return;
+    }
+
+    setTemplate((previousTemplate) =>
+      previousTemplate?.id === currentTemplate.id
+        ? { ...previousTemplate, name: nextName }
+        : previousTemplate,
+    );
+
+    try {
+      await updateTemplate(currentTemplate.id, { name: nextName });
+    } catch (renameError) {
+      const message =
+        renameError instanceof Error
+          ? renameError.message
+          : "Template name could not be updated.";
+
+      setTemplate(currentTemplate);
+      toast.error("Template rename failed", { description: message });
+      throw renameError;
     }
   }
 
@@ -223,9 +296,11 @@ export function createTemplateEditorTemplateActions(context: Context) {
 
   return {
     downloadTemplateDocuments,
+    renameTemplate,
     resolvePendingImportedFields,
     saveTemplateDraft,
     saveTemplatePreferences,
     updateTemplateSharedLink,
+    updateTemplateTestingShare,
   };
 }

@@ -4,6 +4,7 @@ import { BullBoardModule } from '@bull-board/nestjs';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
+import { AccountsModule } from '../accounts/accounts.module';
 import { AccountConfig } from '../accounts/entities/account-config.entity';
 import { UserHydrationGuard } from '../auth/guards/user-hydration/user-hydration.guard';
 import { EmailMessage } from '../mail/entities/email-message.entity';
@@ -37,6 +38,7 @@ import { SubmissionsService } from './submissions.service';
 @Module({
   imports: [
     AuthModule,
+    AccountsModule,
     PdfSignaturesModule,
     StorageModule,
     TemplatesModule,

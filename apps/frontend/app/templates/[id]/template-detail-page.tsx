@@ -8,7 +8,6 @@ import {
   ArchiveIcon,
   CopyIcon,
   DownloadIcon,
-  FileSpreadsheetIcon,
   FolderIcon,
   LinkIcon,
   PencilIcon,
@@ -67,6 +66,7 @@ import {
   type TemplateResponse,
   updateTemplate,
   updateTemplatePreferences,
+  updateTemplateTestingSharing,
 } from "@/lib/api/templates";
 import { ThemeModeSwitcher } from "../_components/theme-mode-switcher";
 import { UserMenu } from "../_components/user-menu";
@@ -324,6 +324,41 @@ export function TemplateDetailPage({ templateId }: TemplateDetailPageProps) {
     }
   }
 
+  async function updateTemplateTestingShare(sharedWithTestMode: boolean) {
+    if (!template) {
+      return;
+    }
+
+    const previousSharedWithTestMode = template.shared_with_test_mode;
+
+    setTemplate({ ...template, shared_with_test_mode: sharedWithTestMode });
+    setIsUpdatingSharedLink(true);
+
+    try {
+      const updatedTemplate = await updateTemplateTestingSharing(
+        template.id,
+        sharedWithTestMode,
+      );
+
+      setTemplate(updatedTemplate);
+      toast.success(
+        sharedWithTestMode
+          ? "Template shared with Test mode"
+          : "Template unshared from Test mode",
+      );
+    } catch (error) {
+      setTemplate({
+        ...template,
+        shared_with_test_mode: previousSharedWithTestMode,
+      });
+      toast.error("Test mode sharing update failed", {
+        description: error instanceof Error ? error.message : "Try again.",
+      });
+    } finally {
+      setIsUpdatingSharedLink(false);
+    }
+  }
+
   async function archiveRow(submission: SubmissionResponse) {
     setIsMutating(true);
 
@@ -523,6 +558,7 @@ export function TemplateDetailPage({ templateId }: TemplateDetailPageProps) {
           onOpenChange={setIsPreferencesOpen}
           onSave={saveTemplatePreferences}
           onSharedLinkChange={updateTemplateSharedLink}
+          onTestingShareChange={updateTemplateTestingShare}
           open={isPreferencesOpen}
           template={template}
         />
@@ -863,7 +899,7 @@ function ExportSubmissionsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-5">
+        <div className="grid min-w-0 gap-5">
           <div className="grid gap-2">
             <Label>Status</Label>
             <Select
@@ -892,17 +928,25 @@ function ExportSubmissionsDialog({
             </Select>
           </div>
 
-          <div className="grid gap-3">
+          <div className="grid min-w-0 gap-3">
             <Button
-              className="h-auto justify-start rounded-2xl border-[var(--auth-border)] p-4 text-left"
+              className="grid h-auto min-w-0 grid-cols-[56px_minmax(0,1fr)] items-center justify-start gap-4 rounded-2xl border-[var(--auth-border)] p-4 text-left hover:border-[var(--auth-primary)] hover:bg-card"
               onClick={() => void downloadExport("xlsx")}
               type="button"
               variant="outline"
             >
-              <FileSpreadsheetIcon className="mr-3 size-10 shrink-0 text-[var(--auth-primary)]" />
-              <span className="grid gap-1">
+              <span className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm">
+                <Image
+                  alt=""
+                  className="size-10 object-contain"
+                  height={40}
+                  src="/images/sheets-logo.png"
+                  width={40}
+                />
+              </span>
+              <span className="grid min-w-0 gap-1">
                 <span className="text-lg font-semibold">XLSX</span>
-                <span className="text-sm font-normal text-[var(--auth-muted-foreground)]">
+                <span className="whitespace-normal text-sm font-normal leading-5 text-[var(--auth-muted-foreground)]">
                   Primarily opened with Microsoft Excel, Google Sheets,
                   LibreOffice Calc, and OpenOffice Calc.
                 </span>
@@ -910,15 +954,23 @@ function ExportSubmissionsDialog({
             </Button>
 
             <Button
-              className="h-auto justify-start rounded-2xl border-[var(--auth-border)] p-4 text-left"
+              className="grid h-auto min-w-0 grid-cols-[56px_minmax(0,1fr)] items-center justify-start gap-4 rounded-2xl border-[var(--auth-border)] p-4 text-left hover:border-[var(--auth-primary)] hover:bg-card"
               onClick={() => void downloadExport("csv")}
               type="button"
               variant="outline"
             >
-              <DownloadIcon className="mr-3 size-10 shrink-0 text-[var(--auth-primary)]" />
-              <span className="grid gap-1">
+              <span className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm">
+                <Image
+                  alt=""
+                  className="size-10 object-contain"
+                  height={40}
+                  src="/images/file-text.png"
+                  width={40}
+                />
+              </span>
+              <span className="grid min-w-0 gap-1">
                 <span className="text-lg font-semibold">CSV</span>
-                <span className="text-sm font-normal text-[var(--auth-muted-foreground)]">
+                <span className="whitespace-normal text-sm font-normal leading-5 text-[var(--auth-muted-foreground)]">
                   Can be opened with Excel, Google Sheets, or any text editor.
                 </span>
               </span>

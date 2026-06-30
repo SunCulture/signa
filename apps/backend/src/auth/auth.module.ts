@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AccountLinkedAccount } from '../accounts/entities/account-linked-account.entity';
 import { MailModule } from '../mail/mail.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -13,7 +14,7 @@ import { JwtGuard } from './guards/jwt/jwt.guard';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([AccessToken]),
+    TypeOrmModule.forFeature([AccessToken, AccountLinkedAccount]),
     MailModule,
     JwtModule.registerAsync({
       inject: [ConfigService],

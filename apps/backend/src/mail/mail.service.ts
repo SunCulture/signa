@@ -10,6 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
 import { Repository } from 'typeorm';
 import { EncryptedConfig } from '../accounts/entities/encrypted-config.entity';
+import { SignaI18nService } from '../internationalization/signa-i18n.service';
 import { EmailEvent } from './entities/email-event.entity';
 import { EmailMessage } from './entities/email-message.entity';
 import { MailBrandingService } from './mail-branding.service';
@@ -52,6 +53,7 @@ export class MailService implements OnModuleInit {
     @InjectRepository(EmailEvent)
     private readonly emailEvents: Repository<EmailEvent>,
     private readonly branding: MailBrandingService,
+    private readonly i18n: SignaI18nService,
     private readonly mailer: MailerService,
     private readonly templates: MailTemplateResolver,
   ) {}
@@ -100,14 +102,16 @@ export class MailService implements OnModuleInit {
   async sendTemplate(
     input: SendTemplateMailInput,
   ): Promise<MailDeliveryResult> {
-    this.templates.assertTemplateExists(input.template);
+    const mail = this.withLocaleContext(input);
+
+    this.templates.assertTemplateExists(mail.template);
 
     if (!this.config.get<boolean>('MAIL_ENABLED', false)) {
       this.logger.warn(
-        `Mail disabled. Skipping template="${input.template}" to=${formatRecipientLog(input.to)}`,
+        `Mail disabled. Skipping template="${mail.template}" to=${formatRecipientLog(mail.to)}`,
       );
 
-      await this.recordDelivery(input, {
+      await this.recordDelivery(mail, {
         status: 'skipped',
         accepted: [],
         rejected: [],
@@ -123,11 +127,11 @@ export class MailService implements OnModuleInit {
     let info: SentMessageInfo;
 
     try {
-      info = await this.send(input);
+      info = await this.send(mail);
     } catch (error) {
       const failure = normalizeMailFailure(error);
 
-      await this.recordDelivery(input, {
+      await this.recordDelivery(mail, {
         status: 'failed',
         accepted: [],
         rejected: [],
@@ -141,7 +145,7 @@ export class MailService implements OnModuleInit {
     const rejected = normalizeStringArray(info.rejected);
 
     if (rejected.length > 0) {
-      await this.recordDelivery(input, {
+      await this.recordDelivery(mail, {
         status: 'failed',
         accepted: normalizeStringArray(info.accepted),
         rejected,
@@ -163,7 +167,7 @@ export class MailService implements OnModuleInit {
       response: info.response,
     } satisfies MailDeliveryResult;
 
-    await this.recordDelivery(input, result);
+    await this.recordDelivery(mail, result);
 
     return result;
   }
@@ -178,18 +182,26 @@ export class MailService implements OnModuleInit {
       `/auth/reset-password?token=${encodeURIComponent(input.token)}`,
     );
 
+    const subject = this.t('mail.subjects.password_reset', {
+      defaultValue: 'Reset your password',
+    });
+
     return this.sendTemplate({
       accountId: input.accountId,
       to: { email: input.email, name: input.firstName },
-      subject: 'Reset your password',
+      subject,
       template: 'password-reset',
       context: {
         ...this.branding.getBaseContext(),
-        actionLabel: 'Change My Password',
+        actionLabel: this.t('mail.actions.change_password', {
+          defaultValue: 'Change My Password',
+        }),
         actionUrl: resetUrl,
-        firstName: input.firstName || 'there',
+        firstName:
+          input.firstName ||
+          this.t('mail.greetings.there', { defaultValue: 'there' }),
         resetUrl,
-        subject: 'Reset your password',
+        subject,
       },
     });
   }
@@ -205,19 +217,28 @@ export class MailService implements OnModuleInit {
       `/auth/reset-password?token=${encodeURIComponent(input.token)}`,
     );
 
+    const subject = this.t('mail.subjects.user_invitation', {
+      args: { accountName: input.accountName },
+      defaultValue: `You are invited to ${input.accountName}`,
+    });
+
     return this.sendTemplate({
       accountId: input.accountId,
       to: { email: input.email, name: input.firstName },
-      subject: `You are invited to ${input.accountName}`,
+      subject,
       template: 'user-invitation',
       context: {
         ...this.branding.getBaseContext(),
         accountName: input.accountName,
-        actionLabel: 'Accept Invitation',
+        actionLabel: this.t('mail.actions.accept_invitation', {
+          defaultValue: 'Accept Invitation',
+        }),
         actionUrl: invitationUrl,
-        firstName: input.firstName || 'there',
+        firstName:
+          input.firstName ||
+          this.t('mail.greetings.there', { defaultValue: 'there' }),
         invitationUrl,
-        subject: `You are invited to ${input.accountName}`,
+        subject,
       },
     });
   }
@@ -235,7 +256,10 @@ export class MailService implements OnModuleInit {
     const invitationUrl = this.branding.getFrontendUrl(
       `/team-invitations/${encodeURIComponent(input.token)}/accept`,
     );
-    const subject = `You are invited to ${input.teamName}`;
+    const subject = this.t('mail.subjects.team_invitation', {
+      args: { teamName: input.teamName },
+      defaultValue: `You are invited to ${input.teamName}`,
+    });
 
     return this.sendTemplate({
       accountId: input.accountId,
@@ -245,7 +269,9 @@ export class MailService implements OnModuleInit {
       context: {
         ...this.branding.getBaseContext(),
         accountName: input.accountName,
-        actionLabel: 'Accept Invitation',
+        actionLabel: this.t('mail.actions.accept_invitation', {
+          defaultValue: 'Accept Invitation',
+        }),
         actionUrl: invitationUrl,
         expiresAt: input.expiresAt.toISOString(),
         expiresAtLabel: formatMailDate(input.expiresAt),
@@ -262,14 +288,18 @@ export class MailService implements OnModuleInit {
     accountId?: string;
     email: string;
   }): Promise<MailDeliveryResult> {
+    const subject = this.t('mail.subjects.smtp_successful_setup', {
+      defaultValue: 'SMTP has been configured',
+    });
+
     return this.sendTemplate({
       accountId: input.accountId,
       to: { email: input.email },
-      subject: 'SMTP has been configured',
+      subject,
       template: 'smtp-successful-setup',
       context: {
         ...this.branding.getBaseContext(),
-        subject: 'SMTP has been configured',
+        subject,
       },
     });
   }
@@ -280,18 +310,48 @@ export class MailService implements OnModuleInit {
     otpCode: string;
     templateName: string;
   }): Promise<MailDeliveryResult> {
+    const subject = this.t('mail.subjects.template_otp_verification', {
+      defaultValue: 'Email verification',
+    });
+
     return this.sendTemplate({
       accountId: input.accountId,
       to: { email: input.email },
-      subject: 'Email verification',
+      subject,
       template: 'template-otp-verification',
       context: {
         ...this.branding.getBaseContext(),
         otpCode: input.otpCode,
-        subject: 'Email verification',
+        subject,
         templateName: input.templateName,
       },
     });
+  }
+
+  private withLocaleContext(
+    input: SendTemplateMailInput,
+  ): SendTemplateMailInput {
+    const locale = this.i18n.snapshotLocale(input.locale);
+
+    return {
+      ...input,
+      locale,
+      context: {
+        ...input.context,
+        locale,
+      },
+    };
+  }
+
+  private t(
+    key: string,
+    input: {
+      args?: Record<string, unknown>;
+      defaultValue: string;
+      lang?: string | null;
+    },
+  ): string {
+    return this.i18n.translate(key, input);
   }
 
   private async send(input: SendTemplateMailInput): Promise<SentMessageInfo> {

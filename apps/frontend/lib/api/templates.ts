@@ -86,6 +86,7 @@ export type TemplateResponse = {
   external_id: string | null;
   folder_id: string;
   shared_link: boolean;
+  shared_with_test_mode: boolean;
   application_key: string | null;
   folder_name: string;
   variables_schema: unknown;
@@ -123,6 +124,12 @@ export type TemplateDocumentsUpdateResponse = {
   fields: unknown[] | null;
   submitters: unknown[] | null;
   documents: TemplateDocument[];
+};
+
+export type GoogleDrivePickedFile = {
+  id: string;
+  mime_type?: string;
+  name?: string;
 };
 
 export type TemplatesListResponse = {
@@ -384,6 +391,19 @@ export function updateTemplatePreferences(
   return updateTemplate(id, { preferences });
 }
 
+export function updateTemplateTestingSharing(
+  id: string,
+  value: boolean,
+): Promise<TemplateResponse> {
+  return authenticatedApiFetch<TemplateResponse>(
+    `/templates/${id}/testing-sharing`,
+    {
+      body: JSON.stringify({ value }),
+      method: "POST",
+    },
+  );
+}
+
 export async function getTemplateDocumentDownloads(
   id: string,
 ): Promise<string[]> {
@@ -417,6 +437,23 @@ export function addTemplateDocument(
     `/templates/${id}/documents`,
     {
       body: formData,
+      method: "PUT",
+    },
+  );
+}
+
+export function addTemplateGoogleDriveDocuments(
+  id: string,
+  input: {
+    access_token: string;
+    files: GoogleDrivePickedFile[];
+    merge?: boolean;
+  },
+): Promise<TemplateDocumentsUpdateResponse> {
+  return authenticatedApiFetch<TemplateDocumentsUpdateResponse>(
+    `/templates/${id}/google-drive-documents`,
+    {
+      body: JSON.stringify(input),
       method: "PUT",
     },
   );

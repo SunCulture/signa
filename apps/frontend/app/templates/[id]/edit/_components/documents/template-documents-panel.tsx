@@ -23,7 +23,6 @@ import {
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
-  AlertDialogMedia,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
@@ -51,6 +50,7 @@ export function TemplateDocumentsPanel({
   isUploadingDocument,
   onAddBlankPage,
   onAddDocument,
+  onAddGoogleDriveDocuments,
   onEditDocument,
   onMoveDocument,
   onRenameDocument,
@@ -66,6 +66,7 @@ export function TemplateDocumentsPanel({
   isUploadingDocument: boolean;
   onAddBlankPage: () => Promise<void>;
   onAddDocument: (file: File) => Promise<void>;
+  onAddGoogleDriveDocuments: () => Promise<void>;
   onEditDocument: (uuid: string | null) => void;
   onMoveDocument: (
     document: TemplateDocument,
@@ -124,6 +125,7 @@ export function TemplateDocumentsPanel({
           isUploadingDocument={isUploadingDocument}
           onAddBlankPage={onAddBlankPage}
           onAddDocument={onAddDocument}
+          onAddGoogleDriveDocuments={onAddGoogleDriveDocuments}
         />
       </div>
     </aside>
@@ -553,10 +555,12 @@ export function AddDocumentMenu({
   isUploadingDocument,
   onAddBlankPage,
   onAddDocument,
+  onAddGoogleDriveDocuments,
 }: {
   isUploadingDocument: boolean;
   onAddBlankPage: () => Promise<void>;
   onAddDocument: (file: File) => Promise<void>;
+  onAddGoogleDriveDocuments: () => Promise<void>;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -604,13 +608,7 @@ export function AddDocumentMenu({
           Add blank page
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onClick={() =>
-            toast.info("Google Drive import is not wired yet", {
-              description: "The menu is in place for the upcoming integration.",
-            })
-          }
-        >
+        <DropdownMenuItem onClick={() => void onAddGoogleDriveDocuments()}>
           <CloudIcon />
           Google Drive
         </DropdownMenuItem>

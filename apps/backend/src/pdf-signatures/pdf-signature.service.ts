@@ -1,8 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { pdflibAddPlaceholder } from '@signpdf/placeholder-pdf-lib';
 import signpdf from '@signpdf/signpdf';
 import { P12Signer } from '@signpdf/signer-p12';
+import {
+  SUBFILTER_ADOBE_PKCS7_DETACHED,
+  SUBFILTER_ETSI_CADES_DETACHED,
+} from '@signpdf/utils';
 import { PDFDocument } from 'pdf-lib';
 import { Repository } from 'typeorm';
 import { EncryptedConfig } from '../accounts/entities/encrypted-config.entity';
@@ -17,12 +22,16 @@ import {
   timestampServerUrlKey,
 } from './pdf-signature-certificate';
 
-const subfilterAdobePkcs7Detached = 'adbe.pkcs7.detached';
+export const pdfSignatureSubFilterModes = ['pades', 'adobe'] as const;
+
+export type PdfSignatureSubFilterMode =
+  (typeof pdfSignatureSubFilterModes)[number];
 
 export type PdfSignatureResult = {
   buffer: Buffer;
   certificateName: string | null;
   signed: boolean;
+  signatureSubFilter: string;
   timestampServerUrl: string | null;
 };
 
@@ -33,6 +42,7 @@ export class PdfSignatureService {
   constructor(
     @InjectRepository(EncryptedConfig)
     private readonly encryptedConfigs: Repository<EncryptedConfig>,
+    private readonly config: ConfigService,
   ) {}
 
   async ensureDefaultCertificate(accountId: string): Promise<EncryptedConfig> {
@@ -144,6 +154,7 @@ export class PdfSignatureService {
     const timestampServerUrl = await this.getTimestampServerUrl(
       input.accountId,
     );
+    const signatureSubFilter = this.getSignatureSubFilter();
 
     try {
       const pdf = await PDFDocument.load(input.buffer, {
@@ -160,7 +171,7 @@ export class PdfSignatureService {
         reason: input.reason,
         signatureLength: 16_384,
         signingTime: input.signingTime ?? new Date(),
-        subFilter: subfilterAdobePkcs7Detached,
+        subFilter: signatureSubFilter,
       });
 
       const prepared = Buffer.from(
@@ -179,6 +190,7 @@ export class PdfSignatureService {
       return {
         buffer: await signpdf.sign(prepared, signer, input.signingTime),
         certificateName: name,
+        signatureSubFilter,
         signed: true,
         timestampServerUrl,
       };
@@ -204,5 +216,16 @@ export class PdfSignatureService {
     }
 
     return { certificate, name: signaDefaultCertificateName };
+  }
+
+  private getSignatureSubFilter(): string {
+    const mode = this.config.get<PdfSignatureSubFilterMode>(
+      'PDF_SIGNATURE_SUBFILTER',
+      'pades',
+    );
+
+    return mode === 'adobe'
+      ? SUBFILTER_ADOBE_PKCS7_DETACHED
+      : SUBFILTER_ETSI_CADES_DETACHED;
   }
 }

@@ -1,0 +1,17 @@
+{
+  "subjects": {
+    "password_reset": "Weka upya nenosiri lako",
+    "smtp_successful_setup": "SMTP imesanidiwa",
+    "submitter_otp_verification": "Uthibitishaji wa barua pepe",
+    "team_invitation": "Umealikwa kwenye {teamName}",
+    "template_otp_verification": "Uthibitishaji wa barua pepe",
+    "user_invitation": "Umealikwa kwenye {accountName}"
+  },
+  "actions": {
+    "accept_invitation": "Kubali Mwaliko",
+    "change_password": "Badilisha Nenosiri Langu"
+  },
+  "greetings": {
+    "there": "hapo"
+  }
+}

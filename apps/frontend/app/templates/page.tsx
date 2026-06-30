@@ -1,5 +1,6 @@
 "use client";
 
+import type React from "react";
 import { Suspense, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -91,7 +92,7 @@ import {
 import { listTeams, type Team } from "@/lib/api/teams";
 import {
   archiveTemplate,
-  addBlankTemplatePage,
+  addTemplateGoogleDriveDocuments,
   cloneTemplate,
   createTemplate,
   createTemplateFolder,
@@ -105,8 +106,10 @@ import {
   type TemplateResponse,
   updateTemplateFolder,
   updateTemplate,
-  type BlankTemplatePageSize,
 } from "@/lib/api/templates";
+import { pickGoogleDriveDocuments } from "@/lib/google-drive/picker";
+import type { AppDictionary } from "@/lib/i18n/app-dictionaries";
+import { useAppI18n } from "@/lib/i18n/use-app-i18n";
 import { useRealtimeEvents } from "@/lib/realtime/use-realtime-events";
 import { cn } from "@/lib/utils";
 import { TemplateUploadDropzone } from "./_components/template-upload-dropzone";
@@ -130,6 +133,7 @@ type CloneDialogState = {
 };
 
 type DashboardView = "templates" | "submissions";
+type CreateTemplateSource = "drive" | "upload";
 
 export default function TemplatesPage() {
   return (
@@ -141,6 +145,8 @@ export default function TemplatesPage() {
 
 function TemplatesDashboard() {
   const router = useRouter();
+  const { dictionary } = useAppI18n();
+  const text = dictionary.templates;
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const loadSequenceRef = useRef(0);
   const [templateUrlState, setTemplateUrlState] = useQueryStates(
@@ -166,8 +172,8 @@ function TemplatesDashboard() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
   const [createTemplateName, setCreateTemplateName] = useState("");
-  const [createPageSize, setCreatePageSize] =
-    useState<BlankTemplatePageSize>("letter");
+  const [createTemplateSource, setCreateTemplateSource] =
+    useState<CreateTemplateSource>("upload");
   const [renameFolderName, setRenameFolderName] = useState("");
   const [renameTargetFolder, setRenameTargetFolder] =
     useState<TemplateFolderResponse | null>(null);
@@ -285,9 +291,9 @@ function TemplatesDashboard() {
       const message =
         error instanceof Error
           ? error.message
-          : "Templates could not be loaded.";
+          : `${text.toasts.loadingFailed}.`;
 
-      toast.error("Templates could not be loaded", { description: message });
+      toast.error(text.toasts.loadingFailed, { description: message });
     } finally {
       if (isCurrentLoad(loadSequenceRef, loadSequence) && !options.silent) {
         setIsLoading(false);
@@ -297,7 +303,7 @@ function TemplatesDashboard() {
 
   async function uploadTemplate(file: File) {
     setIsUploading(true);
-    toast.loading("Uploading document", {
+    toast.loading(text.toasts.uploadingDocument, {
       description: file.name,
       id: "template-upload",
     });
@@ -308,16 +314,16 @@ function TemplatesDashboard() {
         selectedFolder || undefined,
       );
 
-      toast.success("Document uploaded", {
-        description: "Opening template editor.",
+      toast.success(text.toasts.documentUploaded, {
+        description: text.toasts.openingEditor,
         id: "template-upload",
       });
       router.push(`/templates/${template.id}/edit`);
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Document upload failed.";
+        error instanceof Error ? error.message : `${text.toasts.uploadFailed}.`;
 
-      toast.error("Document upload failed", {
+      toast.error(text.toasts.uploadFailed, {
         description: message,
         id: "template-upload",
       });
@@ -327,10 +333,10 @@ function TemplatesDashboard() {
   }
 
   async function createBlankTemplate() {
-    const name = createTemplateName.trim() || "Untitled Template";
+    const name = createTemplateName.trim() || text.create.title;
 
     setIsCreatingTemplate(true);
-    toast.loading("Creating template", {
+    toast.loading(text.toasts.created, {
       description: name,
       id: "template-create",
     });
@@ -342,13 +348,8 @@ function TemplatesDashboard() {
         shared_link: true,
       });
 
-      await addBlankTemplatePage(template.id, {
-        name: "Blank Page",
-        size: createPageSize,
-      });
-
-      toast.success("Template created", {
-        description: "Opening template editor.",
+      toast.success(text.toasts.created, {
+        description: text.toasts.openingEditor,
         id: "template-create",
       });
       setIsCreateDialogOpen(false);
@@ -356,9 +357,61 @@ function TemplatesDashboard() {
       router.push(`/templates/${template.id}/edit`);
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Template could not be created.";
+        error instanceof Error ? error.message : `${text.toasts.createFailed}.`;
 
-      toast.error("Template create failed", {
+      toast.error(text.toasts.createFailed, {
+        description: message,
+        id: "template-create",
+      });
+    } finally {
+      setIsCreatingTemplate(false);
+    }
+  }
+
+  async function createTemplateFromGoogleDrive() {
+    setIsCreatingTemplate(true);
+    toast.loading(text.toasts.openingDrive, {
+      description: text.uploadDropzone.body,
+      id: "template-create",
+    });
+
+    try {
+      const picked = await pickGoogleDriveDocuments();
+
+      if (picked.files.length === 0) {
+        toast.info(text.toasts.driveNoFiles, { id: "template-create" });
+        return;
+      }
+
+      const firstFileName = picked.files.at(0)?.name?.trim();
+      const name =
+        createTemplateName.trim() || firstFileName || text.create.title;
+      const template = await createTemplate({
+        folder_name: selectedFolder || undefined,
+        name,
+        shared_link: true,
+      });
+
+      await addTemplateGoogleDriveDocuments(template.id, {
+        access_token: picked.accessToken,
+        files: picked.files,
+        merge: true,
+      });
+
+      toast.success(text.toasts.driveImported, {
+        description: text.toasts.openingEditor,
+        id: "template-create",
+      });
+      setIsCreateDialogOpen(false);
+      setCreateTemplateName("");
+      router.push(`/templates/${template.id}/edit`);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : `${text.toasts.driveImportFailed}.`;
+
+      toast.error(text.toasts.driveImportFailed, {
         description: message,
         id: "template-create",
       });
@@ -377,7 +430,7 @@ function TemplatesDashboard() {
       return;
     }
 
-    const folderName = moveFolderName.trim() || "Default";
+    const folderName = moveFolderName.trim() || text.folder.default;
 
     if (folderName === moveTargetTemplate.folder_name) {
       setMoveTargetTemplate(null);
@@ -386,14 +439,14 @@ function TemplatesDashboard() {
 
     try {
       await updateTemplate(moveTargetTemplate.id, { folder_name: folderName });
-      toast.success("Template moved", { description: folderName });
+      toast.success(text.toasts.moved, { description: folderName });
       setMoveTargetTemplate(null);
       await loadTemplates();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Template could not be moved.";
+        error instanceof Error ? error.message : `${text.toasts.moveFailed}.`;
 
-      toast.error("Template move failed", { description: message });
+      toast.error(text.toasts.moveFailed, { description: message });
     }
   }
 
@@ -409,15 +462,17 @@ function TemplatesDashboard() {
         name,
         parent: selectedFolder || undefined,
       });
-      toast.success("Folder created", { description: name });
+      toast.success(text.toasts.folderCreated, { description: name });
       setFolderName("");
       setIsFolderDialogOpen(false);
       await loadTemplates();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Folder could not be created.";
+        error instanceof Error
+          ? error.message
+          : `${text.toasts.folderCreateFailed}.`;
 
-      toast.error("Folder create failed", { description: message });
+      toast.error(text.toasts.folderCreateFailed, { description: message });
     }
   }
 
@@ -443,7 +498,9 @@ function TemplatesDashboard() {
         name,
       });
 
-      toast.success("Folder renamed", { description: updatedFolder.full_name });
+      toast.success(text.toasts.folderRenamed, {
+        description: updatedFolder.full_name,
+      });
       setRenameTargetFolder(null);
 
       if (selectedFolder === renameTargetFolder.full_name) {
@@ -454,9 +511,11 @@ function TemplatesDashboard() {
       await loadTemplates();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Folder could not be renamed.";
+        error instanceof Error
+          ? error.message
+          : `${text.toasts.folderRenameFailed}.`;
 
-      toast.error("Folder rename failed", { description: message });
+      toast.error(text.toasts.folderRenameFailed, { description: message });
     }
   }
 
@@ -469,11 +528,11 @@ function TemplatesDashboard() {
 
     try {
       await deleteTemplateFolder(folder.id, mode);
-      toast.success("Folder deleted", {
+      toast.success(text.toasts.folderDeleted, {
         description:
           mode === "with_contents"
-            ? "Folder and documents were archived."
-            : "Documents were moved to Default.",
+            ? text.toasts.folderDeletedWithContents
+            : text.toasts.folderOnlyDeleted,
       });
       setPendingFolderDelete(null);
 
@@ -485,16 +544,18 @@ function TemplatesDashboard() {
       await loadTemplates();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Folder could not be deleted.";
+        error instanceof Error
+          ? error.message
+          : `${text.toasts.folderDeleteFailed}.`;
 
-      toast.error("Folder delete failed", { description: message });
+      toast.error(text.toasts.folderDeleteFailed, { description: message });
     }
   }
 
   async function archiveSubmissionRow(submission: SubmissionResponse) {
     try {
       await archiveSubmission(submission.id);
-      toast.success("Submission archived", {
+      toast.success(text.toasts.submissionArchived, {
         description: submission.name ?? submission.template?.name ?? submission.id,
       });
       await loadTemplates();
@@ -502,24 +563,24 @@ function TemplatesDashboard() {
       const message =
         error instanceof Error
           ? error.message
-          : "Submission could not be archived.";
+          : `${text.toasts.submissionArchiveFailed}.`;
 
-      toast.error("Submission archive failed", { description: message });
+      toast.error(text.toasts.submissionArchiveFailed, { description: message });
     }
   }
 
   async function restoreTemplate(template: TemplateResponse) {
     try {
       await updateTemplate(template.id, { archived: false });
-      toast.success("Template restored", { description: template.name });
+      toast.success(text.toasts.restored, { description: template.name });
       await loadTemplates();
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
-          : "Template could not be restored.";
+          : `${text.toasts.restoreFailed}.`;
 
-      toast.error("Template restore failed", { description: message });
+      toast.error(text.toasts.restoreFailed, { description: message });
     }
   }
 
@@ -540,19 +601,19 @@ function TemplatesDashboard() {
     const cloneName =
       cloneDialog.name.trim() || `${cloneDialog.template.name} (Clone)`;
 
-    toast.loading("Cloning template", {
+    toast.loading(text.toasts.cloned, {
       description: cloneDialog.template.name,
       id: `template-clone-${cloneDialog.template.id}`,
     });
 
     try {
       const clonedTemplate = await cloneTemplate(cloneDialog.template.id, {
-        folder_name: cloneDialog.folderName.trim() || "Default",
+        folder_name: cloneDialog.folderName.trim() || text.folder.default,
         name: cloneName,
         team_id: cloneDialog.teamId || undefined,
       });
 
-      toast.success("Template cloned", {
+      toast.success(text.toasts.cloned, {
         description: clonedTemplate.name,
         id: `template-clone-${cloneDialog.template.id}`,
       });
@@ -569,9 +630,9 @@ function TemplatesDashboard() {
       const message =
         error instanceof Error
           ? error.message
-          : "Template could not be cloned.";
+          : `${text.toasts.cloneFailed}.`;
 
-      toast.error("Template clone failed", {
+      toast.error(text.toasts.cloneFailed, {
         description: message,
         id: `template-clone-${cloneDialog.template.id}`,
       });
@@ -588,10 +649,12 @@ function TemplatesDashboard() {
     try {
       if (mode === "delete") {
         await deleteTemplatePermanently(template.id);
-        toast.success("Template deleted", { description: template.name });
+        toast.success(text.toasts.templateDeleted, { description: template.name });
       } else {
         await archiveTemplate(template.id);
-        toast.success("Template archived", { description: template.name });
+        toast.success(text.toasts.templateArchived, {
+          description: template.name,
+        });
       }
 
       setPendingDelete(null);
@@ -602,8 +665,8 @@ function TemplatesDashboard() {
 
       toast.error(
         mode === "delete"
-          ? "Template delete failed"
-          : "Template archive failed",
+          ? text.toasts.deleteFailed
+          : text.toasts.archiveFailed,
         { description: message },
       );
     }
@@ -635,7 +698,7 @@ function TemplatesDashboard() {
                 size="sm"
                 type="button"
               >
-                UPGRADE
+                {dictionary.common.upgrade}
               </Button>
               <span className="text-[var(--auth-primary)]/70">|</span>
               <Link
@@ -643,7 +706,7 @@ function TemplatesDashboard() {
                 href="/settings/account"
               >
                 <SettingsIcon data-icon="inline-start" />
-                Settings
+                {dictionary.common.settings}
               </Link>
               <ThemeModeSwitcher />
               <UserMenu />
@@ -664,7 +727,12 @@ function TemplatesDashboard() {
                   value={dashboardView}
                 />
                 <h1 className="truncate text-[2rem] font-semibold leading-tight tracking-normal">
-                  {getDashboardTitle(dashboardView, isArchivedView, selectedFolder)}
+                  {getDashboardTitle(
+                    dashboardView,
+                    isArchivedView,
+                    selectedFolder,
+                    text,
+                  )}
                 </h1>
               </div>
 
@@ -682,8 +750,8 @@ function TemplatesDashboard() {
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder={
                       dashboardView === "submissions"
-                        ? "Search submissions"
-                        : "Search templates"
+                        ? text.search.submissions
+                        : text.search.templates
                     }
                     value={query}
                   />
@@ -702,18 +770,18 @@ function TemplatesDashboard() {
                   value={isArchivedView ? "archived" : "active"}
                 >
                   <ToggleGroupItem
-                    aria-label="Active"
+                    aria-label={text.actions.active}
                     className="h-10 rounded-xl px-3 text-xs font-bold data-[state=on]:bg-card data-[state=on]:text-[var(--auth-primary)]"
                     value="active"
                   >
-                    ACTIVE
+                    {text.actions.active}
                   </ToggleGroupItem>
                   <ToggleGroupItem
-                    aria-label="Archived"
+                    aria-label={text.actions.archived}
                     className="h-10 rounded-xl px-3 text-xs font-bold data-[state=on]:bg-card data-[state=on]:text-[var(--auth-primary)]"
                     value="archived"
                   >
-                    ARCHIVED
+                    {text.actions.archived}
                   </ToggleGroupItem>
                 </ToggleGroup>
 
@@ -745,7 +813,7 @@ function TemplatesDashboard() {
                   ) : (
                     <UploadIcon data-icon="inline-start" />
                   )}
-                  UPLOAD
+                  {text.actions.upload}
                 </Button>
                 {!isArchivedView && dashboardView === "templates" ? (
                   <Button
@@ -755,7 +823,7 @@ function TemplatesDashboard() {
                     variant="ghost"
                   >
                     <FolderPlusIcon data-icon="inline-start" />
-                    NEW FOLDER
+                    {text.actions.newFolder}
                   </Button>
                 ) : null}
                 <Button
@@ -765,14 +833,15 @@ function TemplatesDashboard() {
                   variant="outline"
                 >
                   <PlusIcon data-icon="inline-start" />
-                  CREATE
+                  {text.actions.create}
                 </Button>
               </div>
             </section>
 
             <section className="mt-6 flex flex-col gap-8">
               {!isArchivedView && dashboardView === "templates" && selectedFolder ? (
-                <FolderBreadcrumbs
+                  <FolderBreadcrumbs
+                  dictionary={dictionary}
                   folder={selectedFolder}
                   onSelect={(folder) => {
                     void setTemplateUrlState({ folder });
@@ -786,6 +855,7 @@ function TemplatesDashboard() {
                   <DashboardEmptyState
                     isArchivedView={isArchivedView}
                     query={submittedQuery}
+                    dictionary={dictionary}
                     view="submissions"
                   />
                 ) : (
@@ -794,6 +864,7 @@ function TemplatesDashboard() {
                       <SubmissionListRow
                         key={submission.id}
                         onArchive={() => void archiveSubmissionRow(submission)}
+                        dictionary={dictionary}
                         submission={submission}
                       />
                     ))}
@@ -802,6 +873,7 @@ function TemplatesDashboard() {
               ) : visibleTemplates.length === 0 && visibleFolders.length === 0 ? (
                 <TemplatesEmptyState
                   folder={selectedFolder}
+                  dictionary={dictionary}
                   isArchivedView={isArchivedView}
                   query={submittedQuery}
                 />
@@ -811,6 +883,7 @@ function TemplatesDashboard() {
                         ? visibleFolders.map((folder) => (
                             <FolderCard
                               folder={folder}
+                              dictionary={dictionary}
                               key={folder.id}
                               onDelete={() => setPendingFolderDelete({ folder })}
                               onRename={() => openRenameFolderDialog(folder)}
@@ -825,6 +898,7 @@ function TemplatesDashboard() {
                       {visibleTemplates.map((template) => (
                         <TemplateCard
                           isArchivedView={isArchivedView}
+                          dictionary={dictionary}
                           key={template.id}
                           onArchive={() =>
                             setPendingDelete({ mode: "archive", template })
@@ -841,7 +915,11 @@ function TemplatesDashboard() {
                 </div>
               )}
 
-              {!isArchivedView && <TemplateUploadDropzone />}
+              {!isArchivedView && (
+                <TemplateUploadDropzone
+                  folderName={selectedFolder || undefined}
+                />
+              )}
             </section>
           </div>
         </div>
@@ -853,64 +931,88 @@ function TemplatesDashboard() {
 
           if (!open) {
             setCreateTemplateName("");
-            setCreatePageSize("letter");
+            setCreateTemplateSource("upload");
           }
         }}
         open={isCreateDialogOpen}
       >
-        <DialogContent className="border-[var(--auth-input-border)] bg-[var(--auth-background)] text-[var(--auth-foreground)]">
-          <DialogHeader>
-            <DialogTitle>Create template</DialogTitle>
-            <DialogDescription>
-              Start with a blank page and continue in the template builder.
-            </DialogDescription>
+        <DialogContent className="gap-0 overflow-hidden border-[var(--auth-input-border)] bg-[var(--auth-background)] p-0 text-[var(--auth-foreground)] sm:max-w-[590px]">
+          <DialogHeader className="border-b border-[var(--auth-input-border)] px-5 py-4 text-left">
+            <DialogTitle>{text.create.title}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <Input
-              autoFocus
-              className="h-12 rounded-full border-[var(--auth-input-border)] bg-card px-5"
-              onChange={(event) => setCreateTemplateName(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void createBlankTemplate();
-                }
-              }}
-              placeholder="Template name"
-              value={createTemplateName}
+          <div className="space-y-4 px-5 py-4">
+            <CreateTemplateSourceTabs
+              source={createTemplateSource}
+              dictionary={dictionary}
+              onSourceChange={setCreateTemplateSource}
             />
-            <Select
-              onValueChange={(value) =>
-                setCreatePageSize(value as BlankTemplatePageSize)
-              }
-              value={createPageSize}
-            >
-              <SelectTrigger className="h-12 rounded-full border-[var(--auth-input-border)] bg-card px-5">
-                <SelectValue placeholder="Page size" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="letter">Letter</SelectItem>
-                <SelectItem value="a4">A4</SelectItem>
-                <SelectItem value="legal">Legal</SelectItem>
-              </SelectContent>
-            </Select>
-            {selectedFolder ? (
-              <p className="text-sm text-[var(--auth-label)]">
-                This template will be created in {selectedFolder}.
-              </p>
-            ) : null}
+            {createTemplateSource === "upload" ? (
+              <>
+                <Input
+                  autoFocus
+                  className="h-12 rounded-full border-[var(--auth-input-border)] bg-card px-5 text-base shadow-none focus-visible:ring-0"
+                  onChange={(event) => setCreateTemplateName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void createBlankTemplate();
+                    }
+                  }}
+                  placeholder={text.create.documentName}
+                  value={createTemplateName}
+                />
+                <div className="flex items-center justify-between gap-4 text-base">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <FolderIcon className="size-5 shrink-0" />
+                    <span className="truncate">
+                      {selectedFolder || text.folder.default}
+                    </span>
+                  </div>
+                  <button
+                    className="shrink-0 text-[var(--auth-primary)] underline underline-offset-2 hover:text-[var(--auth-primary-hover)]"
+                    onClick={() => {
+                      setIsCreateDialogOpen(false);
+                      setIsFolderDialogOpen(true);
+                    }}
+                    type="button"
+                  >
+                    {text.actions.changeFolder}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <Button
+                className="h-12 w-full rounded-full border-[var(--auth-primary)] bg-transparent px-5 text-sm font-bold text-[var(--auth-primary)] hover:bg-[var(--auth-primary)] hover:text-[var(--auth-primary-foreground)]"
+                disabled={isCreatingTemplate}
+                onClick={() => void createTemplateFromGoogleDrive()}
+                type="button"
+                variant="outline"
+              >
+                {isCreatingTemplate ? <Spinner className="size-4" /> : null}
+                <Image
+                  alt=""
+                  className="size-6"
+                  height={24}
+                  src="/images/drive-logo.png"
+                  width={24}
+                />
+                {text.actions.addFromGoogleDrive}
+              </Button>
+            )}
           </div>
-          <DialogFooter>
-            <Button
-              className="h-12 w-full rounded-full bg-[var(--auth-primary)] font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
-              disabled={isCreatingTemplate}
-              onClick={() => void createBlankTemplate()}
-              type="button"
-            >
-              {isCreatingTemplate ? <Spinner className="size-4" /> : null}
-              CREATE TEMPLATE
-            </Button>
-          </DialogFooter>
+          {createTemplateSource === "upload" ? (
+            <DialogFooter className="px-5 pb-5 sm:justify-stretch">
+              <Button
+                className="h-12 w-full rounded-full bg-[var(--auth-primary)] font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
+                disabled={isCreatingTemplate}
+                onClick={() => void createBlankTemplate()}
+                type="button"
+              >
+                {isCreatingTemplate ? <Spinner className="size-4" /> : null}
+                {text.actions.create}
+              </Button>
+            </DialogFooter>
+          ) : null}
         </DialogContent>
       </Dialog>
 
@@ -926,11 +1028,13 @@ function TemplatesDashboard() {
       >
         <DialogContent className="border-[var(--auth-input-border)] bg-[var(--auth-background)] text-[var(--auth-foreground)]">
           <DialogHeader>
-            <DialogTitle>Create folder</DialogTitle>
+            <DialogTitle>{text.dialogs.createFolderTitle}</DialogTitle>
             <DialogDescription>
               {selectedFolder
-                ? `Create a folder inside ${selectedFolder}.`
-                : "Create a folder next to your default templates."}
+                ? interpolate(text.dialogs.createFolderInside, {
+                    folder: selectedFolder,
+                  })
+                : text.dialogs.createFolderDescription}
             </DialogDescription>
           </DialogHeader>
           <Input
@@ -943,7 +1047,7 @@ function TemplatesDashboard() {
                 void createFolder();
               }
             }}
-            placeholder="Folder name"
+            placeholder={text.folder.namePlaceholder}
             value={folderName}
           />
           <DialogFooter>
@@ -953,7 +1057,7 @@ function TemplatesDashboard() {
               type="button"
               variant="ghost"
             >
-              Cancel
+              {text.actions.cancel}
             </Button>
             <Button
               className="h-11 rounded-full bg-[var(--auth-primary)] px-7 font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
@@ -961,7 +1065,7 @@ function TemplatesDashboard() {
               onClick={() => void createFolder()}
               type="button"
             >
-              Create
+              {text.actions.create}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -978,9 +1082,11 @@ function TemplatesDashboard() {
       >
         <DialogContent className="border-[var(--auth-input-border)] bg-[var(--auth-background)] text-[var(--auth-foreground)]">
           <DialogHeader>
-            <DialogTitle>Rename Folder</DialogTitle>
+            <DialogTitle>{text.dialogs.renameFolderTitle}</DialogTitle>
             <DialogDescription>
-              Rename {renameTargetFolder?.full_name ?? "this folder"}.
+              {interpolate(text.dialogs.renameFolderDescription, {
+                folder: renameTargetFolder?.full_name ?? text.folder.folders,
+              })}
             </DialogDescription>
           </DialogHeader>
           <Input
@@ -993,7 +1099,7 @@ function TemplatesDashboard() {
                 void renameFolder();
               }
             }}
-            placeholder="Folder name"
+            placeholder={text.folder.namePlaceholder}
             value={renameFolderName}
           />
           <DialogFooter>
@@ -1003,7 +1109,7 @@ function TemplatesDashboard() {
               type="button"
               variant="ghost"
             >
-              Cancel
+              {text.actions.cancel}
             </Button>
             <Button
               className="h-11 rounded-full bg-[var(--auth-primary)] px-7 font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
@@ -1011,7 +1117,7 @@ function TemplatesDashboard() {
               onClick={() => void renameFolder()}
               type="button"
             >
-              Rename
+              {text.actions.rename}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1027,7 +1133,7 @@ function TemplatesDashboard() {
       >
         <DialogContent className="border-[var(--auth-input-border)] bg-[var(--auth-background)] text-[var(--auth-foreground)]">
           <DialogHeader>
-            <DialogTitle>Move Into Folder</DialogTitle>
+            <DialogTitle>{text.dialogs.moveTitle}</DialogTitle>
           </DialogHeader>
           <div className="flex flex-col gap-3">
             <Combobox
@@ -1050,14 +1156,14 @@ function TemplatesDashboard() {
                     void moveTemplate();
                   }
                 }}
-                placeholder="New Folder Name..."
+                placeholder={text.folder.newNamePlaceholder}
                 showTrigger
               />
               <ComboboxContent>
                 <ComboboxList>
                   {moveFolderOptions.length > 0 ? (
                     <ComboboxGroup>
-                      <ComboboxLabel>Folders</ComboboxLabel>
+                      <ComboboxLabel>{text.folder.folders}</ComboboxLabel>
                       {moveFolderOptions.map((folder) => (
                         <ComboboxItem key={folder} value={folder}>
                           {folder}
@@ -1065,7 +1171,7 @@ function TemplatesDashboard() {
                       ))}
                     </ComboboxGroup>
                   ) : (
-                    <ComboboxEmpty>No folders found</ComboboxEmpty>
+                    <ComboboxEmpty>{text.folder.noFoldersFound}</ComboboxEmpty>
                   )}
                 </ComboboxList>
               </ComboboxContent>
@@ -1077,7 +1183,7 @@ function TemplatesDashboard() {
               onClick={() => void moveTemplate()}
               type="button"
             >
-              MOVE
+              {text.actions.moveSubmit}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1093,7 +1199,7 @@ function TemplatesDashboard() {
       >
         <DialogContent className="border-[var(--auth-input-border)] bg-[var(--auth-background)] text-[var(--auth-foreground)]">
           <DialogHeader>
-            <DialogTitle>Clone Template</DialogTitle>
+            <DialogTitle>{text.dialogs.cloneTitle}</DialogTitle>
           </DialogHeader>
           <div className="flex flex-col gap-4">
             <Select
@@ -1105,7 +1211,7 @@ function TemplatesDashboard() {
               value={cloneDialog?.teamId}
             >
               <SelectTrigger className="!h-12 min-h-12 w-full rounded-full border-[var(--auth-input-border)] bg-card px-5">
-                <SelectValue placeholder="Select team account" />
+                <SelectValue placeholder={text.dialogs.selectTeamAccount} />
               </SelectTrigger>
               <SelectContent>
                 {teams.map((team) => (
@@ -1128,7 +1234,7 @@ function TemplatesDashboard() {
               <span className="inline-flex min-w-0 items-center gap-2">
                 <FolderIcon data-icon="inline-start" />
                 <span className="truncate">
-                  {cloneDialog?.folderName || "Default"}
+                  {cloneDialog?.folderName || text.folder.default}
                 </span>
               </span>
               <Combobox
@@ -1150,14 +1256,14 @@ function TemplatesDashboard() {
               >
                 <ComboboxInput
                   className="h-9 w-40 rounded-full border-[var(--auth-input-border)] bg-card px-4"
-                  placeholder="Change Folder"
+                  placeholder={text.actions.changeFolder}
                   showTrigger
                 />
                 <ComboboxContent>
                   <ComboboxList>
                     {moveFolderOptions.length > 0 ? (
                       <ComboboxGroup>
-                        <ComboboxLabel>Folders</ComboboxLabel>
+                        <ComboboxLabel>{text.folder.folders}</ComboboxLabel>
                         {moveFolderOptions.map((folder) => (
                           <ComboboxItem key={folder} value={folder}>
                             {folder}
@@ -1165,7 +1271,7 @@ function TemplatesDashboard() {
                         ))}
                       </ComboboxGroup>
                     ) : (
-                      <ComboboxEmpty>No folders found</ComboboxEmpty>
+                      <ComboboxEmpty>{text.folder.noFoldersFound}</ComboboxEmpty>
                     )}
                   </ComboboxList>
                 </ComboboxContent>
@@ -1179,7 +1285,7 @@ function TemplatesDashboard() {
               onClick={() => void duplicateTemplate()}
               type="button"
             >
-              SUBMIT
+              {text.actions.submit}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1194,20 +1300,19 @@ function TemplatesDashboard() {
         open={Boolean(pendingFolderDelete)}
       >
         <AlertDialogContent>
-          <AlertDialogTitle>Delete folder?</AlertDialogTitle>
+          <AlertDialogTitle>{text.dialogs.deleteFolderTitle}</AlertDialogTitle>
           <AlertDialogDescription>
-            Choose whether to keep the documents by moving them to Default, or
-            archive the folder together with its documents and subfolders.
+            {text.dialogs.deleteFolderDescription}
           </AlertDialogDescription>
           <AlertDialogFooter className="sm:grid sm:grid-cols-2">
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{text.actions.cancel}</AlertDialogCancel>
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault();
                 void deleteFolder("folder_only");
               }}
             >
-              Delete folder only
+              {text.actions.deleteFolderOnly}
             </AlertDialogAction>
             <AlertDialogAction
               className="sm:col-span-2"
@@ -1217,7 +1322,7 @@ function TemplatesDashboard() {
               }}
               variant="destructive"
             >
-              Delete folder and documents
+              {text.actions.deleteFolderAndDocuments}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1234,16 +1339,16 @@ function TemplatesDashboard() {
         <AlertDialogContent>
           <AlertDialogTitle>
             {pendingDelete?.mode === "delete"
-              ? "Delete template permanently?"
-              : "Archive template?"}
+              ? `${text.actions.delete} ${text.folder.templates.toLowerCase()}?`
+              : `${text.actions.archive} ${text.folder.templates.toLowerCase()}?`}
           </AlertDialogTitle>
           <AlertDialogDescription>
             {pendingDelete?.mode === "delete"
-              ? "This permanently removes the template. This action cannot be undone."
-              : "Archived templates are hidden from the active dashboard and can be restored later."}
+              ? text.toasts.deleteFailed
+              : text.empty.archivedTemplates}
           </AlertDialogDescription>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{text.actions.cancel}</AlertDialogCancel>
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault();
@@ -1253,7 +1358,9 @@ function TemplatesDashboard() {
                 pendingDelete?.mode === "delete" ? "destructive" : "default"
               }
             >
-              {pendingDelete?.mode === "delete" ? "Delete" : "Archive"}
+              {pendingDelete?.mode === "delete"
+                ? text.actions.delete
+                : text.actions.archive}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1325,12 +1432,15 @@ function DashboardViewToggle({
 }
 
 function FolderBreadcrumbs({
+  dictionary,
   folder,
   onSelect,
 }: {
+  dictionary: AppDictionary;
   folder: string;
   onSelect: (folder: string) => void;
 }) {
+  const text = dictionary.templates;
   const segments = getFolderSegments(folder);
 
   return (
@@ -1340,7 +1450,7 @@ function FolderBreadcrumbs({
         onClick={() => onSelect("")}
         type="button"
       >
-        Templates
+        {text.folder.templates}
       </button>
       {segments.map((segment, index) => (
         <span className="flex items-center gap-2" key={getFolderPath(segments, index)}>
@@ -1359,16 +1469,20 @@ function FolderBreadcrumbs({
 }
 
 function FolderCard({
+  dictionary,
   folder,
   onDelete,
   onOpen,
   onRename,
 }: {
+  dictionary: AppDictionary;
   folder: TemplateFolderResponse;
   onDelete: () => void;
   onOpen: () => void;
   onRename: () => void;
 }) {
+  const text = dictionary.templates;
+
   return (
     <article className="group relative h-36 overflow-hidden rounded-2xl bg-[var(--auth-muted)] transition-colors hover:bg-[color-mix(in_srgb,var(--auth-muted),var(--auth-primary)_6%)]">
       <button
@@ -1390,9 +1504,17 @@ function FolderCard({
           </span>
         </span>
         <span className="flex items-center gap-3 text-xs font-semibold text-[var(--auth-label)]">
-          <span>{folder.templates_count} templates</span>
+          <span>
+            {interpolate(text.folder.templatesCount, {
+              count: String(folder.templates_count),
+            })}
+          </span>
           <span className="size-1 rounded-full bg-current opacity-40" />
-          <span>{folder.subfolders_count} folders</span>
+          <span>
+            {interpolate(text.folder.foldersCount, {
+              count: String(folder.subfolders_count),
+            })}
+          </span>
         </span>
       </button>
       <div className="absolute right-4 top-4 opacity-0 transition-opacity group-hover:opacity-100">
@@ -1413,11 +1535,11 @@ function FolderCard({
             <DropdownMenuGroup>
               <DropdownMenuItem onSelect={onRename}>
                 <PencilIcon data-icon="inline-start" />
-                Rename
+                {text.actions.rename}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={onDelete} variant="destructive">
                 <Trash2Icon data-icon="inline-start" />
-                Delete
+                {text.actions.delete}
               </DropdownMenuItem>
             </DropdownMenuGroup>
           </DropdownMenuContent>
@@ -1428,9 +1550,11 @@ function FolderCard({
 }
 
 function SubmissionListRow({
+  dictionary,
   onArchive,
   submission,
 }: {
+  dictionary: AppDictionary;
   onArchive: () => void;
   submission: SubmissionResponse;
 }) {
@@ -1466,7 +1590,7 @@ function SubmissionListRow({
 
       <div className="flex min-w-0 flex-1 items-center justify-between gap-6 px-6 py-3">
         <div className="flex min-w-0 items-center gap-4">
-          <SubmissionStatusBadge submission={submission} />
+          <SubmissionStatusBadge dictionary={dictionary} submission={submission} />
           <Link
             className="truncate text-lg hover:text-[var(--auth-primary)] hover:underline"
             href={`/submissions/${submission.id}`}
@@ -1475,19 +1599,26 @@ function SubmissionListRow({
           </Link>
         </div>
 
-        <SubmissionRowActions onArchive={onArchive} submission={submission} />
+        <SubmissionRowActions
+          dictionary={dictionary}
+          onArchive={onArchive}
+          submission={submission}
+        />
       </div>
     </article>
   );
 }
 
 function SubmissionRowActions({
+  dictionary,
   onArchive,
   submission,
 }: {
+  dictionary: AppDictionary;
   onArchive: () => void;
   submission: SubmissionResponse;
 }) {
+  const text = dictionary.templates;
   const submitter = submission.submitters[0] ?? null;
   const canSign =
     submitter &&
@@ -1498,9 +1629,11 @@ function SubmissionRowActions({
 
   return (
     <div className="flex shrink-0 items-center gap-2">
-      {canSign ? <SubmissionSignButton slug={submitter.slug} /> : null}
+      {canSign ? (
+        <SubmissionSignButton label={text.actions.signNow} slug={submitter.slug} />
+      ) : null}
       {!canSign && submission.status === "completed" ? (
-        <SubmissionDownloadButton id={submission.id} />
+        <SubmissionDownloadButton id={submission.id} label={text.actions.download} />
       ) : null}
       <Button
         className="h-8 rounded-full border-[var(--auth-primary)] px-5 text-sm font-bold text-[var(--auth-primary)] hover:bg-[var(--auth-primary)] hover:text-[var(--auth-primary-foreground)]"
@@ -1508,11 +1641,11 @@ function SubmissionRowActions({
         type="button"
         variant="outline"
       >
-        <Link href={`/submissions/${submission.id}`}>VIEW</Link>
+        <Link href={`/submissions/${submission.id}`}>{text.actions.view}</Link>
       </Button>
       {!submission.archived_at ? (
         <Button
-          aria-label="Archive submission"
+          aria-label={text.actions.archive}
           className="rounded-full border-[var(--auth-primary)] text-[var(--auth-primary)] hover:bg-[var(--auth-primary)] hover:text-[var(--auth-primary-foreground)]"
           onClick={onArchive}
           size="icon-sm"
@@ -1526,7 +1659,7 @@ function SubmissionRowActions({
   );
 }
 
-function SubmissionSignButton({ slug }: { slug: string }) {
+function SubmissionSignButton({ label, slug }: { label: string; slug: string }) {
   return (
     <Button
       className="h-8 rounded-full border-[var(--auth-primary)] px-5 text-sm font-bold text-[var(--auth-primary)] hover:bg-[var(--auth-primary)] hover:text-[var(--auth-primary-foreground)]"
@@ -1536,13 +1669,19 @@ function SubmissionSignButton({ slug }: { slug: string }) {
     >
       <Link href={`/s/${slug}`} target="_blank">
         <SignatureIcon data-icon="inline-start" />
-        SIGN NOW
+        {label}
       </Link>
     </Button>
   );
 }
 
-function SubmissionDownloadButton({ id }: { id: string }) {
+function SubmissionDownloadButton({
+  id,
+  label,
+}: {
+  id: string;
+  label: string;
+}) {
   return (
     <Button
       className="h-8 rounded-full bg-[var(--auth-primary)] px-5 text-sm font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
@@ -1551,18 +1690,20 @@ function SubmissionDownloadButton({ id }: { id: string }) {
     >
       <Link href={`/submissions/${id}`}>
         <DownloadIcon data-icon="inline-start" />
-        DOWNLOAD
+        {label}
       </Link>
     </Button>
   );
 }
 
 function SubmissionStatusBadge({
+  dictionary,
   submission,
 }: {
+  dictionary: AppDictionary;
   submission: SubmissionResponse;
 }) {
-  const badge = getSubmissionStatusBadge(submission);
+  const badge = getSubmissionStatusBadge(submission, dictionary);
 
   return (
     <span
@@ -1577,6 +1718,7 @@ function SubmissionStatusBadge({
 }
 
 function TemplateCard({
+  dictionary,
   isArchivedView,
   onArchive,
   onClone,
@@ -1585,6 +1727,8 @@ function TemplateCard({
   onRestore,
   template,
 }: TemplateActionProps) {
+  const text = dictionary.templates;
+
   return (
     <article className="group relative h-36">
       <Link
@@ -1603,13 +1747,13 @@ function TemplateCard({
             <>
               <TemplateActionButton
                 icon={RotateCcwIcon}
-                label="Restore"
+                label={text.actions.restore}
                 onClick={onRestore}
               />
               <TemplateActionButton
                 destructive
                 icon={Trash2Icon}
-                label="Delete"
+                label={text.actions.delete}
                 onClick={onDelete}
               />
             </>
@@ -1617,22 +1761,22 @@ function TemplateCard({
             <>
               <TemplateActionButton
                 icon={FolderInputIcon}
-                label="Move"
+                label={text.actions.move}
                 onClick={onMove}
               />
               <TemplateActionButton
                 href={`/templates/${template.id}/edit`}
                 icon={PencilIcon}
-                label="Edit"
+                label={text.actions.edit}
               />
               <TemplateActionButton
                 icon={CopyIcon}
-                label="Clone"
+                label={text.actions.clone}
                 onClick={onClone}
               />
               <TemplateActionButton
                 icon={ArchiveIcon}
-                label="Archive"
+                label={text.actions.archive}
                 onClick={onArchive}
               />
             </>
@@ -1644,6 +1788,7 @@ function TemplateCard({
 }
 
 type TemplateActionProps = {
+  dictionary: AppDictionary;
   isArchivedView: boolean;
   onArchive: () => void;
   onClone: () => void;
@@ -1750,62 +1895,72 @@ function TemplatesLoadingState() {
 }
 
 function TemplatesEmptyState({
+  dictionary,
   folder,
   isArchivedView,
   query,
 }: {
+  dictionary: AppDictionary;
   folder: string;
   isArchivedView: boolean;
   query: string;
 }) {
+  const text = dictionary.templates;
+
   return (
     <div className="rounded-2xl border border-dashed border-[var(--auth-input-border)] px-6 py-12 text-center">
       <p className="text-2xl font-semibold">
         {query
-          ? "Templates not found"
+          ? text.empty.templatesNotFound
           : isArchivedView
-            ? "No archived templates"
+            ? text.empty.archivedTemplates
             : folder
-              ? "This folder is empty"
-              : "No templates yet"}
+              ? text.empty.folderEmpty
+              : text.empty.noTemplates}
       </p>
       <p className="mt-2 text-sm text-[var(--auth-label)]">
         {isArchivedView
-          ? "Archived templates will appear here after you archive one."
+          ? text.empty.archivedTemplates
           : folder
-            ? "Create a blank template, upload a document, or create a subfolder here."
-            : "Create a blank template or upload a PDF/DOCX to start building."}
+            ? text.empty.folderEmptyDescription
+            : text.empty.noTemplatesDescription}
       </p>
     </div>
   );
 }
 
 function DashboardEmptyState({
+  dictionary,
   isArchivedView,
   query,
   view,
 }: {
+  dictionary: AppDictionary;
   isArchivedView: boolean;
   query: string;
   view: DashboardView;
 }) {
+  const text = dictionary.templates;
+
   return (
     <div className="rounded-2xl border border-dashed border-[var(--auth-input-border)] px-6 py-12 text-center">
       <p className="text-2xl font-semibold">
         {query
           ? view === "submissions"
-            ? "Submissions not found"
-            : "Templates not found"
+            ? text.empty.submissionsNotFound
+            : text.empty.templatesNotFound
           : isArchivedView
-            ? `No archived ${view}`
+            ? view === "submissions"
+              ? text.empty.archivedSubmissions
+              : text.empty.archivedTemplates
             : view === "submissions"
-              ? "No submissions yet"
-              : "No templates yet"}
+              ? text.empty.noSubmissions
+              : text.empty.noTemplates}
       </p>
       <p className="mt-2 text-sm text-[var(--auth-label)]">
         {view === "submissions"
-          ? "Send a template to recipients and submissions will appear here."
-          : "Create a blank template or upload a PDF/DOCX to start building."}
+          ? text.empty.noSubmissionsDescription
+          : text.empty.noTemplatesDescription}
       </p>
     </div>
   );
@@ -1815,16 +1970,22 @@ function getDashboardTitle(
   view: DashboardView,
   isArchivedView: boolean,
   folder: string,
+  text: AppDictionary["templates"],
 ): string {
   if (view === "submissions") {
-    return isArchivedView ? "Archived Submissions" : "Submissions";
+    return isArchivedView
+      ? text.titles.archivedSubmissions
+      : text.titles.submissions;
   }
 
-  return isArchivedView ? "Archived Templates" : getFolderTitle(folder);
+  return isArchivedView ? text.titles.archivedTemplates : getFolderTitle(folder, text);
 }
 
-function getFolderTitle(folder: string): string {
-  return getFolderSegments(folder).at(-1) ?? "Document Templates";
+function getFolderTitle(
+  folder: string,
+  text: AppDictionary["templates"],
+): string {
+  return getFolderSegments(folder).at(-1) ?? text.titles.documentTemplates;
 }
 
 function getFolderSegments(folder: string): string[] {
@@ -1908,6 +2069,63 @@ function getMoveFolderOptions(
   );
 }
 
+function CreateTemplateSourceTabs({
+  dictionary,
+  onSourceChange,
+  source,
+}: {
+  dictionary: AppDictionary;
+  onSourceChange: (source: CreateTemplateSource) => void;
+  source: CreateTemplateSource;
+}) {
+  const text = dictionary.templates;
+  const items: Array<{
+    icon: React.ReactNode;
+    label: string;
+    value: CreateTemplateSource;
+  }> = [
+    {
+      icon: <UploadIcon className="size-4" />,
+      label: text.create.upload,
+      value: "upload",
+    },
+    {
+      icon: (
+        <Image
+          alt=""
+          className="size-5"
+          height={20}
+          src="/images/drive-logo.png"
+          width={20}
+        />
+      ),
+      label: text.create.googleDrive,
+      value: "drive",
+    },
+  ];
+
+  return (
+    <div className="mx-auto grid h-8 w-fit min-w-72 grid-cols-2 overflow-hidden rounded-full bg-[var(--auth-muted)]">
+      {items.map((item) => (
+        <button
+          className={cn(
+            "flex h-8 min-w-36 items-center justify-center gap-2 rounded-full px-5 text-sm font-bold transition-colors",
+            source === item.value
+              ? "bg-[var(--auth-background)] text-[var(--auth-primary)] shadow-sm"
+              : "text-[var(--auth-muted-foreground)] hover:text-[var(--auth-primary)]",
+          )}
+          key={item.value}
+          onClick={() => onSourceChange(item.value)}
+          type="button"
+        >
+          {item.icon}
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function getAuthorName(template: TemplateResponse): string {
   const name = [template.author.first_name, template.author.last_name]
     .filter(Boolean)
@@ -1932,14 +2150,19 @@ function getSubmissionAuthor(submission: SubmissionResponse): string {
   return name || user?.email || submission.template?.name || "Unknown";
 }
 
-function getSubmissionStatusBadge(submission: SubmissionResponse): {
+function getSubmissionStatusBadge(
+  submission: SubmissionResponse,
+  dictionary: AppDictionary,
+): {
   className: string;
   label: string;
 } {
+  const text = dictionary.templates;
+
   if (submission.archived_at) {
     return {
       className: "bg-[var(--auth-label)]/20 text-[var(--auth-primary)]",
-      label: "Archived",
+      label: text.status.archived,
     };
   }
 
@@ -1947,21 +2170,21 @@ function getSubmissionStatusBadge(submission: SubmissionResponse): {
     return {
       className:
         "bg-[var(--status-success)] text-[var(--status-success-foreground)]",
-      label: "Completed",
+      label: text.status.completed,
     };
   }
 
   if (submission.status === "declined") {
     return {
       className: "bg-destructive/15 text-destructive",
-      label: "Declined",
+      label: text.status.declined,
     };
   }
 
   if (submission.status === "expired") {
     return {
       className: "bg-destructive/15 text-destructive",
-      label: "Expired",
+      label: text.status.expired,
     };
   }
 
@@ -1970,6 +2193,17 @@ function getSubmissionStatusBadge(submission: SubmissionResponse): {
 
   return {
     className: "bg-[var(--auth-upgrade)] text-[var(--auth-primary)]",
-    label: opened ? "Opened" : "Pending",
+    label: opened ? text.status.opened : text.status.pending,
   };
+}
+
+function interpolate(
+  value: string,
+  replacements: Record<string, string>,
+): string {
+  return Object.entries(replacements).reduce(
+    (current, [key, replacement]) =>
+      current.replaceAll(`{${key}}`, replacement),
+    value,
+  );
 }

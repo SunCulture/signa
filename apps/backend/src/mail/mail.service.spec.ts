@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { MailBrandingService } from './mail-branding.service';
 import { MailTemplateResolver } from './mail-template-resolver.service';
 import { MailService } from './mail.service';
+import { SignaI18nService } from '../internationalization/signa-i18n.service';
 
 describe('MailService', () => {
   let config: { get: jest.Mock };
@@ -11,6 +12,7 @@ describe('MailService', () => {
   let encryptedConfigs: { findOne: jest.Mock; save: jest.Mock };
   let mailer: { sendMail: jest.Mock };
   let branding: jest.Mocked<Pick<MailBrandingService, 'getBaseContext'>>;
+  let i18n: jest.Mocked<Pick<SignaI18nService, 'snapshotLocale' | 'translate'>>;
   let templates: jest.Mocked<
     Pick<MailTemplateResolver, 'assertTemplateExists'>
   >;
@@ -55,6 +57,10 @@ describe('MailService', () => {
     branding = {
       getBaseContext: jest.fn().mockReturnValue({ productName: 'Signa' }),
     };
+    i18n = {
+      snapshotLocale: jest.fn((locale?: string | null) => locale ?? 'en'),
+      translate: jest.fn((_key, input) => input.defaultValue ?? _key),
+    };
     templates = {
       assertTemplateExists: jest.fn(),
     };
@@ -64,6 +70,7 @@ describe('MailService', () => {
       emailMessages as never,
       emailEvents as never,
       branding as unknown as MailBrandingService,
+      i18n as unknown as SignaI18nService,
       mailer as never,
       templates as unknown as MailTemplateResolver,
     );

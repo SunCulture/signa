@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
+import { AccountsModule } from '../accounts/accounts.module';
 import { UserHydrationGuard } from '../auth/guards/user-hydration/user-hydration.guard';
 import { StorageModule } from '../storage/storage.module';
 import { UsersModule } from '../users/users.module';
@@ -23,6 +24,7 @@ import { PdfTextTagService } from './pdf-text-tag.service';
 @Module({
   imports: [
     AuthModule,
+    AccountsModule,
     StorageModule,
     UsersModule,
     TypeOrmModule.forFeature([

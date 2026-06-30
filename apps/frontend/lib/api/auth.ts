@@ -1,5 +1,6 @@
 import { ApiError, apiFetch } from "./http";
 import type { SignaRole } from "@repo/shared";
+import { normalizeLocale, persistLocale } from "@/lib/i18n/config";
 
 const authStorageKey = "signa.auth";
 const authStorageEvent = "signa.auth.changed";
@@ -20,6 +21,9 @@ export type AuthAccount = {
   timezone: string;
   locale: string;
   archived_at?: string | null;
+  is_test_mode?: boolean;
+  production_account_id?: string | null;
+  testing_account_id?: string | null;
 };
 
 export type AuthResponse = {
@@ -274,6 +278,7 @@ export function saveAuthSession(session: AuthResponse): void {
   }
 
   window.localStorage.setItem(authStorageKey, JSON.stringify(session));
+  persistLocale(normalizeLocale(session.account.locale));
   window.dispatchEvent(new Event(authStorageEvent));
 }
 
@@ -569,6 +574,32 @@ export function disconnectAccountEmailIntegration(
 
 export function getApiToken(): Promise<ApiToken> {
   return authenticatedApiFetch<ApiToken>("/auth/api-token");
+}
+
+export async function startTestingAccount(): Promise<AuthResponse> {
+  const session = await authenticatedApiFetch<AuthResponse>(
+    "/testing-account",
+    {
+      method: "POST",
+    },
+  );
+
+  saveAuthSession(session);
+
+  return session;
+}
+
+export async function stopTestingAccount(): Promise<AuthResponse> {
+  const session = await authenticatedApiFetch<AuthResponse>(
+    "/testing-account",
+    {
+      method: "DELETE",
+    },
+  );
+
+  saveAuthSession(session);
+
+  return session;
 }
 
 export function revealApiToken(password: string): Promise<RevealedApiToken> {

@@ -1,12 +1,17 @@
-import Image from "next/image"
-import Link from "next/link"
-import { SettingsIcon } from "lucide-react"
+"use client";
 
-import { ThemeModeSwitcher } from "@/app/templates/_components/theme-mode-switcher"
-import { UserMenu } from "@/app/templates/_components/user-menu"
-import { Button } from "@/components/ui/button"
+import Image from "next/image";
+import Link from "next/link";
+import { SettingsIcon } from "lucide-react";
+
+import { ThemeModeSwitcher } from "@/app/templates/_components/theme-mode-switcher";
+import { UserMenu } from "@/app/templates/_components/user-menu";
+import { Button } from "@/components/ui/button";
+import { useAppI18n } from "@/lib/i18n/use-app-i18n";
 
 export function SettingsHeader() {
+  const { dictionary } = useAppI18n();
+
   return (
     <header className="flex items-center justify-between gap-4">
       <Link
@@ -30,7 +35,7 @@ export function SettingsHeader() {
           size="sm"
           type="button"
         >
-          UPGRADE
+          {dictionary.common.upgrade}
         </Button>
         <span className="text-[var(--auth-primary)]/70">|</span>
         <Link
@@ -38,11 +43,11 @@ export function SettingsHeader() {
           href="/settings/account"
         >
           <SettingsIcon data-icon="inline-start" />
-          Settings
+          {dictionary.common.settings}
         </Link>
         <ThemeModeSwitcher />
         <UserMenu />
       </nav>
     </header>
-  )
+  );
 }

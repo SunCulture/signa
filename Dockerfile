@@ -25,17 +25,28 @@ FROM deps AS builder
 
 COPY . .
 
-ENV NEXT_PUBLIC_API_BASE_URL=
+ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:3001
+ARG NEXT_PUBLIC_SIGNING_BASE_URL=
+ARG NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=
+ARG NEXT_PUBLIC_GOOGLE_PICKER_API_KEY=
+ARG NEXT_PUBLIC_GOOGLE_PICKER_APP_ID=
+
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
+ENV NEXT_PUBLIC_SIGNING_BASE_URL=$NEXT_PUBLIC_SIGNING_BASE_URL
+ENV NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=$NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID
+ENV NEXT_PUBLIC_GOOGLE_PICKER_API_KEY=$NEXT_PUBLIC_GOOGLE_PICKER_API_KEY
+ENV NEXT_PUBLIC_GOOGLE_PICKER_APP_ID=$NEXT_PUBLIC_GOOGLE_PICKER_APP_ID
 
 RUN pnpm build
 
 FROM base AS runner
 
 ENV NODE_ENV=production
-ENV PORT=3001
-ENV DATABASE_TYPE=sqlite
-ENV SQLITE_DATABASE_PATH=/app/data/signa.sqlite
-ENV STORAGE_PATH=/app/storage
+ENV BACKEND_PORT=3001
+ENV FRONTEND_PORT=3000
+ENV HOSTNAME=0.0.0.0
+ENV SQLITE_DATABASE_PATH=/data/signa.sqlite
+ENV STORAGE_PATH=/storage
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates libreoffice fonts-dejavu fonts-liberation \
@@ -45,10 +56,14 @@ WORKDIR /app
 
 COPY --from=builder /app ./
 
-RUN mkdir -p /app/data /app/storage
+RUN chmod +x /app/docker/entrypoint.sh \
+  && mkdir -p /data /storage
 
-VOLUME ["/app/data", "/app/storage"]
+VOLUME ["/data", "/storage"]
 
-EXPOSE 3001
+EXPOSE 3000 3001
 
-CMD ["pnpm", "--filter", "backend", "start:prod"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:' + (process.env.BACKEND_PORT || process.env.PORT || 3001) + '/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+
+ENTRYPOINT ["/app/docker/entrypoint.sh"]

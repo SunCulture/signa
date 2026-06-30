@@ -22,6 +22,24 @@ type ConstraintDetails = {
   detail?: string;
 };
 
+export type LocalizedErrorBody = {
+  error: string;
+  i18n_args?: Record<string, unknown>;
+  i18n_key: string;
+};
+
+export function localizedError(
+  key: string,
+  fallback: string,
+  args?: Record<string, unknown>,
+): LocalizedErrorBody {
+  return {
+    error: fallback,
+    i18n_key: key,
+    ...(args ? { i18n_args: args } : {}),
+  };
+}
+
 export function throwIfNotFound(
   error: unknown,
   message = 'Record not found',
@@ -51,7 +69,9 @@ export function throwIfUniqueConstraint(
 
 export function throwDatabaseErrors(error: unknown): never {
   if (error instanceof EntityNotFoundError) {
-    throw new NotFoundException({ error: 'Record not found' });
+    throw new NotFoundException(
+      localizedError('errors.record_not_found', 'Record not found'),
+    );
   }
 
   const driverError = getPostgresDriverError(error);
@@ -97,7 +117,10 @@ export function throwDatabaseErrors(error: unknown): never {
     });
   }
 
-  throw new InternalServerErrorException({ error: 'Database error' });
+  throw new InternalServerErrorException({
+    error: 'Database error',
+    i18n_key: 'errors.internal_server_error',
+  });
 }
 
 function getPostgresDriverError(error: unknown): PostgresDriverError | null {

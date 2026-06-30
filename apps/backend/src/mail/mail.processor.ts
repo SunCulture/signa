@@ -226,6 +226,7 @@ export class MailProcessor extends WorkerHost {
     try {
       const result = await this.mailService.sendTemplate({
         ...input,
+        locale: input.locale ?? job?.data.locale ?? submitter?.account?.locale,
         delivery: {
           attempt: job ? job.attemptsMade + 1 : input.delivery?.attempt,
           jobId: job?.id ?? input.delivery?.jobId,

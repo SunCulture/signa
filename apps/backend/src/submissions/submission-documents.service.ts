@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
 import { In, Repository } from 'typeorm';
+import { AccountsService } from '../accounts/accounts.service';
 import { AccountConfig } from '../accounts/entities/account-config.entity';
 import { PdfSignatureService } from '../pdf-signatures/pdf-signature.service';
 import { StorageAttachment } from '../storage/entities/storage-attachment.entity';
@@ -24,6 +25,7 @@ import {
 type ResultGenerationOptions = {
   documentId: string;
   flatten: boolean;
+  isTestMode: boolean;
   signingCertificateName: string | null;
   timestampServerUrl: string | null;
   withSignatureId: boolean;
@@ -43,6 +45,7 @@ export class SubmissionDocumentsService {
     private readonly storageService: StorageService,
     private readonly pdfGenerator: SubmissionPdfGeneratorService,
     private readonly pdfSignatureService: PdfSignatureService,
+    private readonly accountsService: AccountsService,
   ) {}
 
   async getSubmissionDocuments(
@@ -194,6 +197,7 @@ export class SubmissionDocumentsService {
               signed.certificateName ?? undefined,
             cryptographic_signature_timestamp_server:
               signed.timestampServerUrl ?? undefined,
+            cryptographic_signature_sub_filter: signed.signatureSubFilter,
             cryptographic_signed: signed.signed,
             original_sha256: getAttachmentChecksum(document.attachment),
             original_uuid: document.uuid,
@@ -361,6 +365,7 @@ export class SubmissionDocumentsService {
           signed.certificateName ?? undefined,
         cryptographic_signature_timestamp_server:
           signed.timestampServerUrl ?? undefined,
+        cryptographic_signature_sub_filter: signed.signatureSubFilter,
         cryptographic_signed: signed.signed,
         values_hash: valuesHash,
       },
@@ -393,6 +398,13 @@ export class SubmissionDocumentsService {
     const buffer = await this.pdfGenerator.buildAuditTrail(
       submission,
       auditDocuments,
+      {
+        isTestMode: (
+          await this.accountsService.getTestingAccountContext(
+            submission.accountId,
+          )
+        ).isTestMode,
+      },
     );
     const signed = await this.signArtifactPdf({
       accountId: submission.accountId,
@@ -414,6 +426,7 @@ export class SubmissionDocumentsService {
           signed.certificateName ?? undefined,
         cryptographic_signature_timestamp_server:
           signed.timestampServerUrl ?? undefined,
+        cryptographic_signature_sub_filter: signed.signatureSubFilter,
         cryptographic_signed: signed.signed,
       },
     });
@@ -619,6 +632,9 @@ export class SubmissionDocumentsService {
       this.pdfSignatureService.loadDefaultCertificate(submission.accountId),
       this.pdfSignatureService.getTimestampServerUrl(submission.accountId),
     ]);
+    const accountContext = await this.accountsService.getTestingAccountContext(
+      submission.accountId,
+    );
 
     return {
       documentId: createHash('sha256')
@@ -626,6 +642,7 @@ export class SubmissionDocumentsService {
         .digest('hex')
         .toUpperCase(),
       flatten: configByKey.get('flatten_result_pdf')?.value !== false,
+      isTestMode: accountContext.isTestMode,
       signingCertificateName: certificate.name,
       timestampServerUrl,
       withSignatureId: configByKey.get('with_signature_id')?.value === true,

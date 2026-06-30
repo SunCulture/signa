@@ -16,6 +16,7 @@ type TemplatePreferencesDialogProps = {
   onOpenChange: (open: boolean) => void;
   onSave: (preferences: Record<string, unknown>) => Promise<void>;
   onSharedLinkChange: (enabled: boolean) => Promise<void>;
+  onTestingShareChange: (enabled: boolean) => Promise<void>;
   open: boolean;
   template: TemplateResponse;
 };
@@ -26,6 +27,7 @@ export function TemplatePreferencesDialog({
   onOpenChange,
   onSave,
   onSharedLinkChange,
+  onTestingShareChange,
   open,
   template,
 }: TemplatePreferencesDialogProps) {
@@ -74,6 +76,7 @@ export function TemplatePreferencesDialog({
               isUpdatingSharedLink={isUpdatingSharedLink}
               template={template}
               onSharedLinkChange={onSharedLinkChange}
+              onTestingShareChange={onTestingShareChange}
             />
           </TabsContent>
         </Tabs>

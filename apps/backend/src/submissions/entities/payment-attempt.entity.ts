@@ -65,7 +65,7 @@ export class PaymentAttempt {
   @Column({ type: 'simple-json' })
   data!: Record<string, unknown>;
 
-  @Column({ name: 'completed_at', type: 'timestamp', nullable: true })
+  @Column({ name: 'completed_at', type: Date, nullable: true })
   completedAt!: Date | null;
 
   @CreateDateColumn({ name: 'created_at' })

@@ -38,10 +38,12 @@ import { ApiError } from "@/lib/api/http";
 import { authFormSchema, type AuthFormValues } from "@/lib/forms/auth-forms";
 import { authDictionaries, type AuthMode } from "@/lib/i18n/auth-dictionaries";
 import {
-  defaultLocale,
+  getStoredLocale,
   isLocale,
   localeLabels,
   locales,
+  persistLocale,
+  toAccountLocale,
   type Locale,
 } from "@/lib/i18n/config";
 import { cn } from "@/lib/utils";
@@ -57,7 +59,7 @@ type AuthShellProps = {
 };
 
 export function AuthShell({ mode }: AuthShellProps) {
-  const [locale, setLocale] = useState<Locale>(defaultLocale);
+  const [locale, setLocale] = useState<Locale>(() => getStoredLocale());
   const dictionary = authDictionaries[locale];
   const copy = dictionary.modes[mode];
   const showSocial = mode === "login" || mode === "register";
@@ -72,7 +74,7 @@ export function AuthShell({ mode }: AuthShellProps) {
 
   function handleLocaleChange(nextLocale: Locale) {
     setLocale(nextLocale);
-    document.documentElement.lang = nextLocale;
+    persistLocale(nextLocale);
   }
 
   async function handleValidSubmit(values: AuthFormValues) {
@@ -608,8 +610,6 @@ function createRegisterInput(
   const nameParts = (values.name ?? "").trim().split(/\s+/).filter(Boolean);
   const firstName = nameParts[0] ?? "Signa";
   const lastName = nameParts.slice(1).join(" ");
-  const browserLocale =
-    typeof navigator === "undefined" ? `${locale}-US` : navigator.language;
   const timezone =
     typeof Intl === "undefined"
       ? "UTC"
@@ -620,7 +620,7 @@ function createRegisterInput(
     email: values.email ?? "",
     first_name: firstName,
     last_name: lastName,
-    locale: browserLocale,
+    locale: toAccountLocale(locale),
     password: values.password ?? "",
     timezone,
   };

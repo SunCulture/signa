@@ -107,6 +107,9 @@ const validationSchema = Joi.object({
     .default(10 * 1024 * 1024),
   PDF_PREVIEW_MAX_PAGES: Joi.number().integer().min(1).default(15),
   PDF_PREVIEW_MAX_WIDTH: Joi.number().integer().min(300).default(1400),
+  PDF_SIGNATURE_SUBFILTER: Joi.string()
+    .valid('pades', 'adobe')
+    .default('pades'),
   DOCUMENT_CONVERSION_MAX_BYTES: Joi.number()
     .integer()
     .min(1)

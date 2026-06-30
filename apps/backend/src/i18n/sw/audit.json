@@ -1,0 +1,11 @@
+{
+  "events": {
+    "email_failed": "Utumaji wa barua pepe umeshindikana",
+    "email_sent": "Barua pepe imetumwa",
+    "email_skipped": "Barua pepe imerukwa",
+    "form_completed": "Fomu imekamilika",
+    "form_declined": "Fomu imekataliwa",
+    "form_started": "Fomu imeanzishwa",
+    "template_updated": "Kiolezo kimesasishwa"
+  }
+}

@@ -2,23 +2,68 @@ services:
   signa:
     build:
       context: .
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:3001}
+        NEXT_PUBLIC_SIGNING_BASE_URL: ${NEXT_PUBLIC_SIGNING_BASE_URL:-http://localhost:3000}
+        NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID:-}
+        NEXT_PUBLIC_GOOGLE_PICKER_API_KEY: ${NEXT_PUBLIC_GOOGLE_PICKER_API_KEY:-}
+        NEXT_PUBLIC_GOOGLE_PICKER_APP_ID: ${NEXT_PUBLIC_GOOGLE_PICKER_APP_ID:-}
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
       NODE_ENV: production
-      PORT: 3001
-      DATABASE_TYPE: sqlite
-      SQLITE_DATABASE_PATH: /app/data/signa.sqlite
-      JWT_SECRET: change-me-to-a-long-random-production-secret
-      API_PUBLIC_URL: http://localhost:3001/api
-      FRONTEND_ORIGIN: http://localhost:3001
-      STORAGE_PATH: /app/storage
-      MAIL_ENABLED: "false"
-      QUEUE_ENABLED: "false"
+      BACKEND_PORT: 3001
+      FRONTEND_PORT: 3000
+      HOSTNAME: 0.0.0.0
+      DATABASE_TYPE: ${DATABASE_TYPE:-sqlite}
+      DATABASE_URL: ${DATABASE_URL:-}
+      DATABASE_HOST: ${DATABASE_HOST:-}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      DATABASE_USER: ${DATABASE_USER:-postgres}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      DATABASE_NAME: ${DATABASE_NAME:-signa}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      DATABASE_MIGRATIONS_RUN: ${DATABASE_MIGRATIONS_RUN:-false}
+      SQLITE_DATABASE_PATH: /data/signa.sqlite
+      SQLITE_SYNCHRONIZE: ${SQLITE_SYNCHRONIZE:-true}
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-production-secret}
+      API_PUBLIC_URL: ${API_PUBLIC_URL:-http://localhost:3001/api}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
+      STORAGE_PATH: /storage
+      REDIS_URL: redis://redis:6379
+      QUEUE_ENABLED: ${QUEUE_ENABLED:-true}
+      QUEUE_REDIS_URL: redis://redis:6379
+      BULL_BOARD_ENABLED: ${BULL_BOARD_ENABLED:-false}
+      BULL_BOARD_PASS: ${BULL_BOARD_PASS:-change-me-please}
+      MAIL_ENABLED: ${MAIL_ENABLED:-false}
+      MAIL_HOST: ${MAIL_HOST:-localhost}
+      MAIL_PORT: ${MAIL_PORT:-1025}
+      MAIL_SECURE: ${MAIL_SECURE:-false}
+      MAIL_AUTH_ENABLED: ${MAIL_AUTH_ENABLED:-false}
+      MAIL_USER: ${MAIL_USER:-}
+      MAIL_PASS: ${MAIL_PASS:-}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Signa}
+      MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-no-reply@signa.com}
     ports:
+      - "3000:3000"
       - "3001:3001"
     volumes:
-      - signa-data:/app/data
-      - signa-storage:/app/storage
+      - signa-data:/data
+      - signa-storage:/storage
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - signa-redis:/data
 
 volumes:
   signa-data:
   signa-storage:
+  signa-redis:

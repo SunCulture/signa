@@ -15,6 +15,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, IsNull, Repository } from 'typeorm';
+import { AccountLinkedAccount } from '../accounts/entities/account-linked-account.entity';
 import { Account } from '../accounts/entities/account.entity';
 import { throwIfUniqueConstraint } from '../common/utils/error';
 import { TeamMember } from '../teams/entities/team-member.entity';
@@ -54,6 +55,8 @@ export class AuthService {
   constructor(
     @InjectRepository(AccessToken)
     private readonly accessTokens: Repository<AccessToken>,
+    @InjectRepository(AccountLinkedAccount)
+    private readonly linkedAccounts: Repository<AccountLinkedAccount>,
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
     private readonly emailVerificationCodes: EmailVerificationCodeService,
@@ -88,14 +91,21 @@ export class AuthService {
 
     await this.accessTokens.update(accessToken.id, { lastUsedAt: new Date() });
 
+    const testingLink = await this.resolveTestingLink(
+      accessToken.user.accountId,
+    );
+
     return {
       accountId: accessToken.user.accountId,
       userId: accessToken.userId,
       accessTokenId: accessToken.id,
+      isTestMode: testingLink.isTestMode,
+      productionAccountId: testingLink.productionAccountId,
       role: accessToken.user.role,
       apiTokenPermissions: normalizeApiTokenPermissions(
         accessToken.permissions,
       ),
+      testingAccountId: testingLink.testingAccountId,
       teamId: accessToken.teamId ?? undefined,
     };
   }
@@ -377,12 +387,25 @@ export class AuthService {
     return Date.now() - sentAt.getTime() <= ttlMinutes * 60 * 1000;
   }
 
-  private createAuthResponse(user: User, account: Account): AuthResponseDto {
+  createAuthResponse(
+    user: User,
+    account: Account,
+    options: {
+      isTestMode?: boolean;
+      productionAccountId?: string | null;
+      testingAccountId?: string | null;
+      trueAccountId?: string;
+      trueUserId?: string;
+    } = {},
+  ): AuthResponseDto {
     const payload: WebSessionJwtPayload = {
       sub: user.id,
       userId: user.id,
       accountId: user.accountId,
+      isTestMode: options.isTestMode,
       role: user.role,
+      trueAccountId: options.trueAccountId,
+      trueUserId: options.trueUserId,
     };
 
     return {
@@ -400,6 +423,9 @@ export class AuthService {
         name: account.name,
         timezone: account.timezone,
         locale: account.locale,
+        is_test_mode: options.isTestMode ?? false,
+        production_account_id: options.productionAccountId ?? null,
+        testing_account_id: options.testingAccountId ?? null,
       },
     };
   }
@@ -509,6 +535,40 @@ export class AuthService {
     return createHash('sha256')
       .update(this.configService.get<string>('JWT_SECRET', 'signa-secret'))
       .digest();
+  }
+
+  private async resolveTestingLink(accountId: string): Promise<{
+    isTestMode: boolean;
+    productionAccountId: string | null;
+    testingAccountId: string | null;
+  }> {
+    const productionLink = await this.linkedAccounts.findOne({
+      where: {
+        accountType: 'testing',
+        linkedAccountId: accountId,
+      },
+    });
+
+    if (productionLink) {
+      return {
+        isTestMode: true,
+        productionAccountId: productionLink.accountId,
+        testingAccountId: accountId,
+      };
+    }
+
+    const testingLink = await this.linkedAccounts.findOne({
+      where: {
+        accountId,
+        accountType: 'testing',
+      },
+    });
+
+    return {
+      isTestMode: false,
+      productionAccountId: accountId,
+      testingAccountId: testingLink?.linkedAccountId ?? null,
+    };
   }
 }
 

@@ -32,10 +32,10 @@ export class AccessToken {
   @Column({ type: 'simple-json', default: '[]' })
   permissions!: string[];
 
-  @Column({ name: 'last_used_at', type: 'timestamp', nullable: true })
+  @Column({ name: 'last_used_at', type: Date, nullable: true })
   lastUsedAt!: Date | null;
 
-  @Column({ name: 'revoked_at', type: 'timestamp', nullable: true })
+  @Column({ name: 'revoked_at', type: Date, nullable: true })
   revokedAt!: Date | null;
 
   @CreateDateColumn({ name: 'created_at' })

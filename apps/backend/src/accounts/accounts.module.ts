@@ -13,6 +13,7 @@ import { AccountConfig } from './entities/account-config.entity';
 import { AccountLinkedAccount } from './entities/account-linked-account.entity';
 import { Account } from './entities/account.entity';
 import { EncryptedConfig } from './entities/encrypted-config.entity';
+import { TestingAccountsController } from './testing-accounts.controller';
 
 @Module({
   imports: [
@@ -30,6 +31,10 @@ import { EncryptedConfig } from './entities/encrypted-config.entity';
   ],
   providers: [AccountsService, AccountHydrationGuard],
   exports: [AccountsService, TypeOrmModule],
-  controllers: [AccountsController, AccountCustomFieldsController],
+  controllers: [
+    AccountsController,
+    AccountCustomFieldsController,
+    TestingAccountsController,
+  ],
 })
 export class AccountsModule {}

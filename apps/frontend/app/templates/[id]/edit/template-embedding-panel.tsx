@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 type TemplateEmbeddingPanelProps = {
   isUpdatingSharedLink: boolean;
   onSharedLinkChange: (enabled: boolean) => Promise<void>;
+  onTestingShareChange: (enabled: boolean) => Promise<void>;
   template: TemplateResponse;
 };
 
@@ -48,6 +49,7 @@ const frameworks: Array<{
 export function TemplateEmbeddingPanel({
   isUpdatingSharedLink,
   onSharedLinkChange,
+  onTestingShareChange,
   template,
 }: TemplateEmbeddingPanelProps) {
   const [selectedFramework, setSelectedFramework] =
@@ -77,7 +79,11 @@ export function TemplateEmbeddingPanel({
       />
       <div className="flex items-center justify-between gap-4">
         <span className="text-sm font-medium">Share template with Test mode</span>
-        <Switch disabled />
+        <Switch
+          checked={template.shared_with_test_mode}
+          disabled={isUpdatingSharedLink}
+          onCheckedChange={(checked) => void onTestingShareChange(checked)}
+        />
       </div>
       {isUpdatingSharedLink ? (
         <div className="flex items-center gap-2 text-xs font-semibold text-[var(--auth-muted-foreground)]">

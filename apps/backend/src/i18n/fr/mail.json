@@ -1,0 +1,17 @@
+{
+  "subjects": {
+    "password_reset": "Réinitialiser votre mot de passe",
+    "smtp_successful_setup": "SMTP a été configuré",
+    "submitter_otp_verification": "Vérification de l'email",
+    "team_invitation": "Vous êtes invité à rejoindre {teamName}",
+    "template_otp_verification": "Vérification de l'email",
+    "user_invitation": "Vous êtes invité à rejoindre {accountName}"
+  },
+  "actions": {
+    "accept_invitation": "Accepter l'invitation",
+    "change_password": "Changer mon mot de passe"
+  },
+  "greetings": {
+    "there": "bonjour"
+  }
+}

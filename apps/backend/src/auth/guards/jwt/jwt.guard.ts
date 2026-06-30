@@ -26,8 +26,11 @@ export class JwtGuard implements CanActivate {
       request.session = {
         userId: payload.userId,
         accountId: payload.accountId,
+        isTestMode: payload.isTestMode,
         role: payload.role,
         teamId: payload.teamId,
+        trueAccountId: payload.trueAccountId,
+        trueUserId: payload.trueUserId,
       };
     } catch {
       throw new UnauthorizedException({ error: 'Not authenticated' });

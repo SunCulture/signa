@@ -35,6 +35,25 @@ export class VerifyPdfSignatureDto {
   @ApiProperty({ type: [String] })
   verification_result!: string[];
 
+  @ApiProperty({
+    description:
+      'True when the PDF signature dictionary uses the PAdES ETSI.CAdES.detached SubFilter.',
+  })
+  pades_compliant_sub_filter!: boolean;
+
+  @ApiProperty({
+    description:
+      'True when the signature ByteRange is structurally valid for this PDF.',
+  })
+  byte_range_valid!: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'SHA-256 over the signed ByteRange segments. This is not certificate-chain validation.',
+    nullable: true,
+  })
+  byte_range_sha256!: string | null;
+
   @ApiProperty({ nullable: true })
   signer_name!: string | null;
 

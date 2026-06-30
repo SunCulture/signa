@@ -1,32 +1,39 @@
-import Link from "next/link"
-import { ArrowLeftIcon, BotIcon, CircleHelpIcon, InfoIcon } from "lucide-react"
+"use client";
+
+import Link from "next/link";
+import { ArrowLeftIcon, BotIcon, CircleHelpIcon, InfoIcon } from "lucide-react";
+
+import type { AppDictionary } from "@/lib/i18n/app-dictionaries";
+import { useAppI18n } from "@/lib/i18n/use-app-i18n";
+import { useTestMode } from "@/lib/hooks/use-test-mode";
 
 type SettingsSidebarItem = {
-  href?: string
-  label: string
-  badge?: string
-  disabled?: boolean
-}
+  href?: string;
+  key: SettingsSection;
+  badge?: string;
+  disabled?: boolean;
+};
 
 const settingsLinks: readonly SettingsSidebarItem[] = [
-  { href: "/settings/profile", label: "Profile" },
-  { href: "/settings/account", label: "Account" },
-  { href: "/settings/notifications", label: "Notifications" },
-  { href: "/settings/e-signature", label: "E-Signature" },
-  { href: "/settings/personalization", label: "Personalization" },
-  { href: "/settings/users", label: "Users" },
-  { href: "/settings/teams", label: "Teams" },
-  { href: "/settings/integrations", label: "Integrations" },
-  { href: "/settings/webhooks", label: "Webhooks" },
-  { badge: "License", href: "/settings/plans", label: "Plans" },
-  { href: "/settings/api", label: "API" },
-  { disabled: true, label: "Embedding" },
-]
+  { href: "/settings/profile", key: "Profile" },
+  { href: "/settings/account", key: "Account" },
+  { href: "/settings/notifications", key: "Notifications" },
+  { href: "/settings/e-signature", key: "E-Signature" },
+  { href: "/settings/personalization", key: "Personalization" },
+  { href: "/settings/users", key: "Users" },
+  { href: "/settings/teams", key: "Teams" },
+  { href: "/settings/integrations", key: "Integrations" },
+  { href: "/settings/webhooks", key: "Webhooks" },
+  { badge: "license", href: "/settings/plans", key: "Plans" },
+  { href: "/settings/api", key: "API" },
+  { disabled: true, key: "Embedding" },
+];
 
 type SettingsSection =
   | "Account"
   | "API"
   | "E-Signature"
+  | "Embedding"
   | "Integrations"
   | "Notifications"
   | "Personalization"
@@ -34,9 +41,12 @@ type SettingsSection =
   | "Profile"
   | "Teams"
   | "Users"
-  | "Webhooks"
+  | "Webhooks";
 
 export function SettingsSidebar({ active }: { active: SettingsSection }) {
+  const { isPending, isTestMode, setTestMode } = useTestMode();
+  const { dictionary } = useAppI18n();
+
   return (
     <aside className="w-full shrink-0 md:w-52">
       <Link
@@ -44,23 +54,26 @@ export function SettingsSidebar({ active }: { active: SettingsSection }) {
         href="/templates"
       >
         <ArrowLeftIcon data-icon="inline-start" />
-        Back
+        {dictionary.common.back}
       </Link>
       <p className="mb-3 border-b border-border pb-3 text-sm font-bold text-[var(--auth-label)]">
-        Settings
+        {dictionary.common.settings}
       </p>
       <nav className="flex flex-col gap-1">
-        {settingsLinks.map((item) =>
-          item.disabled ? (
+        {settingsLinks.map((item) => {
+          const label = getSettingsLabel(dictionary, item.key);
+          const badge = item.badge ? dictionary.settings.license : undefined;
+
+          return item.disabled ? (
             <span
               className="rounded-full px-4 py-2 text-base text-muted-foreground"
-              key={`${item.label}:disabled`}
+              key={`${item.key}:disabled`}
             >
               <span className="flex cursor-default items-center justify-between gap-3">
-                {item.label}
-                {item.badge ? (
+                {label}
+                {badge ? (
                   <span className="rounded-full bg-[var(--auth-upgrade)] px-2 py-0.5 text-xs font-bold text-[var(--auth-primary)]">
-                    {item.badge}
+                    {badge}
                   </span>
                 ) : null}
               </span>
@@ -68,31 +81,37 @@ export function SettingsSidebar({ active }: { active: SettingsSection }) {
           ) : (
             <Link
               className={
-                item.label === active
+                item.key === active
                   ? "rounded-full bg-[var(--auth-muted)] px-4 py-2 text-base"
                   : "rounded-full px-4 py-2 text-base hover:bg-[var(--auth-muted)]"
               }
               href={item.href ?? "#"}
-              key={`${item.label}:${item.href}`}
+              key={`${item.key}:${item.href}`}
             >
               <span className="flex items-center justify-between gap-3">
-                {item.label}
-                {item.badge ? (
+                {label}
+                {badge ? (
                   <span className="rounded-full bg-[var(--auth-upgrade)] px-2 py-0.5 text-xs font-bold text-[var(--auth-primary)]">
-                    {item.badge}
+                    {badge}
                   </span>
                 ) : null}
               </span>
             </Link>
-          )
-        )}
+          );
+        })}
         <label className="mt-1 flex cursor-pointer items-center justify-between rounded-full px-4 py-2 text-base hover:bg-[var(--auth-muted)]">
-          <span>Test mode</span>
-          <input className="accent-[var(--auth-primary)]" type="checkbox" />
+          <span>{dictionary.common.testMode}</span>
+          <input
+            checked={isTestMode}
+            className="accent-[var(--auth-primary)]"
+            disabled={isPending}
+            onChange={(event) => setTestMode(event.target.checked)}
+            type="checkbox"
+          />
         </label>
       </nav>
       <div className="mx-4 mt-4 border-t border-border pt-3 text-sm">
-        <p>Need help? Ask a question:</p>
+        <p>{dictionary.settings.help}</p>
         <div className="mt-4 flex gap-3">
           <span className="flex size-10 items-center justify-center rounded-full bg-[var(--auth-muted)]">
             <CircleHelpIcon data-icon="inline-start" />
@@ -112,5 +131,27 @@ export function SettingsSidebar({ active }: { active: SettingsSection }) {
         </a>
       </div>
     </aside>
-  )
+  );
+}
+
+function getSettingsLabel(
+  dictionary: AppDictionary,
+  section: SettingsSection,
+): string {
+  const labels: Record<SettingsSection, string> = {
+    Account: dictionary.settings.nav.account,
+    API: dictionary.settings.nav.api,
+    "E-Signature": dictionary.settings.nav.eSignature,
+    Embedding: dictionary.settings.nav.embedding,
+    Integrations: dictionary.settings.nav.integrations,
+    Notifications: dictionary.settings.nav.notifications,
+    Personalization: dictionary.settings.nav.personalization,
+    Plans: dictionary.settings.nav.plans,
+    Profile: dictionary.settings.nav.profile,
+    Teams: dictionary.settings.nav.teams,
+    Users: dictionary.settings.nav.users,
+    Webhooks: dictionary.settings.nav.webhooks,
+  };
+
+  return labels[section];
 }
