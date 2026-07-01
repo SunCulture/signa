@@ -60,8 +60,8 @@ export function SubmissionDocumentPreview({
   title,
 }: SubmissionDocumentViewerProps) {
   return (
-    <section className="min-w-0 flex-1 overflow-y-auto px-1 pt-1">
-      <div className="flex flex-col items-center gap-4 pr-3">
+    <section className="min-w-0 flex-1 overflow-y-auto px-0 pt-1 sm:px-1">
+      <div className="flex flex-col items-center gap-4 sm:pr-3">
         {documents.map((document) =>
           document.preview_images.map((previewImage, pageIndex) => (
             <DocumentPage

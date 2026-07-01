@@ -164,14 +164,21 @@
   }
   body {
     @apply bg-background text-foreground;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
   }
   html {
     @apply font-sans;
+    scroll-behavior: smooth;
   }
 }
 
 @layer components {
   .auth-link {
     @apply text-[var(--auth-label)] transition-colors hover:text-[var(--auth-primary)] hover:underline hover:underline-offset-4;
+  }
+
+  .skip-link {
+    @apply fixed left-4 top-4 z-[100] -translate-y-20 rounded-full bg-[var(--auth-primary)] px-4 py-2 text-sm font-bold text-[var(--auth-primary-foreground)] shadow-lg transition-transform focus-visible:translate-y-0 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50;
   }
 }

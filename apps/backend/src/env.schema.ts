@@ -89,6 +89,12 @@ const validationSchema = Joi.object({
     .truthy('true')
     .falsy('false')
     .default(false),
+  GOOGLE_AUTH_CLIENT_ID: Joi.string().allow('').optional(),
+  GOOGLE_AUTH_CLIENT_SECRET: Joi.string().allow('').optional(),
+  GOOGLE_AUTH_REDIRECT_URI: Joi.string().uri().allow('').optional(),
+  MICROSOFT_AUTH_CLIENT_ID: Joi.string().allow('').optional(),
+  MICROSOFT_AUTH_CLIENT_SECRET: Joi.string().allow('').optional(),
+  MICROSOFT_AUTH_REDIRECT_URI: Joi.string().uri().allow('').optional(),
   GMAIL_OAUTH_CLIENT_ID: Joi.string().allow('').optional(),
   GMAIL_OAUTH_CLIENT_SECRET: Joi.string().allow('').optional(),
   GMAIL_OAUTH_REDIRECT_URI: Joi.string().uri().allow('').optional(),
@@ -115,10 +121,7 @@ const validationSchema = Joi.object({
     .falsy('false')
     .default(false),
   PDF_TIMESTAMP_TIMEOUT_MS: Joi.number().integer().min(1000).default(10_000),
-  PDF_LTV_REQUIRED: Joi.boolean()
-    .truthy('true')
-    .falsy('false')
-    .default(false),
+  PDF_LTV_REQUIRED: Joi.boolean().truthy('true').falsy('false').default(false),
   PDF_LTV_HTTP_TIMEOUT_MS: Joi.number().integer().min(1000).default(10_000),
   DOCUMENT_CONVERSION_MAX_BYTES: Joi.number()
     .integer()

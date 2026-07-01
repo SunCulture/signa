@@ -33,6 +33,9 @@ export default function RootLayout({
       className={`${bricolage.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        <a className="skip-link" href="#main-content">
+          Skip to main content
+        </a>
         <NextTopLoader
           color="#16304f"
           height={3}

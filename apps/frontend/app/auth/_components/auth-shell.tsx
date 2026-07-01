@@ -33,7 +33,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { login, register, saveAuthSession } from "@/lib/api/auth";
+import {
+  login,
+  getSocialAuthStateKey,
+  register,
+  saveAuthSession,
+  startSocialAuth,
+  type SocialAuthProvider,
+} from "@/lib/api/auth";
 import { ApiError } from "@/lib/api/http";
 import { authFormSchema, type AuthFormValues } from "@/lib/forms/auth-forms";
 import { authDictionaries, type AuthMode } from "@/lib/i18n/auth-dictionaries";
@@ -227,7 +234,9 @@ export function AuthShell({ mode }: AuthShellProps) {
             {form.formState.errors.root?.message}
           </FieldError>
         </form>
-        {showSocial ? <SocialButtons dictionary={dictionary} /> : null}
+        {showSocial ? (
+          <SocialButtons dictionary={dictionary} mode={mode} />
+        ) : null}
         <AuthLinks dictionary={dictionary} mode={mode} />
         <LanguagePicker
           dictionary={dictionary}
@@ -259,37 +268,41 @@ function AuthHeader({
   mode: AuthMode;
 }) {
   return (
-    <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3 md:px-2">
+    <header className="mx-auto flex w-full max-w-7xl items-center justify-between px-5 py-5 sm:px-8">
       <Link
         href="/"
-        className="relative block h-16 w-32"
+        className="flex items-center gap-3 rounded-full text-[var(--auth-primary)] outline-none focus-visible:ring-3 focus-visible:ring-[var(--auth-brand)]/30"
         aria-label={dictionary.brand}
       >
-        <Image
-          alt={dictionary.brand}
-          className="object-contain object-left"
-          fill
-          priority
-          sizes="128px"
-          src="/images/logo.png"
-        />
+        <span className="relative block size-11">
+          <Image
+            alt={dictionary.brand}
+            className="object-contain"
+            fill
+            priority
+            sizes="44px"
+            src="/images/logo.png"
+          />
+        </span>
+        <span className="text-2xl font-bold tracking-normal">Signa</span>
       </Link>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         {mode !== "login" ? (
-          <Link
-            className="flex items-center gap-2 text-lg font-bold text-[var(--auth-foreground)] transition-colors hover:text-[var(--auth-primary)]"
-            href="/auth/login"
+          <Button
+            asChild
+            className="h-11 rounded-full border-[var(--auth-primary)] bg-card px-5 font-bold text-[var(--auth-primary)] hover:bg-[var(--auth-primary)] hover:text-[var(--auth-primary-foreground)]"
+            variant="outline"
           >
-            <LogInIcon data-icon="inline-start" />
-            {dictionary.header.signIn}
-          </Link>
+            <Link href="/auth/login">
+              <LogInIcon data-icon="inline-start" />
+              {dictionary.header.signIn}
+            </Link>
+          </Button>
         ) : null}
         {mode !== "register" ? (
           <Button
             asChild
-            className="h-8 rounded-full border-[var(--auth-primary)] px-5 font-bold text-[var(--auth-primary)] transition-colors hover:bg-[var(--auth-primary)] hover:text-[var(--auth-primary-foreground)]"
-            size="sm"
-            variant="outline"
+            className="h-11 rounded-full bg-[var(--auth-primary)] px-5 font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
           >
             <Link href="/auth/register">{dictionary.header.createAccount}</Link>
           </Button>
@@ -393,29 +406,63 @@ function OtpField({
 
 function SocialButtons({
   dictionary,
+  mode,
 }: {
   dictionary: (typeof authDictionaries)[Locale];
+  mode: AuthMode;
 }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
-      <AuthProviderButton dictionary={dictionary} provider="google" />
-      <AuthProviderButton dictionary={dictionary} provider="microsoft" />
+      <AuthProviderButton
+        dictionary={dictionary}
+        mode={mode}
+        provider="google"
+      />
+      <AuthProviderButton
+        dictionary={dictionary}
+        mode={mode}
+        provider="microsoft"
+      />
     </div>
   );
 }
 
 function AuthProviderButton({
   dictionary,
+  mode,
   provider,
 }: {
   dictionary: (typeof authDictionaries)[Locale];
-  provider: "google" | "microsoft";
+  mode: AuthMode;
+  provider: SocialAuthProvider;
 }) {
   const isGoogle = provider === "google";
+
+  async function handleProviderClick() {
+    try {
+      const response = await startSocialAuth(provider, {
+        mode: mode === "register" ? "register" : "login",
+      });
+
+      window.sessionStorage.setItem(
+        getSocialAuthStateKey(provider),
+        response.state,
+      );
+      window.location.assign(response.url);
+    } catch (error) {
+      toast.error("Social sign-in is not configured", {
+        description:
+          error instanceof ApiError
+            ? error.message
+            : "Add the OAuth client id, client secret, and redirect URI environment variables.",
+      });
+    }
+  }
 
   return (
     <Button
       className="h-12 rounded-full border-2 border-[var(--auth-primary)] bg-card text-sm font-bold text-[var(--auth-foreground)] transition-colors hover:bg-[var(--auth-primary)] hover:text-[var(--auth-primary-foreground)]"
+      onClick={() => void handleProviderClick()}
       type="button"
       variant="outline"
     >

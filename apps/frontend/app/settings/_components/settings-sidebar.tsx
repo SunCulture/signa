@@ -59,14 +59,17 @@ export function SettingsSidebar({ active }: { active: SettingsSection }) {
       <p className="mb-3 border-b border-border pb-3 text-sm font-bold text-[var(--auth-label)]">
         {dictionary.common.settings}
       </p>
-      <nav className="flex flex-col gap-1">
+      <nav
+        aria-label="Settings sections"
+        className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-2 md:mx-0 md:flex-col md:overflow-visible md:px-0 md:pb-0"
+      >
         {settingsLinks.map((item) => {
           const label = getSettingsLabel(dictionary, item.key);
           const badge = item.badge ? dictionary.settings.license : undefined;
 
           return item.disabled ? (
             <span
-              className="rounded-full px-4 py-2 text-base text-muted-foreground"
+              className="shrink-0 rounded-full px-4 py-2 text-base text-muted-foreground md:shrink"
               key={`${item.key}:disabled`}
             >
               <span className="flex cursor-default items-center justify-between gap-3">
@@ -82,8 +85,8 @@ export function SettingsSidebar({ active }: { active: SettingsSection }) {
             <Link
               className={
                 item.key === active
-                  ? "rounded-full bg-[var(--auth-muted)] px-4 py-2 text-base"
-                  : "rounded-full px-4 py-2 text-base hover:bg-[var(--auth-muted)]"
+                  ? "shrink-0 rounded-full bg-[var(--auth-muted)] px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 md:shrink"
+                  : "shrink-0 rounded-full px-4 py-2 text-base hover:bg-[var(--auth-muted)] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 md:shrink"
               }
               href={item.href ?? "#"}
               key={`${item.key}:${item.href}`}
@@ -99,7 +102,7 @@ export function SettingsSidebar({ active }: { active: SettingsSection }) {
             </Link>
           );
         })}
-        <label className="mt-1 flex cursor-pointer items-center justify-between rounded-full px-4 py-2 text-base hover:bg-[var(--auth-muted)]">
+        <label className="mt-0 flex shrink-0 cursor-pointer items-center gap-3 rounded-full px-4 py-2 text-base hover:bg-[var(--auth-muted)] md:mt-1 md:justify-between">
           <span>{dictionary.common.testMode}</span>
           <input
             checked={isTestMode}
@@ -110,7 +113,7 @@ export function SettingsSidebar({ active }: { active: SettingsSection }) {
           />
         </label>
       </nav>
-      <div className="mx-4 mt-4 border-t border-border pt-3 text-sm">
+      <div className="mx-4 mt-4 hidden border-t border-border pt-3 text-sm md:block">
         <p>{dictionary.settings.help}</p>
         <div className="mt-4 flex gap-3">
           <span className="flex size-10 items-center justify-center rounded-full bg-[var(--auth-muted)]">

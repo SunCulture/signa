@@ -241,11 +241,14 @@ export function SubmissionDetailPage({ submissionId }: SubmissionDetailPageProps
   const title = submission.name ?? submission.template?.name ?? "Submission"
 
   return (
-    <main className="min-h-svh bg-[var(--auth-background)] text-[var(--auth-foreground)]">
+    <main
+      className="min-h-svh overflow-x-hidden bg-[var(--auth-background)] text-[var(--auth-foreground)]"
+      id="main-content"
+    >
       <div className="mx-auto flex w-full max-w-[1600px] flex-col px-4 py-1.5">
-        <header className="sticky top-0 z-30 flex items-center justify-between gap-4 bg-[var(--auth-background)]/95 py-1.5 backdrop-blur">
+        <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 bg-[var(--auth-background)]/95 py-1.5 backdrop-blur">
           <Link
-            className="flex min-w-0 items-center gap-3"
+            className="flex min-w-0 flex-1 items-center gap-3"
             href={submission.template ? `/templates/${submission.template.id}` : "/templates"}
           >
             <Image
@@ -257,40 +260,44 @@ export function SubmissionDetailPage({ submissionId }: SubmissionDetailPageProps
             />
             <h1 className="truncate text-xl font-semibold md:text-3xl">{title}</h1>
           </Link>
-          <div className="flex shrink-0 items-center gap-3">
+          <div className="grid w-full grid-cols-3 gap-2 sm:flex sm:w-auto sm:shrink-0 sm:items-center sm:gap-3">
             <Button
-              className="h-11 rounded-full px-5 text-sm font-bold"
+              aria-label="Open event log"
+              className="size-11 rounded-full p-0 text-sm font-bold sm:h-11 sm:w-auto sm:px-5"
               onClick={() => void openEventLog()}
               type="button"
               variant="outline"
             >
               <ListIcon data-icon="inline-start" />
-              <span className="hidden md:inline">EVENT LOG</span>
+              <span className="hidden sm:inline">EVENT LOG</span>
             </Button>
             <Button
-              className="h-11 rounded-full px-5 text-sm font-bold"
+              aria-label={
+                isShareLinkCopied ? "Copied to clipboard" : "Copy share link"
+              }
+              className="size-11 rounded-full p-0 text-sm font-bold sm:h-11 sm:w-auto sm:px-5"
               onClick={() => void copyShareLink()}
               type="button"
             >
               <CopyIcon data-icon="inline-start" />
-              <span className="hidden md:inline">
+              <span className="hidden sm:inline">
                 {isShareLinkCopied ? "COPIED TO CLIPBOARD" : "COPY SHARE LINK"}
               </span>
             </Button>
             <Button
               aria-label="Download"
-              className="size-11 rounded-full p-0 md:h-11 md:w-auto md:px-5"
+              className="size-11 rounded-full p-0 sm:h-11 sm:w-auto sm:px-5"
               disabled={isDownloading}
               onClick={() => void downloadDocuments()}
               type="button"
             >
               {isDownloading ? <Spinner /> : <DownloadIcon />}
-              <span className="hidden md:inline">DOWNLOAD</span>
+              <span className="hidden sm:inline">DOWNLOAD</span>
             </Button>
           </div>
         </header>
 
-        <section className="flex max-h-[calc(100vh-60px)] min-h-[calc(100vh-60px)]">
+        <section className="flex max-h-[calc(100svh-92px)] min-h-[calc(100svh-92px)] overflow-hidden sm:max-h-[calc(100svh-60px)] sm:min-h-[calc(100svh-60px)]">
           <SubmissionDocumentThumbnails documents={documents} title={title} />
           <SubmissionDocumentPreview
             documents={documents}

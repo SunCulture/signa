@@ -11,6 +11,7 @@ import { AdminGuard } from './guards/admin/admin.guard';
 import { ApiOrJwtGuard } from './guards/api-or-jwt/api-or-jwt.guard';
 import { ApiTokenGuard } from './guards/api-token/api-token.guard';
 import { JwtGuard } from './guards/jwt/jwt.guard';
+import { OAuthAuthService } from './oauth-auth.service';
 
 @Module({
   imports: [
@@ -27,7 +28,14 @@ import { JwtGuard } from './guards/jwt/jwt.guard';
       }),
     }),
   ],
-  providers: [AuthService, ApiTokenGuard, ApiOrJwtGuard, JwtGuard, AdminGuard],
+  providers: [
+    AuthService,
+    OAuthAuthService,
+    ApiTokenGuard,
+    ApiOrJwtGuard,
+    JwtGuard,
+    AdminGuard,
+  ],
   exports: [
     AuthService,
     ApiTokenGuard,

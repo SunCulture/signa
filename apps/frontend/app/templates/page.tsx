@@ -22,7 +22,6 @@ import {
   PlusIcon,
   RotateCcwIcon,
   SearchIcon,
-  SettingsIcon,
   Trash2Icon,
   UploadIcon,
   UserRoundIcon,
@@ -113,8 +112,7 @@ import { useAppI18n } from "@/lib/i18n/use-app-i18n";
 import { useRealtimeEvents } from "@/lib/realtime/use-realtime-events";
 import { cn } from "@/lib/utils";
 import { TemplateUploadDropzone } from "./_components/template-upload-dropzone";
-import { ThemeModeSwitcher } from "./_components/theme-mode-switcher";
-import { UserMenu } from "./_components/user-menu";
+import { ConsoleHeader } from "./_components/console-header";
 
 type PendingDelete = {
   mode: "archive" | "delete";
@@ -674,44 +672,12 @@ function TemplatesDashboard() {
 
   return (
     <TooltipProvider>
-      <main className="min-h-svh bg-[var(--auth-background)] text-[var(--auth-foreground)]">
+      <main
+        className="min-h-svh overflow-x-hidden bg-[var(--auth-background)] text-[var(--auth-foreground)]"
+        id="main-content"
+      >
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-5 py-4 md:px-2">
-          <header className="flex items-center justify-between gap-4">
-            <Link
-              aria-label="Signa"
-              className="relative block h-16 w-32"
-              href="/templates"
-            >
-              <Image
-                alt="Signa"
-                className="object-contain object-left"
-                fill
-                priority
-                sizes="128px"
-                src="/images/logo.png"
-              />
-            </Link>
-
-            <nav className="flex items-center gap-4 text-base font-bold">
-              <Button
-                className="h-8 rounded-full bg-[var(--auth-upgrade)] px-4 text-xs font-bold text-[var(--auth-primary)] hover:bg-[var(--auth-upgrade-hover)]"
-                size="sm"
-                type="button"
-              >
-                {dictionary.common.upgrade}
-              </Button>
-              <span className="text-[var(--auth-primary)]/70">|</span>
-              <Link
-                className="flex items-center gap-2 transition-colors hover:text-[var(--auth-primary)]"
-                href="/settings/account"
-              >
-                <SettingsIcon data-icon="inline-start" />
-                {dictionary.common.settings}
-              </Link>
-              <ThemeModeSwitcher />
-              <UserMenu />
-            </nav>
-          </header>
+          <ConsoleHeader />
 
           <div>
             <section className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -726,7 +692,7 @@ function TemplatesDashboard() {
                   }}
                   value={dashboardView}
                 />
-                <h1 className="truncate text-[2rem] font-semibold leading-tight tracking-normal">
+                <h1 className="min-w-0 text-pretty text-[1.75rem] font-semibold leading-tight tracking-normal sm:text-[2rem]">
                   {getDashboardTitle(
                     dashboardView,
                     isArchivedView,
@@ -736,9 +702,9 @@ function TemplatesDashboard() {
                 </h1>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+              <div className="grid w-full grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-center lg:w-auto lg:justify-end">
                 <form
-                  className="relative w-full min-w-56 sm:w-72"
+                  className="relative col-span-2 w-full sm:w-72"
                   onSubmit={(event) => {
                     event.preventDefault();
                     void setTemplateUrlState({ q: query.trim() });
@@ -746,7 +712,13 @@ function TemplatesDashboard() {
                 >
                   <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--auth-label)]" />
                   <Input
+                    aria-label={
+                      dashboardView === "submissions"
+                        ? text.search.submissions
+                        : text.search.templates
+                    }
                     className="h-10 rounded-full border-[var(--auth-input-border)] bg-card pl-9"
+                    name="templates-search"
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder={
                       dashboardView === "submissions"
@@ -757,7 +729,7 @@ function TemplatesDashboard() {
                   />
                 </form>
                 <ToggleGroup
-                  className="rounded-2xl bg-[var(--auth-muted)] p-1"
+                  className="col-span-2 rounded-2xl bg-[var(--auth-muted)] p-1 sm:col-span-1"
                   onValueChange={(value) => {
                     if (value) {
                       void setTemplateUrlState({
@@ -802,7 +774,7 @@ function TemplatesDashboard() {
                   type="file"
                 />
                 <Button
-                  className="h-12 rounded-full px-6 text-sm font-bold text-[var(--auth-primary)] hover:bg-[var(--auth-muted)] hover:text-[var(--auth-primary-hover)]"
+                  className="h-12 rounded-full px-4 text-sm font-bold text-[var(--auth-primary)] hover:bg-[var(--auth-muted)] hover:text-[var(--auth-primary-hover)] sm:px-6"
                   disabled={isUploading}
                   onClick={() => uploadInputRef.current?.click()}
                   type="button"
@@ -817,7 +789,7 @@ function TemplatesDashboard() {
                 </Button>
                 {!isArchivedView && dashboardView === "templates" ? (
                   <Button
-                    className="h-12 rounded-full px-6 text-sm font-bold text-[var(--auth-primary)] hover:bg-[var(--auth-muted)] hover:text-[var(--auth-primary-hover)]"
+                    className="h-12 rounded-full px-4 text-sm font-bold text-[var(--auth-primary)] hover:bg-[var(--auth-muted)] hover:text-[var(--auth-primary-hover)] sm:px-6"
                     onClick={() => setIsFolderDialogOpen(true)}
                     type="button"
                     variant="ghost"
@@ -827,7 +799,7 @@ function TemplatesDashboard() {
                   </Button>
                 ) : null}
                 <Button
-                  className="h-12 rounded-full border-[var(--auth-primary)] bg-transparent px-6 text-sm font-bold text-[var(--auth-primary)] hover:bg-[var(--auth-primary)] hover:text-[var(--auth-primary-foreground)]"
+                  className="h-12 rounded-full border-[var(--auth-primary)] bg-transparent px-4 text-sm font-bold text-[var(--auth-primary)] hover:bg-[var(--auth-primary)] hover:text-[var(--auth-primary-foreground)] sm:px-6"
                   onClick={() => setIsCreateDialogOpen(true)}
                   type="button"
                   variant="outline"
@@ -878,7 +850,7 @@ function TemplatesDashboard() {
                   query={submittedQuery}
                 />
               ) : (
-                <div className="grid gap-4 md:grid-cols-3">
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       {!isArchivedView
                         ? visibleFolders.map((folder) => (
                             <FolderCard
@@ -1517,7 +1489,7 @@ function FolderCard({
           </span>
         </span>
       </button>
-      <div className="absolute right-4 top-4 opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="absolute right-4 top-4 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -1565,9 +1537,9 @@ function SubmissionListRow({
     submitter?.name ?? submitter?.email ?? submitter?.phone ?? "Recipient";
 
   return (
-    <article className="flex min-h-[86px] overflow-hidden rounded-2xl bg-[var(--auth-muted)]">
+    <article className="flex min-h-[86px] flex-col overflow-hidden rounded-2xl bg-[var(--auth-muted)] sm:flex-row">
       <Link
-        className="flex w-60 shrink-0 flex-col justify-center gap-2 bg-[color-mix(in_srgb,var(--auth-muted),var(--auth-primary)_5%)] px-5 py-3 hover:bg-[color-mix(in_srgb,var(--auth-muted),var(--auth-primary)_8%)]"
+        className="flex w-full shrink-0 flex-col justify-center gap-2 bg-[color-mix(in_srgb,var(--auth-muted),var(--auth-primary)_5%)] px-5 py-3 hover:bg-[color-mix(in_srgb,var(--auth-muted),var(--auth-primary)_8%)] sm:w-60"
         href={submission.template ? `/templates/${submission.template.id}` : `/submissions/${submission.id}`}
       >
         <h2 className="flex items-center gap-1.5 text-sm font-bold">
@@ -1588,8 +1560,8 @@ function SubmissionListRow({
         </div>
       </Link>
 
-      <div className="flex min-w-0 flex-1 items-center justify-between gap-6 px-6 py-3">
-        <div className="flex min-w-0 items-center gap-4">
+      <div className="flex min-w-0 flex-1 flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-6 sm:py-3">
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
           <SubmissionStatusBadge dictionary={dictionary} submission={submission} />
           <Link
             className="truncate text-lg hover:text-[var(--auth-primary)] hover:underline"
@@ -1628,7 +1600,7 @@ function SubmissionRowActions({
     !submitter.declined_at;
 
   return (
-    <div className="flex shrink-0 items-center gap-2">
+    <div className="flex shrink-0 flex-wrap items-center gap-2">
       {canSign ? (
         <SubmissionSignButton label={text.actions.signNow} slug={submitter.slug} />
       ) : null}
@@ -1741,7 +1713,7 @@ function TemplateCard({
         <TemplateMetadata template={template} />
       </Link>
 
-      <div className="absolute bottom-0 right-9 top-0 hidden w-0 items-center md:group-hover:flex">
+      <div className="absolute bottom-3 right-3 flex items-end md:bottom-0 md:right-9 md:top-0 md:hidden md:w-0 md:items-center md:group-hover:flex md:group-focus-within:flex">
         <div className="flex flex-col gap-1">
           {isArchivedView ? (
             <>

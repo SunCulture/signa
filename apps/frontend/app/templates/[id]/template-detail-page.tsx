@@ -68,8 +68,7 @@ import {
   updateTemplatePreferences,
   updateTemplateTestingSharing,
 } from "@/lib/api/templates";
-import { ThemeModeSwitcher } from "../_components/theme-mode-switcher";
-import { UserMenu } from "../_components/user-menu";
+import { ConsoleHeader } from "../_components/console-header";
 import { TemplateActionButton } from "./template-detail-action-button";
 import { TemplateDetailSendRecipientsDialog } from "./template-detail-send-recipients-dialog";
 import { TemplatePreferencesDialog } from "./edit/template-preferences-dialog";
@@ -444,14 +443,17 @@ export function TemplateDetailPage({ templateId }: TemplateDetailPageProps) {
   }
 
   return (
-    <main className="min-h-svh bg-[var(--auth-background)] text-[var(--auth-foreground)]">
+    <main
+      className="min-h-svh overflow-x-hidden bg-[var(--auth-background)] text-[var(--auth-foreground)]"
+      id="main-content"
+    >
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-7 px-5 py-4 md:px-2">
-        <TemplateDetailTopbar />
+        <ConsoleHeader />
 
         <section className="flex flex-col gap-5">
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div className="min-w-0">
-              <h1 className="truncate text-[2rem] font-semibold leading-tight">
+              <h1 className="text-pretty text-[1.75rem] font-semibold leading-tight sm:text-[2rem]">
                 {template.name}
               </h1>
               <Link
@@ -463,7 +465,7 @@ export function TemplateDetailPage({ templateId }: TemplateDetailPageProps) {
               </Link>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 md:justify-end">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center md:justify-end">
               <Button
                 aria-label="Preferences"
                 className="rounded-full bg-[var(--auth-muted)] text-[var(--auth-primary)] hover:bg-[var(--auth-muted)]"
@@ -507,9 +509,9 @@ export function TemplateDetailPage({ templateId }: TemplateDetailPageProps) {
           </div>
 
           {submissions.length ? (
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <h2 className="text-3xl font-semibold">Submissions</h2>
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-center">
                 <TemplateActionButton
                   onClick={() => setIsExportOpen(true)}
                   variant="ghost"
@@ -812,36 +814,6 @@ function TemplateActivityItem({
         </TimelineDate>
       </TimelineContent>
     </TimelineItem>
-  );
-}
-
-function TemplateDetailTopbar() {
-  return (
-    <header className="flex items-center justify-between gap-4">
-      <Link
-        aria-label="Signa"
-        className="relative block h-16 w-32"
-        href="/templates"
-      >
-        <Image
-          alt="Signa"
-          className="object-contain object-left"
-          fill
-          priority
-          sizes="128px"
-          src="/images/logo.png"
-        />
-      </Link>
-      <nav className="flex items-center gap-4 text-base font-bold">
-        <Button className="h-8 rounded-full bg-[var(--auth-upgrade)] px-4 text-xs font-bold text-[var(--auth-primary)] hover:bg-[var(--auth-upgrade-hover)]">
-          UPGRADE
-        </Button>
-        <span className="text-[var(--auth-primary)]/70">|</span>
-        <Link href="/settings/account">Settings</Link>
-        <ThemeModeSwitcher />
-        <UserMenu />
-      </nav>
-    </header>
   );
 }
 

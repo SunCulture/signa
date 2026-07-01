@@ -4,6 +4,7 @@ import {
   Get,
   Patch,
   Post,
+  Param,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -26,15 +27,25 @@ import {
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
+import {
+  OAuthCallbackDto,
+  OAuthStartDto,
+  OAuthStartResponseDto,
+} from './dto/oauth-auth.dto';
+import type { OAuthAuthProvider } from './dto/oauth-auth.dto';
 import { PasswordResetResponseDto } from './dto/password-reset-response.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtGuard } from './guards/jwt/jwt.guard';
+import { OAuthAuthService } from './oauth-auth.service';
 
 @Controller('auth')
 @ApiTags('Auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly oauthAuthService: OAuthAuthService,
+  ) {}
 
   @Post('register')
   @ApiOperation({
@@ -56,6 +67,38 @@ export class AuthController {
   @ApiOkResponse({ type: AuthResponseDto })
   login(@Body() body: LoginDto): Promise<AuthResponseDto> {
     return this.authService.login(body);
+  }
+
+  @Post('oauth/:provider/start')
+  @ApiOperation({
+    description:
+      'Creates a provider authorization URL for Google or Microsoft sign-in. The response includes a signed state value that the frontend stores and checks on callback before exchanging the authorization code.',
+    summary: 'Start OAuth sign-in',
+  })
+  @ApiOkResponse({ type: OAuthStartResponseDto })
+  startOAuth(
+    @Param('provider') provider: OAuthAuthProvider,
+    @Body() body: OAuthStartDto,
+  ): OAuthStartResponseDto {
+    return this.oauthAuthService.start(provider, body);
+  }
+
+  @Post('oauth/:provider/callback')
+  @ApiOperation({
+    description:
+      'Completes a Google or Microsoft authorization-code callback, validates the provider ID token, creates or reuses the Signa account by verified email, then returns the normal web session payload.',
+    summary: 'Complete OAuth sign-in',
+  })
+  @ApiOkResponse({ type: AuthResponseDto })
+  completeOAuth(
+    @Param('provider') provider: OAuthAuthProvider,
+    @Body() body: OAuthCallbackDto,
+  ): Promise<AuthResponseDto> {
+    return this.oauthAuthService.complete({
+      code: body.code,
+      provider,
+      state: body.state,
+    });
   }
 
   @Post('forgot-password')

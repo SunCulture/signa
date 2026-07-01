@@ -75,7 +75,7 @@ const emptyUserForm: UserFormState = {
 
 export function UsersSettingsBody() {
   return (
-    <div className="flex w-full flex-wrap gap-8 md:flex-nowrap">
+    <div className="flex w-full flex-wrap gap-6 md:flex-nowrap md:gap-8">
       <SettingsSidebar active="Users" />
       <UsersPanel />
     </div>
@@ -317,8 +317,8 @@ function UsersPanel() {
         </StatusLink>
       </div>
 
-      <div className="mt-5 overflow-hidden">
-        <div className="grid grid-cols-[1.1fr_1.35fr_1fr_0.7fr_0.85fr_1fr] rounded-t-2xl bg-[var(--auth-muted)] px-6 py-4 text-xs font-bold uppercase tracking-normal text-[var(--auth-primary)]">
+      <div className="mt-5 overflow-x-auto rounded-2xl">
+        <div className="grid min-w-[920px] grid-cols-[1.1fr_1.35fr_1fr_0.7fr_0.85fr_1fr] rounded-t-2xl bg-[var(--auth-muted)] px-6 py-4 text-xs font-bold uppercase tracking-normal text-[var(--auth-primary)]">
           <span>Name</span>
           <span>Email</span>
           <span>Teams</span>
@@ -337,7 +337,7 @@ function UsersPanel() {
         ) : (
           users.map((user) => (
             <div
-              className="grid min-h-14 grid-cols-[1.1fr_1.35fr_1fr_0.7fr_0.85fr_1fr] items-center gap-3 border-b border-border px-6 py-3"
+              className="grid min-h-14 min-w-[920px] grid-cols-[1.1fr_1.35fr_1fr_0.7fr_0.85fr_1fr] items-center gap-3 border-b border-border px-6 py-3"
               key={user.id}
             >
               <span>{getUserName(user)}</span>

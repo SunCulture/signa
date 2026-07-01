@@ -174,6 +174,13 @@ export type SigningCertificateList = {
 
 export type AccountEmailIntegrationProvider = "gmail" | "microsoft";
 
+export type SocialAuthProvider = "google" | "microsoft";
+
+export type SocialAuthStartResponse = {
+  state: string;
+  url: string;
+};
+
 export type AccountEmailIntegration = {
   provider: AccountEmailIntegrationProvider;
   name: string;
@@ -273,6 +280,30 @@ export function register(input: RegisterInput): Promise<AuthResponse> {
     body: JSON.stringify(input),
     method: "POST",
   });
+}
+
+export function startSocialAuth(
+  provider: SocialAuthProvider,
+  input: { mode: "login" | "register" },
+): Promise<SocialAuthStartResponse> {
+  return apiFetch<SocialAuthStartResponse>(`/auth/oauth/${provider}/start`, {
+    body: JSON.stringify(input),
+    method: "POST",
+  });
+}
+
+export function completeSocialAuth(
+  provider: SocialAuthProvider,
+  input: { code: string; state: string },
+): Promise<AuthResponse> {
+  return apiFetch<AuthResponse>(`/auth/oauth/${provider}/callback`, {
+    body: JSON.stringify(input),
+    method: "POST",
+  });
+}
+
+export function getSocialAuthStateKey(provider: SocialAuthProvider): string {
+  return `signa.oauth.${provider}.state`;
 }
 
 export function saveAuthSession(session: AuthResponse): void {

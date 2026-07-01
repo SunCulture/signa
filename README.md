@@ -155,6 +155,19 @@ MAIL_FROM_ADDRESS=no-reply@signa.local
 
 ### Google and Microsoft Integrations
 
+Social login OAuth credentials:
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `GOOGLE_AUTH_CLIENT_ID` | Optional | Google OAuth client ID for Sign in with Google. |
+| `GOOGLE_AUTH_CLIENT_SECRET` | Optional | Google OAuth client secret for backend code exchange. |
+| `GOOGLE_AUTH_REDIRECT_URI` | Optional | Frontend callback URL, for example `http://localhost:3000/auth/oauth/google/callback`. |
+| `MICROSOFT_AUTH_CLIENT_ID` | Optional | Microsoft Entra application client ID for Microsoft sign-in. |
+| `MICROSOFT_AUTH_CLIENT_SECRET` | Optional | Microsoft Entra client secret for backend code exchange. |
+| `MICROSOFT_AUTH_REDIRECT_URI` | Optional | Frontend callback URL, for example `http://localhost:3000/auth/oauth/microsoft/callback`. |
+
+Register the exact redirect URLs above with each provider. The backend creates the authorization URL, validates signed `state` and `nonce`, exchanges the code server-side, validates the provider ID token, then returns the normal Signa session.
+
 Server-side OAuth credentials:
 
 | Variable | Required | Description |
