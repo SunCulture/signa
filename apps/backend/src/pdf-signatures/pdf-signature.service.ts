@@ -1,4 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { pdflibAddPlaceholder } from '@signpdf/placeholder-pdf-lib';
@@ -11,6 +15,8 @@ import {
 import { PDFDocument } from 'pdf-lib';
 import { Repository } from 'typeorm';
 import { EncryptedConfig } from '../accounts/entities/encrypted-config.entity';
+import { PdfDssVriEmbedder } from './pdf-dss-vri-embedder';
+import { PdfDocumentTimestampEmbedder } from './pdf-document-timestamp-embedder';
 import {
   defaultSigningCertificateKey,
   generateSignaDefaultCertificate,
@@ -21,6 +27,12 @@ import {
   StoredSigningCertificate,
   timestampServerUrlKey,
 } from './pdf-signature-certificate';
+import { PdfTimestampEvidence } from './pdf-timestamp-evidence';
+import {
+  PdfLtvCollectionResult,
+  PdfRevocationCollectorService,
+} from './pdf-revocation-collector.service';
+import { Rfc3161TimestampClient } from './rfc3161-timestamp-client';
 
 export const pdfSignatureSubFilterModes = ['pades', 'adobe'] as const;
 
@@ -32,7 +44,9 @@ export type PdfSignatureResult = {
   certificateName: string | null;
   signed: boolean;
   signatureSubFilter: string;
+  timestamp: PdfTimestampEvidence;
   timestampServerUrl: string | null;
+  ltv: PdfLtvCollectionResult['metadata'];
 };
 
 @Injectable()
@@ -43,6 +57,10 @@ export class PdfSignatureService {
     @InjectRepository(EncryptedConfig)
     private readonly encryptedConfigs: Repository<EncryptedConfig>,
     private readonly config: ConfigService,
+    private readonly timestampClient: Rfc3161TimestampClient,
+    private readonly timestampEmbedder: PdfDocumentTimestampEmbedder,
+    private readonly revocationCollector: PdfRevocationCollectorService,
+    private readonly dssVriEmbedder: PdfDssVriEmbedder,
   ) {}
 
   async ensureDefaultCertificate(accountId: string): Promise<EncryptedConfig> {
@@ -91,7 +109,7 @@ export class PdfSignatureService {
       return null;
     }
 
-    new URL(normalized);
+    await this.timestampClient.assertTimestampServerWorks(normalized);
 
     const config =
       existing ??
@@ -187,11 +205,42 @@ export class PdfSignatureService {
         },
       );
 
+      const signedBuffer = await signpdf.sign(
+        prepared,
+        signer,
+        input.signingTime,
+      );
+      const timestampedPdf =
+        await this.timestampEmbedder.embedDocumentTimestamp({
+          pdfBuffer: signedBuffer,
+          timestampServerUrl,
+        });
+      const ltv = await this.revocationCollector.collectForSignedPdf({
+        accountId: input.accountId,
+        pdfBuffer: timestampedPdf.buffer,
+      });
+
+      if (ltv.metadata.ltvRequired && ltv.metadata.evidenceStatus !== 'good') {
+        throw new UnprocessableEntityException({
+          error:
+            'PDF LTV evidence could not be collected for the signer certificate',
+          ltv_status: 'missing',
+          revocation_status: ltv.metadata.evidenceStatus,
+        });
+      }
+
+      const ltvPdf = this.dssVriEmbedder.embed({
+        evidences: ltv.evidences,
+        pdfBuffer: timestampedPdf.buffer,
+      });
+
       return {
-        buffer: await signpdf.sign(prepared, signer, input.signingTime),
+        buffer: ltvPdf,
         certificateName: name,
+        ltv: ltv.metadata,
         signatureSubFilter,
         signed: true,
+        timestamp: timestampedPdf.timestamp,
         timestampServerUrl,
       };
     } catch (error) {

@@ -9,7 +9,11 @@ import {
   signingCertificatePrefix,
   signaDefaultCertificateName,
 } from './pdf-signature-certificate';
+import { PdfDssVriEmbedder } from './pdf-dss-vri-embedder';
+import { PdfDocumentTimestampEmbedder } from './pdf-document-timestamp-embedder';
+import { PdfRevocationCollectorService } from './pdf-revocation-collector.service';
 import { PdfSignatureService } from './pdf-signature.service';
+import { Rfc3161TimestampClient } from './rfc3161-timestamp-client';
 
 type MockRepository<T extends object> = Partial<
   Record<keyof Repository<T>, jest.Mock>
@@ -19,6 +23,19 @@ describe('PdfSignatureService', () => {
   let service: PdfSignatureService;
   let config: { get: jest.Mock };
   let encryptedConfigs: MockRepository<EncryptedConfig>;
+  let timestampClient: {
+    assertTimestampServerWorks: jest.Mock;
+    requestTimestampToken: jest.Mock;
+  };
+  let timestampEmbedder: {
+    embedDocumentTimestamp: jest.Mock;
+  };
+  let revocationCollector: {
+    collectForSignedPdf: jest.Mock;
+  };
+  let dssVriEmbedder: {
+    embed: jest.Mock;
+  };
   const configs = new Map<string, EncryptedConfig>();
 
   beforeEach(async () => {
@@ -47,6 +64,44 @@ describe('PdfSignatureService', () => {
     config = {
       get: jest.fn((_key: string, fallback: unknown) => fallback),
     };
+    timestampClient = {
+      assertTimestampServerWorks: jest.fn().mockResolvedValue(undefined),
+      requestTimestampToken: jest.fn().mockResolvedValue({
+        attempts: [],
+        token: null,
+        url: null,
+      }),
+    };
+    timestampEmbedder = {
+      embedDocumentTimestamp: jest.fn(
+        (input: { pdfBuffer: Buffer; timestampServerUrl: string | null }) =>
+          Promise.resolve({
+            buffer: input.pdfBuffer,
+            timestamp: {
+              attempts: [],
+              embedded: false,
+              required: false,
+              status: 'disabled',
+              tokenSha256: null,
+              url: null,
+            },
+          }),
+      ),
+    };
+    revocationCollector = {
+      collectForSignedPdf: jest.fn().mockResolvedValue({
+        evidences: [],
+        metadata: {
+          evidenceStatus: 'missing',
+          ltvRequired: false,
+        },
+      }),
+    };
+    dssVriEmbedder = {
+      embed: jest.fn(
+        (input: { evidences: unknown[]; pdfBuffer: Buffer }) => input.pdfBuffer,
+      ),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -58,6 +113,22 @@ describe('PdfSignatureService', () => {
         {
           provide: ConfigService,
           useValue: config,
+        },
+        {
+          provide: Rfc3161TimestampClient,
+          useValue: timestampClient,
+        },
+        {
+          provide: PdfDocumentTimestampEmbedder,
+          useValue: timestampEmbedder,
+        },
+        {
+          provide: PdfRevocationCollectorService,
+          useValue: revocationCollector,
+        },
+        {
+          provide: PdfDssVriEmbedder,
+          useValue: dssVriEmbedder,
         },
       ],
     }).compile();
@@ -82,6 +153,11 @@ describe('PdfSignatureService', () => {
     expect(result.signed).toBe(true);
     expect(result.certificateName).toBe(signaDefaultCertificateName);
     expect(result.signatureSubFilter).toBe('ETSI.CAdES.detached');
+    expect(result.timestamp.status).toBe('disabled');
+    expect(result.ltv).toMatchObject({
+      evidenceStatus: 'missing',
+      ltvRequired: false,
+    });
     expect(result.buffer.toString('latin1')).toContain('/ByteRange');
     expect(result.buffer.toString('latin1')).toContain(
       '/SubFilter /ETSI.CAdES.detached',
@@ -119,6 +195,74 @@ describe('PdfSignatureService', () => {
     await expect(service.getTimestampServerUrl('account-1')).resolves.toBe(
       'https://tsa.example.com',
     );
+    expect(timestampClient.assertTimestampServerWorks).toHaveBeenCalledWith(
+      'https://tsa.example.com',
+    );
     expect(configs.has(defaultSigningCertificateKey)).toBe(false);
   });
+
+  it('delegates optional DocTimeStamp embedding when a TSA URL is configured', async () => {
+    timestampEmbedder.embedDocumentTimestamp.mockImplementationOnce(
+      (input: { pdfBuffer: Buffer; timestampServerUrl: string | null }) =>
+        Promise.resolve({
+          buffer: Buffer.concat([
+            input.pdfBuffer,
+            Buffer.from('\n/Type /DocTimeStamp\n', 'latin1'),
+          ]),
+          timestamp: {
+            attempts: [{ status: 'success', url: 'https://tsa.example.com' }],
+            embedded: true,
+            required: false,
+            status: 'embedded',
+            tokenSha256: 'sha256-token',
+            url: 'https://tsa.example.com',
+          },
+        }),
+    );
+    await service.upsertTimestampServerUrl(
+      'account-1',
+      'https://tsa.example.com',
+    );
+    const pdf = await PDFDocument.create();
+
+    pdf.addPage([200, 200]);
+
+    const result = await service.signPdf({
+      accountId: 'account-1',
+      buffer: Buffer.from(await pdf.save()),
+      reason: 'Signed document',
+      signerName: 'Ada Lovelace',
+    });
+
+    const timestampRequest = lastTimestampEmbedRequest(timestampEmbedder);
+
+    expect(timestampRequest.pdfBuffer).toBeInstanceOf(Buffer);
+    expect(timestampRequest.timestampServerUrl).toBe('https://tsa.example.com');
+    expect(result.timestamp.status).toBe('embedded');
+    expect(result.timestamp.embedded).toBe(true);
+    expect(result.buffer.toString('latin1')).toContain('/Type /DocTimeStamp');
+  });
 });
+
+function lastTimestampEmbedRequest(timestampEmbedder: {
+  embedDocumentTimestamp: jest.Mock;
+}): {
+  pdfBuffer: Buffer;
+  timestampServerUrl: string | null;
+} {
+  const call: unknown =
+    timestampEmbedder.embedDocumentTimestamp.mock.calls.at(-1);
+
+  if (!Array.isArray(call)) {
+    throw new Error('Expected timestamp embedder to be called');
+  }
+
+  const [request] = call as [
+    {
+      pdfBuffer: Buffer;
+      timestampServerUrl: string | null;
+    },
+  ];
+
+  return request;
+}

@@ -69,6 +69,21 @@ export const accountPreferenceDefinitions = [
     defaultValue: true,
   },
   {
+    property: 'auto_sign_owner_enabled',
+    key: 'auto_sign_owner_enabled',
+    defaultValue: false,
+  },
+  {
+    property: 'auto_sign_owner_role',
+    key: 'auto_sign_owner_role',
+    defaultValue: 'First Party',
+  },
+  {
+    property: 'auto_sign_owner_send_email',
+    key: 'auto_sign_owner_send_email',
+    defaultValue: false,
+  },
+  {
     property: 'download_links_expire',
     key: 'download_links_expire',
     defaultValue: true,

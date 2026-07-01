@@ -157,6 +157,49 @@ function FormPreferencesSection({
         onChange={(completedMessageBody) => onPatch({ completedMessageBody })}
       />
       <LinkFormFieldsPicker formState={formState} onPatch={onPatch} />
+      <div className="rounded-2xl border border-[var(--auth-input-border)] bg-[var(--auth-muted)]/40 p-4">
+        <div className="space-y-2">
+          <Label>Account owner auto-sign</Label>
+          <Select
+            value={formState.ownerAutoSignMode}
+            onValueChange={(ownerAutoSignMode) =>
+              onPatch({
+                ownerAutoSignMode:
+                  ownerAutoSignMode as PreferencesFormState["ownerAutoSignMode"],
+              })
+            }
+          >
+            <SelectTrigger className="h-12 rounded-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="inherit">Inherit account setting</SelectItem>
+              <SelectItem value="enabled">Auto-sign owner role</SelectItem>
+              <SelectItem value="disabled">Do not auto-sign owner</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Completes the configured owner role with the account owner saved
+          signature before sending to recipients.
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
+          <LabeledInput
+            label="Owner role name"
+            value={formState.ownerAutoSignRole}
+            onChange={(ownerAutoSignRole) => onPatch({ ownerAutoSignRole })}
+          />
+          <div className="flex items-end pb-2">
+            <PreferenceSwitch
+              checked={formState.ownerAutoSignSendEmail}
+              label="Email owner"
+              onCheckedChange={(ownerAutoSignSendEmail) =>
+                onPatch({ ownerAutoSignSendEmail })
+              }
+            />
+          </div>
+        </div>
+      </div>
       <PreferenceSwitch
         checked={formState.requireEmailTwoFactor}
         label="Require email 2FA to open"

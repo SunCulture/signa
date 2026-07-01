@@ -1,76 +1,131 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class SigningPreviewImageDto {
-  @ApiProperty({ example: '22' })
+  @ApiProperty({ description: 'Preview image blob id.', example: '22' })
   id!: string;
 
-  @ApiProperty({ example: 'http://localhost:3001/api/storage/blobs/...' })
+  @ApiProperty({
+    description: 'Signed URL for this page preview image.',
+    example: 'http://localhost:3001/api/storage/blobs/...',
+  })
   url!: string;
 
-  @ApiProperty({ example: '0.png' })
+  @ApiProperty({ description: 'Preview image filename.', example: '0.png' })
   filename!: string;
 
-  @ApiProperty({ example: { width: 1400, height: 1800 } })
+  @ApiProperty({
+    description: 'Image metadata such as width and height.',
+    example: { width: 1400, height: 1800 },
+  })
   metadata!: Record<string, unknown>;
 }
 
 export class SigningDocumentDto {
-  @ApiProperty({ example: '21' })
+  @ApiProperty({ description: 'Document id.', example: '21' })
   id!: string;
 
-  @ApiProperty({ example: 'a453be1e-ad7c-4001-8521-ca90d0920956' })
+  @ApiProperty({
+    description: 'Document UUID used by template schema and fields.',
+    example: 'a453be1e-ad7c-4001-8521-ca90d0920956',
+  })
   uuid!: string;
 
-  @ApiProperty({ example: 'contract.pdf' })
+  @ApiProperty({
+    description: 'Original or generated filename.',
+    example: 'contract.pdf',
+  })
   filename!: string;
 
-  @ApiProperty({ example: 'Contract' })
+  @ApiProperty({ description: 'Document display name.', example: 'Contract' })
   name!: string;
 
-  @ApiProperty({ example: 'http://localhost:3001/api/storage/blobs/...' })
+  @ApiProperty({
+    description: 'Signed URL for the source or generated PDF document.',
+    example: 'http://localhost:3001/api/storage/blobs/...',
+  })
   url!: string;
 
-  @ApiProperty({ type: [SigningPreviewImageDto] })
+  @ApiProperty({
+    description: 'Rendered page previews used by the signing UI.',
+    type: [SigningPreviewImageDto],
+  })
   preview_images!: SigningPreviewImageDto[];
 }
 
 export class SigningSubmitterDto {
-  @ApiProperty({ example: '1' })
+  @ApiProperty({ description: 'Submitter id.', example: '1' })
   id!: string;
 
-  @ApiProperty({ example: 'pAMimKcyrLjqVt' })
+  @ApiProperty({
+    description: 'Public signing slug.',
+    example: 'pAMimKcyrLjqVt',
+  })
   slug!: string;
 
-  @ApiProperty({ example: '884d545b-3396-49f1-8c07-05b8b2a78755' })
+  @ApiProperty({
+    description: 'Stable submitter UUID.',
+    example: '884d545b-3396-49f1-8c07-05b8b2a78755',
+  })
   uuid!: string;
 
-  @ApiPropertyOptional({ example: 'Ada Lovelace', nullable: true })
+  @ApiPropertyOptional({
+    description: 'Recipient name.',
+    example: 'Ada Lovelace',
+    nullable: true,
+  })
   name!: string | null;
 
-  @ApiPropertyOptional({ example: 'ada@example.com', nullable: true })
+  @ApiPropertyOptional({
+    description: 'Recipient email address.',
+    example: 'ada@example.com',
+    nullable: true,
+  })
   email!: string | null;
 
-  @ApiProperty({ example: 'First Party' })
+  @ApiProperty({
+    description: 'Template role this submitter is signing as.',
+    example: 'First Party',
+  })
   role!: string;
 
-  @ApiPropertyOptional({ example: null, nullable: true })
+  @ApiPropertyOptional({
+    description: 'Completion timestamp, or null while pending.',
+    example: null,
+    nullable: true,
+  })
   completed_at!: Date | null;
 
-  @ApiPropertyOptional({ example: null, nullable: true })
+  @ApiPropertyOptional({
+    description: 'Decline timestamp, or null when not declined.',
+    example: null,
+    nullable: true,
+  })
   declined_at!: Date | null;
 }
 
 export class SigningAttachmentDto {
-  @ApiProperty({ example: '77d8b59b-1741-4c25-b95e-f8cd7a22a302' })
+  @ApiProperty({
+    description: 'Attachment UUID used as the field value.',
+    example: '77d8b59b-1741-4c25-b95e-f8cd7a22a302',
+  })
   uuid!: string;
 
-  @ApiProperty({ example: 'signature.png' })
+  @ApiProperty({
+    description: 'Stored attachment filename.',
+    example: 'signature.png',
+  })
   filename!: string;
 
-  @ApiProperty({ example: 'image/png' })
+  @ApiProperty({
+    description: 'Attachment MIME type.',
+    example: 'image/png',
+  })
   content_type!: string | null;
 
-  @ApiProperty({ example: 'http://localhost:3001/api/storage/blobs/...' })
+  @ApiProperty({
+    description: 'Signed URL for downloading or previewing the attachment.',
+    example: 'http://localhost:3001/api/storage/blobs/...',
+  })
   url!: string;
 }
 

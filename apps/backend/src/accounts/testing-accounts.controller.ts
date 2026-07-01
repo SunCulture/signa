@@ -1,5 +1,10 @@
 import { Controller, Delete, Post, Req, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import type { AuthenticatedRequest } from '../auth/authenticated-request';
 import { AuthService } from '../auth/auth.service';
 import { AuthResponseDto } from '../auth/dto/auth-response.dto';
@@ -19,6 +24,11 @@ export class TestingAccountsController {
   ) {}
 
   @Post()
+  @ApiOperation({
+    description:
+      'Creates or reuses the linked testing account and returns a web JWT scoped to test mode while preserving production account context.',
+    summary: 'Enter test mode',
+  })
   @ApiOkResponse({ type: AuthResponseDto })
   async create(@Req() request: AuthenticatedRequest): Promise<AuthResponseDto> {
     const session = request.session!;
@@ -37,6 +47,11 @@ export class TestingAccountsController {
   }
 
   @Delete()
+  @ApiOperation({
+    description:
+      'Returns from the linked testing account to the production account session.',
+    summary: 'Exit test mode',
+  })
   @ApiOkResponse({ type: AuthResponseDto })
   async destroy(
     @Req() request: AuthenticatedRequest,

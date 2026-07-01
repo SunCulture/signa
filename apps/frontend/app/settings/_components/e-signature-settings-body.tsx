@@ -17,6 +17,7 @@ import {
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -300,6 +301,51 @@ function ESignaturePreferences({
           void onSave({ flatten_result_pdf })
         }
       />
+      <div className="rounded-2xl border border-[var(--auth-input-border)] bg-[var(--auth-muted)]/50 p-4">
+        <PreferenceSwitch
+          checked={preferences.auto_sign_owner_enabled}
+          label="Auto-sign the account owner role when creating submissions"
+          onCheckedChange={(auto_sign_owner_enabled) =>
+            void onSave({ auto_sign_owner_enabled })
+          }
+        />
+        <p className="mt-2 text-sm text-muted-foreground">
+          Use the owner saved signature for the configured role before sending
+          the request to other recipients.
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
+          <div className="space-y-2">
+            <Label>Owner role name</Label>
+            <Input
+              className="h-12 rounded-full"
+              disabled={!preferences.auto_sign_owner_enabled}
+              onBlur={(event) => {
+                const role = event.currentTarget.value.trim() || "First Party";
+
+                if (role !== preferences.auto_sign_owner_role) {
+                  void onSave({ auto_sign_owner_role: role });
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.currentTarget.blur();
+                }
+              }}
+              placeholder="First Party"
+              defaultValue={preferences.auto_sign_owner_role || "First Party"}
+            />
+          </div>
+          <div className="flex items-end pb-2">
+            <PreferenceSwitch
+              checked={preferences.auto_sign_owner_send_email}
+              label="Email owner"
+              onCheckedChange={(auto_sign_owner_send_email) =>
+                void onSave({ auto_sign_owner_send_email })
+              }
+            />
+          </div>
+        </div>
+      </div>
       <div className="space-y-2">
         <Label>Document download filename format</Label>
         <Select

@@ -196,6 +196,13 @@ async function submitRecipientGroups(input: {
 }) {
   for (const recipientSet of input.selectedSets) {
     await createTemplateSubmission(input.template.id, {
+      auto_sign_owner:
+        input.template.preferences.auto_sign_owner_enabled === true
+          ? true
+          : undefined,
+      auto_sign_owner_role:
+        getStringPreference(input.template.preferences.auto_sign_owner_role) ??
+        undefined,
       message: shouldSendEmail(input.activeTab, input.sendEmail)
         ? {
             body: input.messageBody.trim(),
@@ -226,6 +233,10 @@ function addRecipientSet(
       `recipient-group-${currentSets.length + 1}-${Date.now()}`,
     ),
   ]);
+}
+
+function getStringPreference(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function removeRecipientSet(

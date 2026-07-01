@@ -26,6 +26,8 @@ export class AttachmentsController {
   @UseInterceptors(FileInterceptor('file'))
   @ApiConsumes('multipart/form-data')
   @ApiBody({
+    description:
+      'DocuSeal-compatible multipart attachment upload. The returned attachment UUID can be used as a file/image/signature field value.',
     schema: {
       type: 'object',
       required: ['file', 'submitter_slug'],
@@ -37,7 +39,11 @@ export class AttachmentsController {
       },
     },
   })
-  @ApiOperation({ summary: 'Upload public submitter attachment' })
+  @ApiOperation({
+    description:
+      'Uploads an attachment for a public submitter using the submitter slug. This endpoint supports API-style upload-then-reference workflows.',
+    summary: 'Upload public submitter attachment',
+  })
   @ApiOkResponse({ type: AttachmentUploadResponseDto })
   uploadAttachment(
     @Body('submitter_slug') submitterSlug: string,

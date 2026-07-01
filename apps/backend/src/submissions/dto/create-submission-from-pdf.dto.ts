@@ -9,31 +9,55 @@ import {
 export class CreateSubmissionFromPdfDto extends OmitType(CreateSubmissionDto, [
   'template_id',
 ] as const) {
-  @ApiProperty({ type: [CreateTemplatePdfDocumentDto] })
+  @ApiProperty({
+    description:
+      'PDF documents supplied as JSON. For multipart requests use documents/files/file upload fields instead.',
+    type: [CreateTemplatePdfDocumentDto],
+  })
   @IsOptional()
   @IsArray()
   documents?: CreateTemplatePdfDocumentDto[];
 
-  @ApiProperty({ type: [CreateSubmissionSubmitterDto] })
+  @ApiProperty({
+    description:
+      'Recipients and roles for the generated submission. Roles must match supplied or extracted fields when fields are present.',
+    type: [CreateSubmissionSubmitterDto],
+  })
   @IsArray()
   submitters: CreateSubmissionSubmitterDto[];
 
-  @ApiPropertyOptional({ example: ['1000001'] })
+  @ApiPropertyOptional({
+    description:
+      'Existing template ids to use as backing documents together with uploaded PDFs.',
+    example: ['1000001'],
+  })
   @IsOptional()
   @IsArray()
   template_ids?: string[];
 
-  @ApiPropertyOptional({ example: false })
+  @ApiPropertyOptional({
+    description:
+      'Flatten existing PDF annotations before field detection/rendering.',
+    example: false,
+  })
   @IsOptional()
   @IsBoolean()
   flatten?: boolean;
 
-  @ApiPropertyOptional({ example: true })
+  @ApiPropertyOptional({
+    description:
+      'Remove embedded DocuSeal text tags such as {{signature}} from generated documents.',
+    example: true,
+  })
   @IsOptional()
   @IsBoolean()
   remove_tags?: boolean;
 
-  @ApiPropertyOptional({ example: 'Default' })
+  @ApiPropertyOptional({
+    description:
+      'Folder name/path for the temporary backing template created from these PDFs.',
+    example: 'Default',
+  })
   @IsOptional()
   @IsString()
   folder_name?: string;

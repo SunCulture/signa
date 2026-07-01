@@ -13,6 +13,8 @@ import {
   ApiBearerAuth,
   ApiCreatedResponse,
   ApiOkResponse,
+  ApiOperation,
+  ApiParam,
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
@@ -49,7 +51,17 @@ export class TeamsController {
   ) {}
 
   @Get('teams')
-  @ApiQuery({ name: 'status', required: false, enum: ['active', 'archived'] })
+  @ApiQuery({
+    description: 'Filter teams by active or archived status.',
+    enum: ['active', 'archived'],
+    name: 'status',
+    required: false,
+  })
+  @ApiOperation({
+    description:
+      'Lists account teams. Teams are account-local collaboration groups used for organization, impersonation, and team-scoped API keys.',
+    summary: 'List teams',
+  })
   @ApiOkResponse({ type: TeamResponseDto, isArray: true })
   listTeams(
     @CurrentUser() user: User,
@@ -62,6 +74,11 @@ export class TeamsController {
   }
 
   @Post('teams')
+  @ApiOperation({
+    description:
+      'Creates an account-local team and optionally assigns the creating user as manager.',
+    summary: 'Create team',
+  })
   @ApiCreatedResponse({ type: TeamResponseDto })
   createTeam(
     @CurrentUser() user: User,
@@ -75,6 +92,11 @@ export class TeamsController {
   }
 
   @Get('teams/:id')
+  @ApiParam({ description: 'Team id.', name: 'id' })
+  @ApiOperation({
+    description: 'Returns one account-local team by id.',
+    summary: 'Get team',
+  })
   @ApiOkResponse({ type: TeamResponseDto })
   getTeam(
     @CurrentUser() user: User,
@@ -87,6 +109,12 @@ export class TeamsController {
   }
 
   @Patch('teams/:id')
+  @ApiParam({ description: 'Team id.', name: 'id' })
+  @ApiOperation({
+    description:
+      'Updates team name, slug, description, or archived state depending on supplied fields.',
+    summary: 'Update team',
+  })
   @ApiOkResponse({ type: TeamResponseDto })
   updateTeam(
     @CurrentUser() user: User,
@@ -102,6 +130,12 @@ export class TeamsController {
   }
 
   @Delete('teams/:id')
+  @ApiParam({ description: 'Team id.', name: 'id' })
+  @ApiOperation({
+    description:
+      'Archives a team while preserving historical membership and workflow data.',
+    summary: 'Archive team',
+  })
   @ApiOkResponse({ type: TeamResponseDto })
   archiveTeam(
     @CurrentUser() user: User,
@@ -115,6 +149,11 @@ export class TeamsController {
   }
 
   @Get('teams/:id/members')
+  @ApiParam({ description: 'Team id.', name: 'id' })
+  @ApiOperation({
+    description: 'Lists active members assigned to a team.',
+    summary: 'List team members',
+  })
   @ApiOkResponse({ type: TeamMemberResponseDto, isArray: true })
   listMembers(
     @CurrentUser() user: User,
@@ -127,6 +166,12 @@ export class TeamsController {
   }
 
   @Post('teams/:id/members')
+  @ApiParam({ description: 'Team id.', name: 'id' })
+  @ApiOperation({
+    description:
+      'Adds or restores an existing account user as a team member with the selected team role.',
+    summary: 'Add team member',
+  })
   @ApiCreatedResponse({ type: TeamMemberResponseDto })
   addMember(
     @CurrentUser() user: User,
@@ -142,6 +187,13 @@ export class TeamsController {
   }
 
   @Patch('teams/:id/members/:memberId')
+  @ApiParam({ description: 'Team id.', name: 'id' })
+  @ApiParam({ description: 'Team member row id.', name: 'memberId' })
+  @ApiOperation({
+    description:
+      'Updates a team member role. Account admins and team managers can manage team roles.',
+    summary: 'Update team member',
+  })
   @ApiOkResponse({ type: TeamMemberResponseDto })
   updateMember(
     @CurrentUser() user: User,
@@ -159,6 +211,13 @@ export class TeamsController {
   }
 
   @Delete('teams/:id/members/:memberId')
+  @ApiParam({ description: 'Team id.', name: 'id' })
+  @ApiParam({ description: 'Team member row id.', name: 'memberId' })
+  @ApiOperation({
+    description:
+      'Removes a member from a team without deleting the underlying account user.',
+    summary: 'Remove team member',
+  })
   @ApiOkResponse({ type: TeamMemberResponseDto })
   removeMember(
     @CurrentUser() user: User,
@@ -174,6 +233,11 @@ export class TeamsController {
   }
 
   @Get('teams/:id/invitations')
+  @ApiParam({ description: 'Team id.', name: 'id' })
+  @ApiOperation({
+    description: 'Lists pending invitations for a team.',
+    summary: 'List team invitations',
+  })
   @ApiOkResponse({ type: TeamInvitationResponseDto, isArray: true })
   listInvitations(
     @CurrentUser() user: User,
@@ -186,6 +250,12 @@ export class TeamsController {
   }
 
   @Post('teams/:id/invitations')
+  @ApiParam({ description: 'Team id.', name: 'id' })
+  @ApiOperation({
+    description:
+      'Creates a team invitation and queues an invitation email with an accept token.',
+    summary: 'Create team invitation',
+  })
   @ApiCreatedResponse({ type: TeamInvitationResponseDto })
   createInvitation(
     @CurrentUser() user: User,
@@ -201,6 +271,12 @@ export class TeamsController {
   }
 
   @Post('teams/:id/impersonate')
+  @ApiParam({ description: 'Team id.', name: 'id' })
+  @ApiOperation({
+    description:
+      'Returns a web JWT with the selected team id in the session claims for team-scoped UI workflows.',
+    summary: 'Impersonate team context',
+  })
   @ApiOkResponse({ type: AuthResponseDto })
   async impersonateTeam(
     @CurrentUser() user: User,
@@ -220,6 +296,12 @@ export class TeamsController {
   }
 
   @Post('teams/:id/api-token')
+  @ApiParam({ description: 'Team id.', name: 'id' })
+  @ApiOperation({
+    description:
+      'Issues a team-scoped API token. The owning user remains the security principal and token permissions still apply.',
+    summary: 'Issue team API token',
+  })
   @ApiOkResponse({ type: ApiTokenRevealResponseDto })
   async issueTeamApiToken(
     @CurrentUser() user: User,
@@ -235,6 +317,12 @@ export class TeamsController {
   }
 
   @Delete('teams/:id/invitations/:invitationId')
+  @ApiParam({ description: 'Team id.', name: 'id' })
+  @ApiParam({ description: 'Team invitation id.', name: 'invitationId' })
+  @ApiOperation({
+    description: 'Revokes a pending team invitation before it is accepted.',
+    summary: 'Revoke team invitation',
+  })
   @ApiOkResponse({ type: TeamInvitationResponseDto })
   revokeInvitation(
     @CurrentUser() user: User,
@@ -250,6 +338,15 @@ export class TeamsController {
   }
 
   @Post('team-invitations/:token/accept')
+  @ApiParam({
+    description: 'Raw invitation token from the emailed invitation link.',
+    name: 'token',
+  })
+  @ApiOperation({
+    description:
+      'Accepts a pending team invitation for the current signed-in user.',
+    summary: 'Accept team invitation',
+  })
   @ApiOkResponse({ type: AcceptTeamInvitationResponseDto })
   async acceptInvitation(
     @CurrentUser() user: User,

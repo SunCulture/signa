@@ -16,6 +16,8 @@ import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
   ApiOkResponse,
+  ApiOperation,
+  ApiParam,
   ApiQuery,
   ApiSecurity,
   ApiTags,
@@ -75,6 +77,11 @@ export class SubmissionsController {
   @ApiQuery({ name: 'after', required: false })
   @ApiQuery({ name: 'before', required: false })
   @ApiQuery({ name: 'include', required: false })
+  @ApiOperation({
+    description:
+      'Returns account-scoped signature requests using DocuSeal cursor pagination. Use status, template_id, q, slug, folder, and archived filters to build dashboard or API workflows.',
+    summary: 'List submissions',
+  })
   @ApiOkResponse({ type: SubmissionsListResponseDto })
   listSubmissions(
     @CurrentUser() user: User,
@@ -85,6 +92,15 @@ export class SubmissionsController {
 
   @Get(':id')
   @ApiQuery({ name: 'include', required: false })
+  @ApiParam({
+    description: 'Submission id returned by a create/list submissions call.',
+    name: 'id',
+  })
+  @ApiOperation({
+    description:
+      'Returns one submission with submitters, generated document URLs, audit URL, and optional included fields.',
+    summary: 'Get a submission',
+  })
   @ApiOkResponse({ type: SubmissionResponseDto })
   getSubmission(
     @CurrentUser() user: User,
@@ -95,6 +111,12 @@ export class SubmissionsController {
   }
 
   @Get(':id/events')
+  @ApiParam({ description: 'Submission id.', name: 'id' })
+  @ApiOperation({
+    description:
+      'Returns Signa activity, signing, mail, and webhook events recorded for a submission. This is a Signa extension for traceability.',
+    summary: 'List submission event log',
+  })
   @ApiOkResponse({ type: SubmissionEventLogResponseDto })
   getSubmissionEvents(
     @CurrentUser() user: User,
@@ -104,6 +126,19 @@ export class SubmissionsController {
   }
 
   @Get(':id/documents')
+  @ApiParam({ description: 'Submission id.', name: 'id' })
+  @ApiQuery({
+    description:
+      'When true, returns the combined signed document/audit bundle where available.',
+    name: 'merge',
+    required: false,
+    type: Boolean,
+  })
+  @ApiOperation({
+    description:
+      'Returns completed/pending document download URLs for a submission. Mirrors DocuSeal document URL retrieval and supports Signa combined-document generation.',
+    summary: 'Get submission documents',
+  })
   @ApiOkResponse({ type: SubmissionDocumentsResponseDto })
   getSubmissionDocuments(
     @CurrentUser() user: User,
@@ -116,6 +151,11 @@ export class SubmissionsController {
   }
 
   @Post()
+  @ApiOperation({
+    description:
+      'Creates one or more submitters from an existing template. Accepts DocuSeal-compatible submitter role/email/phone/value payloads, optional message overrides, ordering, expiry, and send flags.',
+    summary: 'Create a submission from a template',
+  })
   @ApiOkResponse({ type: [SubmissionSubmitterResponseDto] })
   createSubmission(
     @CurrentUser() user: User,
@@ -134,6 +174,11 @@ export class SubmissionsController {
   }
 
   @Post('emails')
+  @ApiOperation({
+    description:
+      'DocuSeal-compatible shortcut for creating submissions from an email list or submitter list against a template.',
+    summary: 'Create submissions from emails',
+  })
   @ApiOkResponse({ type: [SubmissionSubmitterResponseDto] })
   createSubmissionFromEmails(
     @CurrentUser() user: User,
@@ -148,6 +193,11 @@ export class SubmissionsController {
   }
 
   @Post('init')
+  @ApiOperation({
+    description:
+      'Initializes a submission request without immediately sending it. This is used by dashboard send flows that need a draft-like submitter payload before delivery.',
+    summary: 'Initialize a submission request',
+  })
   @ApiOkResponse({ type: SubmissionInitResponseDto })
   initSubmission(
     @CurrentUser() user: User,
@@ -169,6 +219,11 @@ export class SubmissionsController {
       { name: 'file', maxCount: 1 },
     ]),
   )
+  @ApiOperation({
+    description:
+      'Creates a temporary backing template from uploaded/base64/remote PDF documents, then creates submitters from it. Supports multipart files and DocuSeal JSON file inputs.',
+    summary: 'Create a submission from PDF documents',
+  })
   @ApiOkResponse({ type: [SubmissionSubmitterResponseDto] })
   createSubmissionFromPdf(
     @CurrentUser() user: User,
@@ -186,6 +241,11 @@ export class SubmissionsController {
   }
 
   @Post('html')
+  @ApiOperation({
+    description:
+      'Creates a submission from HTML documents with DocuSeal field tags. HTML is rendered to PDF before the signing request is created.',
+    summary: 'Create a submission from HTML',
+  })
   @ApiOkResponse({ type: [SubmissionSubmitterResponseDto] })
   createSubmissionFromHtml(
     @CurrentUser() user: User,
@@ -200,6 +260,11 @@ export class SubmissionsController {
   }
 
   @Post('docx')
+  @ApiOperation({
+    description:
+      'Creates a submission from DOCX documents. DOCX variables are expanded, rendered to PDF, and used as the backing signing documents.',
+    summary: 'Create a submission from DOCX documents',
+  })
   @ApiOkResponse({ type: [SubmissionSubmitterResponseDto] })
   createSubmissionFromDocx(
     @CurrentUser() user: User,
@@ -214,6 +279,12 @@ export class SubmissionsController {
   }
 
   @Delete(':id')
+  @ApiParam({ description: 'Submission id.', name: 'id' })
+  @ApiOperation({
+    description:
+      'Archives a submission by default. Pass permanently=true to hard-delete it when allowed.',
+    summary: 'Archive or delete a submission',
+  })
   @ApiOkResponse({ type: SubmissionDeleteResponseDto })
   deleteSubmission(
     @CurrentUser() user: User,
@@ -236,6 +307,11 @@ export class TemplateSubmissionsController {
   ) {}
 
   @Get('export')
+  @ApiOperation({
+    description:
+      'Exports a template submission table as CSV or XLSX using the same filters as submission listing.',
+    summary: 'Export template submissions',
+  })
   async exportTemplateSubmissions(
     @CurrentUser() user: User,
     @Param('templateId') templateId: string,
@@ -257,6 +333,12 @@ export class TemplateSubmissionsController {
   }
 
   @Get()
+  @ApiParam({ description: 'Template id.', name: 'templateId' })
+  @ApiOperation({
+    description:
+      'Lists submissions scoped to one template. Equivalent to GET /submissions?template_id={id}.',
+    summary: 'List template submissions',
+  })
   @ApiOkResponse({ type: SubmissionsListResponseDto })
   listTemplateSubmissions(
     @CurrentUser() user: User,
@@ -270,6 +352,12 @@ export class TemplateSubmissionsController {
   }
 
   @Post()
+  @ApiParam({ description: 'Template id.', name: 'templateId' })
+  @ApiOperation({
+    description:
+      'Creates submitters for a specific template using the same body as POST /submissions/emails.',
+    summary: 'Create template submissions',
+  })
   @ApiOkResponse({ type: [SubmissionSubmitterResponseDto] })
   createTemplateSubmission(
     @CurrentUser() user: User,
@@ -297,6 +385,11 @@ export class EventsController {
   constructor(private readonly submissionsService: SubmissionsService) {}
 
   @Get('form/:type')
+  @ApiOperation({
+    description:
+      'Lists form/submitter webhook-style events by type with cursor pagination. This closes DocuSeal event-feed compatibility for form lifecycle integrations.',
+    summary: 'List form events by type',
+  })
   @ApiOkResponse({ type: EventFeedResponseDto })
   listFormEvents(
     @CurrentUser() user: User,
@@ -313,6 +406,11 @@ export class EventsController {
   }
 
   @Get('submission/:type')
+  @ApiOperation({
+    description:
+      'Lists submission webhook-style events by type with cursor pagination for integration dashboards and diagnostics.',
+    summary: 'List submission events by type',
+  })
   @ApiOkResponse({ type: EventFeedResponseDto })
   listSubmissionEvents(
     @CurrentUser() user: User,
@@ -338,6 +436,11 @@ export class SubmissionMailController {
   @ApiTags('Submission Mail')
   @ApiBearerAuth()
   @ApiSecurity('X-Auth-Token')
+  @ApiOperation({
+    description:
+      'Queues signature request emails for the pending submitters in a submission.',
+    summary: 'Resend submission signature emails',
+  })
   @ApiOkResponse({ type: SendEmailResponseDto })
   resendSubmissionEmail(
     @CurrentUser() user: User,
@@ -351,6 +454,10 @@ export class SubmissionMailController {
   @ApiTags('Submission Mail')
   @ApiBearerAuth()
   @ApiSecurity('X-Auth-Token')
+  @ApiOperation({
+    description: 'Queues a signature request email for one submitter.',
+    summary: 'Send submitter signature email',
+  })
   @ApiOkResponse({ type: SendEmailResponseDto })
   sendSubmitterEmail(
     @CurrentUser() user: User,
@@ -364,6 +471,11 @@ export class SubmissionMailController {
   @ApiTags('Submission Mail')
   @ApiBearerAuth()
   @ApiSecurity('X-Auth-Token')
+  @ApiOperation({
+    description:
+      'Returns queued/sent/failed mail delivery records and provider error details for a submission.',
+    summary: 'List submission mail events',
+  })
   @ApiOkResponse({ type: SubmissionMailEventsResponseDto })
   listSubmissionMailEvents(
     @CurrentUser() user: User,
@@ -374,6 +486,11 @@ export class SubmissionMailController {
 
   @Post('send_submission_email')
   @ApiTags('Submission Mail')
+  @ApiOperation({
+    description:
+      'Public completed-document email endpoint used by signing completion screens. Accepts submitter_slug, submission_slug, or template_slug plus an optional target email.',
+    summary: 'Send completed submission copy',
+  })
   @ApiOkResponse({ type: SendEmailResponseDto })
   sendCompletedSubmissionEmail(
     @Body('submitter_slug') submitterSlug?: string,

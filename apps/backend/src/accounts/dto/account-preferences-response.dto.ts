@@ -94,6 +94,26 @@ export class AccountPreferencesResponseDto {
   @ApiProperty({ example: true })
   form_prefill_signature!: boolean;
 
+  @ApiProperty({
+    description:
+      'When enabled, Signa completes the configured owner role with the account owner saved signature during submission creation.',
+    example: false,
+  })
+  auto_sign_owner_enabled!: boolean;
+
+  @ApiProperty({
+    description: 'Template role name completed by the account owner auto-sign flow.',
+    example: 'First Party',
+  })
+  auto_sign_owner_role!: string;
+
+  @ApiProperty({
+    description:
+      'Whether the auto-signed owner submitter should still receive a request email.',
+    example: false,
+  })
+  auto_sign_owner_send_email!: boolean;
+
   @ApiProperty({ example: true })
   download_links_expire!: boolean;
 

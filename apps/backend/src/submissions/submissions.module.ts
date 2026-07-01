@@ -8,11 +8,14 @@ import { AccountsModule } from '../accounts/accounts.module';
 import { AccountConfig } from '../accounts/entities/account-config.entity';
 import { UserHydrationGuard } from '../auth/guards/user-hydration/user-hydration.guard';
 import { EmailMessage } from '../mail/entities/email-message.entity';
+import { PdfProcessingModule } from '../pdf-processing/pdf-processing.module';
 import { PdfSignaturesModule } from '../pdf-signatures/pdf-signatures.module';
 import { StorageModule } from '../storage/storage.module';
 import { Submitter } from '../submitters/entities/submitter.entity';
 import { TemplatesModule } from '../templates/templates.module';
 import { UsersModule } from '../users/users.module';
+import { UserConfig } from '../users/entities/user-config.entity';
+import { User } from '../users/entities/user.entity';
 import { queueNames } from '../runtime/queue-options';
 import { CompletedDocument } from './entities/completed-document.entity';
 import { CompletedSubmitter } from './entities/completed-submitter.entity';
@@ -27,6 +30,7 @@ import { SubmissionDocumentsService } from './submission-documents.service';
 import { SubmissionExportService } from './submission-export.service';
 import { SubmissionPdfGeneratorService } from './submission-pdf-generator.service';
 import { SubmitterValueNormalizer } from './submitter-value-normalizer.service';
+import { OwnerAutoSignService } from './owner-auto-sign.service';
 import {
   EventsController,
   SubmissionMailController,
@@ -39,6 +43,7 @@ import { SubmissionsService } from './submissions.service';
   imports: [
     AuthModule,
     AccountsModule,
+    PdfProcessingModule,
     PdfSignaturesModule,
     StorageModule,
     TemplatesModule,
@@ -59,6 +64,8 @@ import { SubmissionsService } from './submissions.service';
       DocumentGenerationEvent,
       AccountConfig,
       EmailMessage,
+      User,
+      UserConfig,
     ]),
   ],
   controllers: [
@@ -75,6 +82,7 @@ import { SubmissionsService } from './submissions.service';
     SubmissionExportService,
     SubmissionPdfGeneratorService,
     SubmitterValueNormalizer,
+    OwnerAutoSignService,
     UserHydrationGuard,
   ],
   exports: [

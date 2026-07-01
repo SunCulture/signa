@@ -67,6 +67,7 @@ import {
 import { buildSubmissionEventLog } from './submission-event-log.mapper';
 import { SubmissionDocumentsService } from './submission-documents.service';
 import { DocumentGenerationQueueService } from './document-generation-queue.service';
+import { OwnerAutoSignService } from './owner-auto-sign.service';
 import { SubmitterValueNormalizer } from './submitter-value-normalizer.service';
 
 @Injectable()
@@ -92,6 +93,7 @@ export class SubmissionsService {
     private readonly documentGenerationQueue: DocumentGenerationQueueService,
     private readonly events: EventEmitter2,
     private readonly submitterValueNormalizer: SubmitterValueNormalizer,
+    private readonly ownerAutoSign: OwnerAutoSignService,
   ) {}
 
   async listSubmissions(
@@ -878,8 +880,14 @@ export class SubmissionsService {
     withTemplate: boolean,
     metadata?: SubmissionRequestMetadata,
   ): Promise<Submission> {
+    const preparedInput = await this.ownerAutoSign.prepareSubmittersInput(
+      user,
+      template,
+      input,
+    );
+
     return this.dataSource.transaction(async (manager) => {
-      const resolution = this.resolveSubmitters(template, input);
+      const resolution = this.resolveSubmitters(template, preparedInput);
       const normalizedSubmitters = await Promise.all(
         resolution.submitters.map(async (resolved) => {
           const normalized =
@@ -918,11 +926,12 @@ export class SubmissionsService {
       const templateFields = this.buildSubmissionFields(
         resolution.templateFields,
         resolvedSubmitters,
-        input,
+        preparedInput,
         withTemplate,
         resolution.forceTemplateFieldsSnapshot,
       );
-      const order = input.submitters_order ?? input.order ?? 'preserved';
+      const order =
+        preparedInput.submitters_order ?? preparedInput.order ?? 'preserved';
 
       const submission = await manager.getRepository(Submission).save(
         manager.getRepository(Submission).create({
@@ -930,12 +939,14 @@ export class SubmissionsService {
           createdByUserId: user.id,
           templateId: withTemplate ? template.id : null,
           template,
-          name: input.name ?? null,
+          name: preparedInput.name ?? null,
           source: 'api',
           submittersOrder: order,
-          preferences: this.buildSubmissionPreferences(input),
-          variables: input.variables ?? {},
-          expireAt: input.expire_at ? new Date(input.expire_at) : null,
+          preferences: this.buildSubmissionPreferences(preparedInput),
+          variables: preparedInput.variables ?? {},
+          expireAt: preparedInput.expire_at
+            ? new Date(preparedInput.expire_at)
+            : null,
           templateFields,
           templateSchema: templateFields ? template.schema : null,
           templateSubmitters,
@@ -952,7 +963,12 @@ export class SubmissionsService {
             manager
               .getRepository(Submitter)
               .create(
-                this.buildSubmitterEntity(user, submission, resolved, input),
+                this.buildSubmitterEntity(
+                  user,
+                  submission,
+                  resolved,
+                  preparedInput,
+                ),
               ),
           );
 
@@ -980,6 +996,13 @@ export class SubmissionsService {
       submission.createdByUser = user;
       submission.submitters = savedSubmitters;
       submission.submissionEvents = [];
+
+      await this.ownerAutoSign.completeSavedSignatureSubmitters({
+        manager,
+        metadata,
+        submission,
+        user,
+      });
 
       return submission;
     });
@@ -1535,6 +1558,12 @@ export class SubmissionsService {
           : {}),
         ...(requestMessage ? { message: requestMessage } : {}),
         ...(Object.keys(values).length ? { default_values: values } : {}),
+        ...(resolved.input.use_saved_signature
+          ? { use_saved_signature: true }
+          : {}),
+        ...(resolved.input.completed_by_user_id
+          ? { completed_by_user_id: resolved.input.completed_by_user_id }
+          : {}),
       },
       sentAt: null,
       openedAt: null,

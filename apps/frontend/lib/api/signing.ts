@@ -171,6 +171,12 @@ export function declineSigningForm(
   });
 }
 
+export function resubmitSigningForm(slug: string): Promise<SigningForm> {
+  return apiFetch<SigningForm>(`/signing/${slug}/resubmit`, {
+    method: "POST",
+  });
+}
+
 export function sendSigningPhoneVerification(
   slug: string,
   input: { field_uuid?: string; phone?: string },
@@ -213,4 +219,13 @@ export function getSigningDownload(
   return apiFetch<{ documents: SigningDocument[] }>(
     `/signing/${slug}/download`,
   );
+}
+
+export function sendSigningCompletedCopy(
+  slug: string,
+): Promise<{ status?: string }> {
+  return apiFetch<{ status?: string }>("/send_submission_email", {
+    body: JSON.stringify({ submitter_slug: slug }),
+    method: "POST",
+  });
 }

@@ -88,15 +88,19 @@ function buildSubmissionCreatedEvent(
   return {
     id: `submission-${submission.id}-created`,
     actor,
+    browser: null,
     data: { source: submission.source },
     device: null,
     event_timestamp: submission.createdAt,
     event_type: 'submission_created',
     icon: eventIconByType.submission_created,
+    ip: null,
     message: actor
       ? `Submission created by ${actor} via ${source}`
       : `Submission created via ${source}`,
+    os: null,
     submitter_id: null,
+    timezone: null,
     title: eventTitleByType.submission_created,
   };
 }
@@ -115,13 +119,17 @@ function buildPersistedEvent(
   return {
     id: event.id,
     actor,
+    browser: stringOrNull(event.data?.browser),
     data: event.data ?? {},
-    device: detectDevice(event.data?.ua),
+    device: stringOrNull(event.data?.device_type) ?? detectDevice(event.data?.ua),
     event_timestamp: event.eventTimestamp,
     event_type: event.eventType,
     icon: eventIconByType[event.eventType] ?? 'circle_dot',
+    ip: stringOrNull(event.data?.ip),
     message: buildEventMessage(event.eventType, title, actor),
+    os: stringOrNull(event.data?.os),
     submitter_id: event.submitterId,
+    timezone: stringOrNull(event.data?.timezone),
     title,
   };
 }
@@ -167,6 +175,10 @@ function detectDevice(ua: unknown): string | null {
   }
 
   return 'desktop';
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 function humanizeSource(value: string): string {

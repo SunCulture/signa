@@ -1,5 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
-import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { ApiResponse } from '@repo/shared';
 import { AppService } from './app.service';
 
@@ -15,6 +15,11 @@ export class AppController {
   constructor(private readonly appService: AppService) {}
 
   @Get()
+  @ApiOperation({
+    description:
+      'Returns basic API metadata for probes, smoke tests, and SDK bootstrapping.',
+    summary: 'Get API metadata',
+  })
   @ApiOkResponse({ description: 'API service metadata' })
   getInfo(): ApiResponse<ApiInfo> {
     return {

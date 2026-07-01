@@ -72,7 +72,11 @@ export function TemplateDetailSendRecipientsDialog({
   open: boolean;
   template: TemplateResponse;
 }) {
-  const primaryRole = getPrimaryRole(template);
+  const ownerRole = getOwnerAutoSignRole(template);
+  const [autoSignOwner, setAutoSignOwner] = useState(
+    template.preferences.auto_sign_owner_enabled === true,
+  );
+  const primaryRole = getRecipientRole(template, autoSignOwner, ownerRole);
   const [activeTab, setActiveTab] = useState<SendRecipientTab>("email");
   const [emailText, setEmailText] = useState("");
   const [phoneRecipients, setPhoneRecipients] = useState<DetailRecipient[]>([
@@ -133,6 +137,8 @@ export function TemplateDetailSendRecipientsDialog({
 
       for (const submitter of submitters) {
         await createTemplateSubmission(template.id, {
+          auto_sign_owner: autoSignOwner,
+          auto_sign_owner_role: ownerRole,
           message: submitter.send_email
             ? {
                 body: messageBody.trim(),
@@ -238,6 +244,26 @@ export function TemplateDetailSendRecipientsDialog({
                   sampleHref={sampleHref}
                 />
               </TabsContent>
+
+              {template.submitters.length > 1 ? (
+                <label className="mt-4 flex items-start gap-3 rounded-2xl bg-[var(--auth-muted)] p-3 text-sm">
+                  <Checkbox
+                    checked={autoSignOwner}
+                    onCheckedChange={(checked) =>
+                      setAutoSignOwner(Boolean(checked))
+                    }
+                  />
+                  <span>
+                    <span className="block font-bold">
+                      Auto-sign {ownerRole}
+                    </span>
+                    <span className="text-muted-foreground">
+                      Use the account owner saved signature before sending this
+                      request to {primaryRole}.
+                    </span>
+                  </span>
+                </label>
+              ) : null}
 
               <DetailSendOptions
                 activeTab={activeTab}
@@ -631,6 +657,34 @@ function buildSubmittersForActiveTab(input: {
 
 function getPrimaryRole(template: TemplateResponse): string {
   return template.submitters[0]?.name?.trim() || "First Party";
+}
+
+function getOwnerAutoSignRole(template: TemplateResponse): string {
+  return (
+    getStringPreference(template.preferences.auto_sign_owner_role) ||
+    "First Party"
+  );
+}
+
+function getRecipientRole(
+  template: TemplateResponse,
+  autoSignOwner: boolean,
+  ownerRole: string,
+): string {
+  if (!autoSignOwner) {
+    return getPrimaryRole(template);
+  }
+
+  return (
+    template.submitters.find(
+      (submitter) =>
+        submitter.name?.trim().toLowerCase() !== ownerRole.toLowerCase(),
+    )?.name?.trim() || getPrimaryRole(template)
+  );
+}
+
+function getStringPreference(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function mapBulkRowsToDetailRecipients(

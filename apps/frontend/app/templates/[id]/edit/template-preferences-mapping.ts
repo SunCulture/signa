@@ -78,6 +78,17 @@ export function preferencesToFormState(
       defaultDocumentsCopyEmailSubject,
     ),
     linkFormFields: getStringArray(preferences.link_form_fields, ["email"]),
+    ownerAutoSignMode:
+      preferences.auto_sign_owner_enabled === true
+        ? "enabled"
+        : preferences.auto_sign_owner_enabled === false
+          ? "disabled"
+          : "inherit",
+    ownerAutoSignRole: getString(
+      preferences.auto_sign_owner_role,
+      "First Party",
+    ),
+    ownerAutoSignSendEmail: preferences.auto_sign_owner_send_email === true,
     requestEmailBody: getString(
       preferences.request_email_body,
       defaultRequestEmailBody,
@@ -125,6 +136,12 @@ export function formStateToPreferences(
     documents_copy_email_reply_to: formState.documentsCopyEmailReplyTo,
     documents_copy_email_subject: formState.documentsCopyEmailSubject,
     link_form_fields: formState.linkFormFields,
+    auto_sign_owner_enabled:
+      formState.ownerAutoSignMode === "inherit"
+        ? undefined
+        : formState.ownerAutoSignMode === "enabled",
+    auto_sign_owner_role: formState.ownerAutoSignRole,
+    auto_sign_owner_send_email: formState.ownerAutoSignSendEmail,
     request_email_body: formState.requestEmailBody,
     request_email_enabled: formState.requestEmailEnabled,
     request_email_subject: formState.requestEmailSubject,

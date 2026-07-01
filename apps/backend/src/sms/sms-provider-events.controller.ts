@@ -7,7 +7,13 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import {
+  ApiBody,
+  ApiOkResponse,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { Request } from 'express';
@@ -25,6 +31,35 @@ export class SmsProviderEventsController {
   ) {}
 
   @Post('twilio/status')
+  @ApiOperation({
+    description:
+      'Receives Twilio status callbacks for SMS delivery and records provider status events against the originating submission.',
+    summary: 'Record Twilio SMS status',
+  })
+  @ApiQuery({
+    description:
+      'Optional callback secret when Twilio cannot send x-signa-callback-secret.',
+    name: 'secret',
+    required: false,
+  })
+  @ApiBody({
+    description: 'Raw Twilio status callback body.',
+    schema: {
+      example: {
+        MessageSid: 'SMXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        MessageStatus: 'delivered',
+        To: '+14155552671',
+      },
+      type: 'object',
+    },
+  })
+  @ApiOkResponse({
+    schema: {
+      example: { status: 'ok' },
+      properties: { status: { example: 'ok', type: 'string' } },
+      type: 'object',
+    },
+  })
   async recordTwilioStatus(
     @Body() body: unknown,
     @Req() request: Request,

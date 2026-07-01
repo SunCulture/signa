@@ -11,6 +11,8 @@ import {
 import {
   ApiBearerAuth,
   ApiOkResponse,
+  ApiOperation,
+  ApiParam,
   ApiQuery,
   ApiSecurity,
   ApiTags,
@@ -50,6 +52,11 @@ export class SubmittersController {
   @ApiQuery({ name: 'after', required: false })
   @ApiQuery({ name: 'before', required: false })
   @ApiQuery({ name: 'include', required: false })
+  @ApiOperation({
+    description:
+      'Returns account-scoped submitters with DocuSeal-compatible filters for submission, template, slug, external id, completion date, and search.',
+    summary: 'List submitters',
+  })
   @ApiOkResponse({ type: SubmittersListResponseDto })
   listSubmitters(
     @CurrentUser() user: User,
@@ -60,6 +67,15 @@ export class SubmittersController {
 
   @Get(':id')
   @ApiQuery({ name: 'include', required: false })
+  @ApiParam({
+    description: 'Submitter id returned by a submission create/list response.',
+    name: 'id',
+  })
+  @ApiOperation({
+    description:
+      'Returns one submitter with values, documents, signing URL, template summary, and optional field/event includes.',
+    summary: 'Get a submitter',
+  })
   @ApiOkResponse({ type: SubmitterResponseDto })
   getSubmitter(
     @CurrentUser() user: User,
@@ -71,6 +87,12 @@ export class SubmittersController {
 
   @Put(':id')
   @ApiQuery({ name: 'include', required: false })
+  @ApiParam({ description: 'Submitter id.', name: 'id' })
+  @ApiOperation({
+    description:
+      'Updates submitter contact details, metadata, values, readonly fields, field overrides, delivery flags, and optional completion state.',
+    summary: 'Update a submitter',
+  })
   @ApiOkResponse({ type: SubmitterResponseDto })
   updateSubmitter(
     @CurrentUser() user: User,

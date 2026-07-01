@@ -9,13 +9,17 @@ import {
 import { TemplateField } from '../types/template-json';
 
 export class CreateTemplateDocxDocumentDto {
-  @ApiProperty({ example: 'sample-document.docx' })
+  @ApiProperty({
+    description: 'DOCX document display name.',
+    example: 'sample-document.docx',
+  })
   @IsString()
   name: string;
 
   @ApiProperty({
-    description: 'Base64-encoded DOCX content or a downloadable DOCX URL.',
-    example: 'base64',
+    description:
+      'Base64-encoded DOCX content, data URL, or a downloadable DOCX URL.',
+    example: 'UEsDBBQABgAIAAAAIQ...',
   })
   @IsString()
   file: string;
@@ -40,27 +44,45 @@ export class CreateTemplateDocxDocumentDto {
 }
 
 export class CreateTemplateFromDocxDto {
-  @ApiPropertyOptional({ example: 'Test DOCX' })
+  @ApiPropertyOptional({
+    description:
+      'Template display name. Defaults to the first DOCX document name when omitted.',
+    example: 'Test DOCX',
+  })
   @IsOptional()
   @IsString()
   name?: string;
 
-  @ApiPropertyOptional({ example: 'crm-template-1' })
+  @ApiPropertyOptional({
+    description: 'Application-specific unique key for idempotent lookup.',
+    example: 'crm-template-1',
+  })
   @IsOptional()
   @IsString()
   external_id?: string;
 
-  @ApiPropertyOptional({ example: 'Default' })
+  @ApiPropertyOptional({
+    description:
+      'Folder name/path where the template should be created. Defaults to Default.',
+    example: 'Default',
+  })
   @IsOptional()
   @IsString()
   folder_name?: string;
 
-  @ApiPropertyOptional({ example: true })
+  @ApiPropertyOptional({
+    description: 'Whether the template should expose a shared-link start form.',
+    example: true,
+  })
   @IsOptional()
   @IsBoolean()
   shared_link?: boolean;
 
-  @ApiProperty({ type: [CreateTemplateDocxDocumentDto] })
+  @ApiProperty({
+    description:
+      'DOCX documents to render into template PDFs. Each document can define its own variables and explicit fields.',
+    type: [CreateTemplateDocxDocumentDto],
+  })
   @IsArray()
   documents: CreateTemplateDocxDocumentDto[];
 

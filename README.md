@@ -204,10 +204,147 @@ Configure the OAuth client and API key in Google Cloud Console, enable Google Pi
 | `PDF_PREVIEW_MAX_PAGES` | No | `15` | Max preview pages generated per PDF. |
 | `PDF_PREVIEW_MAX_WIDTH` | No | `1400` | Preview image width. |
 | `PDF_SIGNATURE_SUBFILTER` | No | `pades` | `pades` uses `ETSI.CAdES.detached`; `adobe` uses legacy Adobe detached signatures. |
+| `PDF_TIMESTAMP_REQUIRED` | No | `false` | When `true`, completed PDF signing fails if no RFC3161 `/DocTimeStamp` can be embedded. Leave `false` to keep TSA optional. |
+| `PDF_TIMESTAMP_TIMEOUT_MS` | No | `10000` | Timeout for RFC3161 timestamp server requests. |
+| `PDF_LTV_REQUIRED` | No | `false` | When `true`, completed PDF signing fails if OCSP/CRL evidence cannot be collected and embedded into DSS/VRI. |
+| `PDF_LTV_HTTP_TIMEOUT_MS` | No | `10000` | Timeout for OCSP/CRL revocation evidence HTTP requests. |
 | `DOCUMENT_CONVERSION_MAX_BYTES` | No | `15728640` | Max DOCX/HTML conversion input size. |
 | `HTML_TO_PDF_TIMEOUT_MS` | No | `30000` | HTML-to-PDF render timeout. |
 | `THROTTLE_TTL_MS` | No | `60000` | API rate-limit window. |
 | `THROTTLE_LIMIT` | No | `120` | API rate-limit request count. |
+
+## PDF Signing, Verification, and Validation
+
+Signa separates visible document completion from cryptographic PDF validation. The visible form values are rendered onto the PDF first, then the final bytes are signed, timestamped, and optionally enriched with long-term validation evidence.
+
+### Completion and Visual Stamping Flow
+
+1. A submitter fills fields in the signing UI.
+2. The backend normalizes the submitted values and renders them onto the source PDF.
+3. Supported field values are stamped onto pages before cryptographic signing: text, dates, numbers, checkboxes, radio/select/multiple values, typed/drawn/uploaded signatures, initials, images, and file references where applicable.
+4. If account settings require a signature ID, Signa stamps signer identity metadata next to the visible signature.
+5. The generated completed PDF bytes are hashed with SHA-256 and stored with the completed document metadata.
+
+This stage is the visual/legal representation of what the signer saw and accepted. Cryptographic signing starts after this stage so later validation covers the completed document bytes.
+
+### Cryptographic Signing Flow
+
+1. Signa loads the account default signing certificate from encrypted account config. Certificates are stored as PKCS#12/PFX material, with a generated Signa default certificate available for self-hosted setups.
+2. The backend prepares a PDF signature placeholder with `@signpdf/placeholder-pdf-lib`.
+3. The PDF is signed with `@signpdf/signer-p12` and `@signpdf/signpdf`.
+4. By default, signatures use the PAdES-compatible `ETSI.CAdES.detached` SubFilter. Set `PDF_SIGNATURE_SUBFILTER=adobe` only for legacy `adbe.pkcs7.detached` compatibility.
+5. The CMS `SignedData` covers the PDF `ByteRange`, meaning verification can detect changes to signed PDF bytes.
+
+The CMS signing model follows RFC 5652. The certificate chain and revocation model follow RFC 5280. PAdES PDF signature structure follows ETSI EN 319 142-1.
+
+### RFC3161 Timestamping
+
+Timestamping is optional unless explicitly required.
+
+1. Configure a timestamp server URL in account e-signature settings.
+2. Signa validates the timestamp server before saving it.
+3. During completed PDF generation, Signa requests an RFC3161 timestamp token.
+4. If successful, Signa appends a `/DocTimeStamp` signature dictionary with `/SubFilter /ETSI.RFC3161`.
+5. Timestamp metadata is stored with the completed document.
+6. If `PDF_TIMESTAMP_REQUIRED=true`, signing fails when timestamp evidence cannot be embedded.
+
+This allows deployments with stricter evidence requirements to fail closed while keeping normal self-hosted signing usable without a TSA.
+
+### LTV, OCSP, CRL, DSS, and VRI
+
+Long-term validation is optional unless `PDF_LTV_REQUIRED=true`.
+
+During signing, Signa attempts to collect revocation evidence for signer certificates:
+
+1. Parse the CMS signer certificate chain.
+2. Read Authority Information Access extensions for OCSP URLs.
+3. Read CRL Distribution Point extensions for CRL URLs.
+4. Request OCSP evidence first.
+5. Fall back to CRL evidence when OCSP is unavailable.
+6. Store raw OCSP/CRL bytes in `pdf_revocation_evidence`, keyed by certificate hash, issuer, serial number, and evidence type.
+7. Append a PDF DSS/VRI update after signing without rewriting already signed bytes.
+
+The DSS/VRI append is a low-level incremental PDF update:
+
+- `/DSS` is added to the PDF catalog.
+- `/Certs` stores DER certificate streams.
+- `/OCSPs` stores OCSP response streams.
+- `/CRLs` stores CRL streams.
+- `/VRI` links the exact signature hash to the evidence streams.
+- The update writes a new xref/trailer with `/Prev`, preserving the original signed byte ranges.
+
+Evidence status is explicit:
+
+- `good`: revocation evidence validates and does not report revocation.
+- `revoked`: evidence reports the signer certificate as revoked.
+- `unknown`: evidence exists but cannot be fully classified.
+- `unavailable`: revocation endpoints could not be reached.
+- `missing`: no usable OCSP/CRL evidence was available.
+
+If `PDF_LTV_REQUIRED=false`, signing continues when evidence is unavailable and the result records `ltv_status=missing`. If `PDF_LTV_REQUIRED=true`, signing fails unless good revocation evidence can be collected and embedded.
+
+### Verification API Flow
+
+`POST /api/tools/verify` accepts a PDF upload and returns checksum, signature, certificate, timestamp, revocation, and LTV status.
+
+Verification performs these checks:
+
+1. Parse the PDF and detect signature dictionaries.
+2. Validate the signature `ByteRange` shape and compute the signed byte-range SHA-256.
+3. Compare the full PDF SHA-256 against completed Signa documents and generated artifact metadata.
+4. Parse CMS `SignedData` from the PDF `/Contents`.
+5. Validate the CMS signed `messageDigest` against the PDF `ByteRange` bytes.
+6. Verify the CMS signature over signed attributes.
+7. Extract signer certificates and classify the chain as Signa-trusted, external, or missing.
+8. Detect PAdES SubFilter compatibility.
+9. Detect RFC3161 `/DocTimeStamp` signatures.
+10. Read `/DSS` and `/VRI`.
+11. Match the VRI entry to the exact CMS signature hash.
+12. Parse embedded DER certificates, OCSP responses, and CRLs.
+13. Validate OCSP/CRL signatures and certificate revocation status where evidence is present.
+14. Return `ltv_status` as `valid`, `missing`, or `invalid`.
+
+DocuSeal-style verification output includes:
+
+- checksum status,
+- signature validity,
+- trusted or external certificate status,
+- certificate chain,
+- signer name,
+- signing reason,
+- signing time,
+- PAdES SubFilter status,
+- timestamp-signature presence,
+- revocation evidence status,
+- LTV status.
+
+### Current Validation Boundaries
+
+Implemented:
+
+- RFC 5652 CMS `SignedData` parsing and verification with PKI.js.
+- RFC 5280 certificate extraction and chain classification.
+- RFC 6960 OCSP request/response parsing and status checks where certificate endpoints exist.
+- CRL parsing and revoked-certificate checks.
+- PAdES `ETSI.CAdES.detached` SubFilter signing.
+- RFC3161 document timestamp append.
+- Incremental DSS/VRI embedding that preserves signed bytes.
+- Verifier-side DSS/VRI matching and evidence validation.
+
+Still tracked as hardening work:
+
+- PDF/A conversion and validation.
+- Deeper uploaded customer trust-root policy management.
+- More exhaustive OCSP responder-chain validation.
+- Full HexaPDF/PDFium-grade flattening for every PDF edge case.
+
+References:
+
+- RFC 5652, Cryptographic Message Syntax: `https://www.rfc-editor.org/rfc/rfc5652`
+- RFC 5280, X.509 PKI certificate and CRL profile: `https://www.rfc-editor.org/rfc/rfc5280`
+- RFC 6960, Online Certificate Status Protocol: `https://www.rfc-editor.org/rfc/rfc6960`
+- RFC 3161, Time-Stamp Protocol: `https://www.rfc-editor.org/rfc/rfc3161`
+- ETSI EN 319 142-1, PAdES PDF Advanced Electronic Signatures: `https://www.etsi.org/deliver/etsi_en/319100_319199/31914201/`
 
 ### Health Env Vars
 

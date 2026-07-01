@@ -73,6 +73,9 @@ export type AccountPreferences = {
   enforce_signing_order: boolean;
   force_mfa: boolean;
   form_prefill_signature: boolean;
+  auto_sign_owner_enabled: boolean;
+  auto_sign_owner_role: string;
+  auto_sign_owner_send_email: boolean;
   hipaa: boolean;
   knowledge_based_authentication: boolean;
   require_signing_reason: boolean;

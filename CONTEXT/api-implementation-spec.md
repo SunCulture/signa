@@ -100,7 +100,7 @@ Account settings preference scope:
 - Defaults mirror DocuSeal account settings behavior where practical: typed signatures, resubmission, decline, pre-fill signatures, and expiring download links are enabled unless explicitly disabled; stricter auth/compliance features are opt-in.
 - Current supported keys: `receive_completed_email`, `bcc_emails`, `submitter_reminders`, `force_mfa`, `with_signature_id`, `require_signing_reason`, `allow_typed_signature`, `allow_to_resubmit`, `allow_to_decline`, `allow_to_delegate`, `form_prefill_signature`, `download_links_expire`, `download_links_auth`, `combine_pdf_result_key`, `enforce_signing_order`, `with_file_links`, `hipaa`, `cfr_part_11`, `knowledge_based_authentication`, `esigning_preference`, `flatten_result_pdf`, `document_filename_format`, `submitter_invitation_email`, `submitter_documents_copy_email`, `submitter_completed_email`, `form_completed_message`, `form_completed_button`, `form_with_confetti`, and `policy_links`.
 - Notification parity note: DocuSeal stores completed-notification email enablement as a user config and BCC/reminders as account configs. Signa currently exposes all three through account preferences for a simpler tenant-level settings page; split to user-level config later if per-user notification preferences become required.
-- E-signature/personalization parity note: Signa stores company logo as an account-scoped storage attachment and PKCS#12/PFX signing certificate settings in `encrypted_configs`, matching DocuSeal's account-level settings boundary. Certificate-backed PDF signing is implemented with `@signpdf/signer-p12` and defaults to the PAdES `ETSI.CAdES.detached` SubFilter through `@signpdf/utils`; HexaPDF-grade certificate-chain verification, RFC3161 timestamp embedding, and LTV remain pending.
+- E-signature/personalization parity note: Signa stores company logo as an account-scoped storage attachment and PKCS#12/PFX signing certificate settings in `encrypted_configs`, matching DocuSeal's account-level settings boundary. Certificate-backed PDF signing is implemented with `@signpdf/signer-p12` and defaults to the PAdES `ETSI.CAdES.detached` SubFilter through `@signpdf/utils`. Timestamp server URLs are optional, validated with real RFC3161 timestamp queries before persistence, and can be made fail-closed with `PDF_TIMESTAMP_REQUIRED=true`; completed PDFs append an RFC3161 `/DocTimeStamp` dictionary with `/SubFilter /ETSI.RFC3161` when a TSA URL is configured, and timestamp metadata is stored on completed-document rows. PDF verification uses PKI.js (`pkijs`, `asn1js`) for RFC5652 CMS `SignedData` parsing, signed-attribute/messageDigest validation against the PDF ByteRange, CMS signature verification, and Signa trust-root chain classification. Completed signing now attempts OCSP first and CRL fallback for signer certificates that publish AIA/CRL distribution URLs, stores raw evidence in `pdf_revocation_evidence`, appends DSS/VRI through a low-level incremental update that preserves signed bytes, and supports `PDF_LTV_REQUIRED=true` fail-closed behavior. PDF/A output remains a separate pending conversion/validation batch.
 - Profile parity note: DocuSeal stores per-user signature and initials as ActiveStorage attachments with `user_configs` values keyed by `signature` and `initials`. Signa mirrors that boundary with `UserConfig`, storage attachments on `record_type='User'`, draw/upload frontend modals, and signed blob URLs.
 - Authenticator 2FA uses `otplib` for secret generation, otpauth provisioning URI generation, and TOTP verification. Signa stores the secret on `users.otp_secret`, toggles `users.otp_required_for_login`, and rejects login without a valid OTP once enabled.
 
@@ -173,6 +173,49 @@ User endpoints:
 | DELETE          | `/users/{id}`        | Archive user                     | Done   |
 
 ## Public Endpoint Inventory
+
+### Public API Parity Audit - 2026-06-30
+
+DocuSeal's local OpenAPI file (`../docuseal/docs/openapi.json`) currently exposes the following public API endpoints:
+
+- `GET /templates`
+- `POST /templates/pdf`
+- `POST /templates/docx`
+- `POST /templates/html`
+- `POST /templates/merge`
+- `GET /templates/{id}`
+- `PUT /templates/{id}`
+- `DELETE /templates/{id}`
+- `PUT /templates/{id}/documents`
+- `POST /templates/{id}/clone`
+- `GET /submissions`
+- `POST /submissions`
+- `GET /submissions/{id}`
+- `DELETE /submissions/{id}`
+- `GET /submissions/{id}/documents`
+- `POST /submissions/emails`
+- `POST /submissions/pdf`
+- `POST /submissions/docx`
+- `POST /submissions/html`
+- `GET /submitters`
+- `GET /submitters/{id}`
+- `PUT /submitters/{id}`
+
+Signa implements each of these under the Nest global `/api` prefix. It also exposes additional Signa app/API surfaces for folders, template events/versions, template submissions export, webhooks, tools, start-form/shared-link verification, public signing, auth, account settings, users, teams, and integrations. Those are extensions and should not be counted as missing DocuSeal public API parity.
+
+Current parity caveats are behavioral rather than route-level:
+
+- DOCX geometry extraction remains best-effort unless explicit field coordinates are supplied.
+- True HexaPDF-grade DSS/VRI LTV verification remains pending; Signa currently signs with PAdES-compatible SubFilter support, optional RFC3161 document timestamp evidence, checksum lookup, ByteRange inspection, signature dictionary metadata extraction, and CMS certificate-chain extraction/classification as Signa-trusted, external, or missing.
+- Payment field completion requires a configured payment provider flow.
+- Salesforce/Zapier/Make integrations are intentionally not implemented yet; Gmail/Microsoft and Google Drive flows are handled separately from DocuSeal's Pro-only surfaces.
+
+Swagger documentation pass started on 2026-06-30:
+
+- Public DocuSeal-compatible controllers now include operation summaries/descriptions and important path/query metadata.
+- High-use request DTOs for template/submission creation, submitter updates, PDF tools, and webhooks include field descriptions and concrete examples.
+- Authenticated app/admin controllers now also include useful Swagger descriptions for accounts, users, teams, health, realtime, storage, signing, provider callbacks, and submitter tracking.
+- Continue applying the same standard to secondary authenticated web-app DTOs as they are exposed to external users.
 
 ### Submissions
 
@@ -248,7 +291,7 @@ Signa status:
 - Implemented tenant-scoped retrieval with submitters, template, creator, optional events, optional fields, status, completion timestamp, values, and generated documents.
 - Completed submissions now lazily generate audit trail and combined-document URLs when document serialization is requested.
 - Generated completed PDFs persist original document UUID/SHA-256 metadata plus result SHA-256 metadata, are signed with the account default PKCS#12 certificate using the PAdES `ETSI.CAdES.detached` SubFilter by default, and generated audit trails print original/result SHA-256 evidence in the DocuSeal audit-trail style.
-- Remaining gap: generated PDFs are value-stamped with `pdf-lib`, but DocuSeal's HexaPDF/PDFium-grade flattening, LTV, PDF/A, RFC3161 timestamp server embedding, and certificate-chain verification behavior are not complete.
+- Timestamp/LTV parity status: optional RFC3161 timestamp server validation and `/DocTimeStamp` embedding are implemented. Existing signing continues when no TSA URL is configured; regulated deployments can set `PDF_TIMESTAMP_REQUIRED=true` to fail closed when timestamp evidence cannot be embedded. Verification parses CMS `SignedData`, validates the signed `messageDigest` attribute against the PDF ByteRange bytes, verifies the CMS signature over signed attributes, extracts signer certificates, classifies Signa-trusted/external/missing chains, validates matching DSS/VRI revocation evidence where present, and returns `ltv_status=valid|missing|invalid`. Completed PDFs now attempt OCSP/CRL collection and incremental DSS/VRI embedding without rewriting signed bytes. Remaining gap: generated PDFs are value-stamped with `pdf-lib`, and PDF/A conversion/validation is not complete.
 
 #### GET `/submissions/{id}/events`
 
@@ -274,9 +317,9 @@ Signa status:
 
 - Implemented tenant-scoped endpoint.
 - Synthesizes the creation row from the submission record and maps persisted events to DocuSeal-compatible titles/icons/device metadata.
-- Public signing now records repeated `view_form`, first `start_form`, `complete_form`, and `decline_form` events with request IP/user-agent metadata.
+- Public signing now records repeated `view_form`, first `start_form`, `complete_form`, and `decline_form` events with request IP/user-agent metadata, parsed browser/OS/device details, locale, and timezone.
 - Signature request email links now include a DocuSeal-style signed `t` tracking param; visiting `/s/:slug?t=...` records `click_email` before the normal `view_form` event.
-- API-created and API-updated completed submitters now include request IP/user-agent metadata on `api_complete_form` events.
+- API-created, API-updated, and owner-auto-signed completed submitters now include request IP/user-agent metadata plus auto-sign metadata on `api_complete_form` events.
 - Public phone verification now records `send_2fa_sms` and `phone_verified`.
 - Public payment attempts now record `payment_attempt` with field, provider, and status metadata.
 - Public identity/KBA verification now records `complete_verification` with field, method, provider, and status metadata.
@@ -309,7 +352,7 @@ Signa status:
   - completed submissions generate result PDFs attached to the last completed submitter;
   - `merge=true` generates and caches preview/result merged PDFs on the submission;
   - generated outputs are stored through the existing ActiveStorage-compatible local storage layer.
-- Result generation best-effort flattens source AcroForms, normalizes signer image/signature blobs before embedding, writes desktop-reader-friendly serialized PDFs, and caches completed documents by values hash so stale generated outputs are regenerated.
+- Result generation flattens source AcroForms through the backend `@embedpdf/pdfium` adapter before value stamping, falls back to `pdf-lib` flattening if PDFium cannot process a malformed source, normalizes signer image/signature blobs before embedding, writes desktop-reader-friendly serialized PDFs, and caches completed documents by values hash so stale generated outputs are regenerated.
 - Completed generated document responses now include `id`, `uuid`, `filename`, `name`, signed `url`, and PDFium-generated `preview_images`.
 - `GET /api/submissions/:id` promotes the latest completed submitter's generated documents to top-level `documents`, matching DocuSeal's completed-submission serializer behavior.
 - Submitter values that point to signature/image/file attachments include resolved attachment metadata and signed URLs for review UIs and webhook payloads.
@@ -331,6 +374,8 @@ Body fields:
 - `expire_at`
 - `variables`
 - `message`: `subject`, `body`
+- `auto_sign_owner`: optional boolean override for account/template owner auto-sign behavior
+- `auto_sign_owner_role`: optional role name override, defaulting to account/template preference or `First Party`
 - `submitters[]` required
 
 Submitter body fields:
@@ -341,6 +386,8 @@ Submitter body fields:
 - `completed`: when true, auto-completes and signs via API
 - `metadata`
 - `send_email`, `send_sms`
+- `use_saved_signature`: when true, auto-completes this role with a saved Signa user signature/initials
+- `completed_by_user_id`: optional same-account user id whose saved signature/initials should be used
 - `reply_to`
 - `completed_redirect_url`
 - `require_phone_2fa`, `require_email_2fa`
@@ -360,6 +407,7 @@ Signa status:
 - Preserves tenant scoping, template archived/fieldless validation, submitter role matching, multi-role submitter merge, send-email/send-SMS preferences, custom request email `message` subject/body, values, metadata, field overrides/default values, completion timestamp, and `api_complete_form` event persistence.
 - API submitter values are normalized through a DocuSeal-style submitter value normalizer before persistence. Values can be keyed by field UUID, field name, or parameterized field name; attachment-backed field values (`signature`, `initials`, `image`, `file`, `stamp`) support HTTPS URL ingestion, base64/data URI ingestion, short typed signature/initials text converted to PNG, and arrays for multi-file fields.
 - Normalized API attachment values are persisted as submitter attachments and submitter values are replaced with attachment UUIDs, matching DocuSeal's `NormalizeParamUtils`/`NormalizeValues` flow.
+- Owner auto-sign is implemented for programmatic and dashboard-created submissions. Account preferences, template preferences, and request-body overrides determine whether the configured owner role is inserted/completed before invitations are sent. The auto-signed submitter clones saved signature/initials attachments from the same-account user, validates required owner fields, fills date fields, stores `use_saved_signature`/`completed_by_user_id` preferences, completes the submitter, and records an `api_complete_form` event with auto-sign metadata.
 - `send_email=true` now emits a queued signature-request email event; `sent_at` is set only after the mail processor successfully delivers and records `send_email`, matching DocuSeal's send job semantics.
 - Returns DocuSeal-style submitter responses with `embed_src`.
 - Email-list creation is implemented through `POST /api/submissions/emails`; each email creates an individual submission and reuses the existing queued signature-request flow.
@@ -913,7 +961,7 @@ Behavior:
 
 Remaining caveat:
 
-- `POST /api/tools/verify` currently verifies Signa-generated checksum presence for completed documents, returns the checked SHA-256, parses PDF validity, reports detected embedded PDF signatures, reports PAdES SubFilter status, and calculates structural ByteRange SHA-256 coverage. Full DocuSeal/HexaPDF-style certificate-chain verification is still pending behind a dedicated verifier decision.
+- `POST /api/tools/verify` currently verifies Signa-generated checksum presence for completed documents, returns the checked SHA-256, parses PDF validity, reports detected embedded PDF signatures, reports PAdES SubFilter status, detects embedded RFC3161 document timestamp signatures when present, calculates structural ByteRange SHA-256 coverage, validates RFC5652 CMS signed attributes/messageDigest against the PDF ByteRange, verifies the CMS signature with PKI.js, extracts/classifies signer certificate chains, and reports embedded OCSP/CRL plus DSS presence. Remaining LTV gap: completed PDFs do not yet collect OCSP/CRL evidence or embed DSS/VRI dictionaries, so verifier output correctly reports `ltv_status=missing` unless such evidence is present.
 
 Events observed in controllers:
 
@@ -950,7 +998,8 @@ From the local clone:
 
 Initial candidates for Signa:
 
-- PDF creation/editing/forms/merge: `pdf-lib` as first pass. Standard AcroForm positional extraction is implemented with this stack. Validate whether it covers every remaining HexaPDF use case, especially XFA, signatures, and AcroForm flattening.
+- PDF creation/editing/forms/merge: `pdf-lib` remains the value-stamping and merge fallback. Standard AcroForm positional extraction is implemented with this stack.
+- PDFium flattening/rendering path: `@embedpdf/pdfium` is the selected Node-compatible PDFium engine. It exposes the native PDFium calls Signa needs for DocuSeal-grade processing, including form-fill initialization, `FPDFPage_Flatten`, annotation operations, page rotation/geometry APIs, and `PDFiumExt_SaveAsCopy`.
 - Generated-only PDFs: evaluate `pdfkit` for audit trails, completion certificates, cover pages, and receipt-style documents where the document is created from scratch. Do not use it as the primary existing-PDF stamping/editing engine unless a separate import/overlay strategy is proven.
 - PDF rendering/previews/text geometry: use a PDFium-backed Node package or a worker/service wrapper around PDFium. PDF.js can render in Node/browser but may not match PDFium output or low-level object access.
 - PDF signature verification/signing: likely needs a specialized library or external service; `pdf-lib` alone is not enough for full digital signature parity.
@@ -985,7 +1034,7 @@ Current Signa implementation:
 
 Remaining parity gaps:
 
-- HexaPDF/PDFium-grade final PDF flattening, annotation preservation, exact typography/layout parity, cryptographic signing, LTV, PDF/A, and timestamp server support.
+- Remaining PDF parity gaps: broader annotation-preservation fixtures, rotated-page normalization fixtures, exact typography/layout parity, DSS/VRI LTV, PDF/A, and certificate-chain verification support.
 - Remaining signer auth policy decisions: public unauthenticated signer MFA/KBA and authenticated-only completed-link access UI beyond the backend `download_links_auth` block.
 
 ### Template Email Preferences

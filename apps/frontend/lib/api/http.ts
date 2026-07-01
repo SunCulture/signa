@@ -22,6 +22,8 @@ export async function apiFetch<TResponse>(
 ): Promise<TResponse> {
   const headers = new Headers(init?.headers)
 
+  applyClientContextHeaders(headers)
+
   if (!headers.has("Content-Type") && !(init?.body instanceof FormData)) {
     headers.set("Content-Type", "application/json")
   }
@@ -54,6 +56,24 @@ export async function apiFetch<TResponse>(
 
 function normalizePath(path: string): string {
   return path.startsWith("/") ? path : `/${path}`
+}
+
+function applyClientContextHeaders(headers: Headers): void {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  if (!headers.has("X-Signa-Timezone")) {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+
+    if (timezone) {
+      headers.set("X-Signa-Timezone", timezone)
+    }
+  }
+
+  if (!headers.has("X-Signa-Locale") && navigator.language) {
+    headers.set("X-Signa-Locale", navigator.language)
+  }
 }
 
 async function readJsonSafely(response: Response): Promise<unknown> {

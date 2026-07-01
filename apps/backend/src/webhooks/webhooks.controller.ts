@@ -12,6 +12,9 @@ import {
 import {
   ApiBearerAuth,
   ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
   ApiSecurity,
   ApiTags,
 } from '@nestjs/swagger';
@@ -39,12 +42,22 @@ export class WebhooksController {
   constructor(private readonly webhooksService: WebhooksService) {}
 
   @Get()
+  @ApiOperation({
+    description:
+      'Returns configured webhook URLs, selected event types, and HMAC secret metadata for the authenticated account.',
+    summary: 'List webhook URLs',
+  })
   @ApiOkResponse({ type: WebhookUrlsListResponseDto })
   list(@CurrentUser() user: User): Promise<WebhookUrlsListResponseDto> {
     return this.webhooksService.listWebhooks(user);
   }
 
   @Post()
+  @ApiOperation({
+    description:
+      'Creates a webhook URL. Delivery attempts are signed with X-Docuseal-Signature-compatible HMAC headers.',
+    summary: 'Create a webhook URL',
+  })
   @ApiOkResponse({ type: WebhookUrlResponseDto })
   create(
     @CurrentUser() user: User,
@@ -54,6 +67,11 @@ export class WebhooksController {
   }
 
   @Get(':id')
+  @ApiParam({ description: 'Webhook URL id.', name: 'id' })
+  @ApiOperation({
+    description: 'Returns one webhook URL configuration and its HMAC secret.',
+    summary: 'Get a webhook URL',
+  })
   @ApiOkResponse({ type: WebhookUrlResponseDto })
   get(
     @CurrentUser() user: User,
@@ -63,6 +81,12 @@ export class WebhooksController {
   }
 
   @Patch(':id')
+  @ApiParam({ description: 'Webhook URL id.', name: 'id' })
+  @ApiOperation({
+    description:
+      'Updates the webhook endpoint URL, selected event types, or custom secret/header metadata.',
+    summary: 'Update a webhook URL',
+  })
   @ApiOkResponse({ type: WebhookUrlResponseDto })
   update(
     @CurrentUser() user: User,
@@ -73,6 +97,12 @@ export class WebhooksController {
   }
 
   @Delete(':id')
+  @ApiParam({ description: 'Webhook URL id.', name: 'id' })
+  @ApiOperation({
+    description:
+      'Archives a webhook URL so future account events are no longer delivered to it.',
+    summary: 'Delete a webhook URL',
+  })
   @ApiOkResponse({ type: WebhookUrlResponseDto })
   delete(
     @CurrentUser() user: User,
@@ -82,6 +112,24 @@ export class WebhooksController {
   }
 
   @Get(':id/events')
+  @ApiParam({ description: 'Webhook URL id.', name: 'id' })
+  @ApiQuery({
+    description: 'Filter delivery events by status.',
+    enum: ['success', 'error', 'pending'],
+    name: 'status',
+    required: false,
+  })
+  @ApiQuery({
+    description: 'Maximum number of events to return.',
+    name: 'limit',
+    required: false,
+    type: Number,
+  })
+  @ApiOperation({
+    description:
+      'Returns queued, successful, and failed webhook delivery events with attempt response details.',
+    summary: 'List webhook delivery events',
+  })
   @ApiOkResponse({ type: WebhookEventsListResponseDto })
   events(
     @CurrentUser() user: User,
@@ -92,6 +140,12 @@ export class WebhooksController {
   }
 
   @Post(':id/test')
+  @ApiParam({ description: 'Webhook URL id.', name: 'id' })
+  @ApiOperation({
+    description:
+      'Queues a test webhook delivery so an integration can verify endpoint reachability and signature validation.',
+    summary: 'Send a test webhook',
+  })
   @ApiOkResponse({ type: WebhookTestResponseDto })
   async test(
     @CurrentUser() user: User,
@@ -111,6 +165,12 @@ export class WebhookEventsController {
   constructor(private readonly webhooksService: WebhooksService) {}
 
   @Post(':id/resend')
+  @ApiParam({ description: 'Webhook event id.', name: 'id' })
+  @ApiOperation({
+    description:
+      'Queues another delivery attempt for a previously persisted webhook event.',
+    summary: 'Resend a webhook event',
+  })
   @ApiOkResponse({ type: WebhookTestResponseDto })
   async resend(
     @CurrentUser() user: User,

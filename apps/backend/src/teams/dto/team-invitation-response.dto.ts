@@ -1,19 +1,28 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 export class TeamInvitationResponseDto {
-  @ApiProperty({ example: '1' })
+  @ApiProperty({ description: 'Invitation id.', example: '1' })
   id!: string;
 
-  @ApiProperty({ example: '1' })
+  @ApiProperty({ description: 'Team id for the invitation.', example: '1' })
   team_id!: string;
 
-  @ApiProperty({ example: 'teammate@example.com' })
+  @ApiProperty({
+    description: 'Email address invited to join the team.',
+    example: 'teammate@example.com',
+  })
   email!: string;
 
-  @ApiProperty({ example: 'member' })
+  @ApiProperty({
+    description: 'Team role that will be assigned after acceptance.',
+    example: 'member',
+  })
   role!: string;
 
-  @ApiProperty({ example: 'pending' })
+  @ApiProperty({
+    description: 'Invitation state such as pending, accepted, or revoked.',
+    example: 'pending',
+  })
   status!: string;
 
   @ApiProperty({
@@ -23,12 +32,22 @@ export class TeamInvitationResponseDto {
   })
   accept_token?: string;
 
-  @ApiProperty({ example: '2026-06-27T08:00:00.000Z' })
+  @ApiProperty({
+    description: 'UTC timestamp when the invitation expires.',
+    example: '2026-06-27T08:00:00.000Z',
+  })
   expires_at!: Date;
 
-  @ApiProperty({ example: null, nullable: true })
+  @ApiProperty({
+    description: 'UTC timestamp when the invitation was accepted.',
+    example: null,
+    nullable: true,
+  })
   accepted_at!: Date | null;
 
-  @ApiProperty({ example: '2026-06-20T08:00:00.000Z' })
+  @ApiProperty({
+    description: 'UTC timestamp when the invitation was created.',
+    example: '2026-06-20T08:00:00.000Z',
+  })
   created_at!: Date;
 }

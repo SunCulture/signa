@@ -9,20 +9,36 @@ import {
 export class CreateSubmissionFromHtmlDto extends OmitType(CreateSubmissionDto, [
   'template_id',
 ] as const) {
-  @ApiProperty({ type: [CreateTemplateHtmlDocumentDto] })
+  @ApiProperty({
+    description:
+      'HTML documents with DocuSeal field tags to render into temporary backing PDFs before creating submitters.',
+    type: [CreateTemplateHtmlDocumentDto],
+  })
   @IsArray()
   documents: CreateTemplateHtmlDocumentDto[];
 
-  @ApiProperty({ type: [CreateSubmissionSubmitterDto] })
+  @ApiProperty({
+    description:
+      'Recipients and roles for the generated submission. Roles must match HTML field tag roles.',
+    type: [CreateSubmissionSubmitterDto],
+  })
   @IsArray()
   submitters: CreateSubmissionSubmitterDto[];
 
-  @ApiPropertyOptional({ example: ['1000001'] })
+  @ApiPropertyOptional({
+    description:
+      'Existing template ids to use as backing documents together with HTML-rendered documents.',
+    example: ['1000001'],
+  })
   @IsOptional()
   @IsArray()
   template_ids?: string[];
 
-  @ApiPropertyOptional({ example: 'Default' })
+  @ApiPropertyOptional({
+    description:
+      'Folder name/path for the temporary backing template created from these HTML documents.',
+    example: 'Default',
+  })
   @IsOptional()
   @IsString()
   folder_name?: string;

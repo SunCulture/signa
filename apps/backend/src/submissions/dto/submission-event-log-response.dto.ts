@@ -25,6 +25,18 @@ export class SubmissionEventLogItemDto {
   @ApiPropertyOptional({ example: 'desktop', nullable: true })
   device: string | null;
 
+  @ApiPropertyOptional({ example: 'Chrome', nullable: true })
+  browser: string | null;
+
+  @ApiPropertyOptional({ example: 'Linux', nullable: true })
+  os: string | null;
+
+  @ApiPropertyOptional({ example: '127.0.0.1', nullable: true })
+  ip: string | null;
+
+  @ApiPropertyOptional({ example: 'Africa/Nairobi', nullable: true })
+  timezone: string | null;
+
   @ApiPropertyOptional({ example: 'Form viewed by omondicedo@gmail.com' })
   message: string;
 

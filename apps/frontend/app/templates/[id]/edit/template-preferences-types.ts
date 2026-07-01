@@ -16,6 +16,9 @@ export type PreferencesFormState = {
   documentsCopyEmailReplyTo: string;
   documentsCopyEmailSubject: string;
   linkFormFields: string[];
+  ownerAutoSignMode: "inherit" | "enabled" | "disabled";
+  ownerAutoSignRole: string;
+  ownerAutoSignSendEmail: boolean;
   requestEmailBody: string;
   requestEmailEnabled: boolean;
   requestEmailSubject: string;

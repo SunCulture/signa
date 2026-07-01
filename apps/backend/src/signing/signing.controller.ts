@@ -16,6 +16,8 @@ import {
   ApiConsumes,
   ApiOkResponse,
   ApiOperation,
+  ApiParam,
+  ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
@@ -46,7 +48,25 @@ export class SigningController {
   constructor(private readonly signingService: SigningService) {}
 
   @Get(':slug')
-  @ApiOperation({ summary: 'Get public signing form by submitter slug' })
+  @ApiParam({
+    description: 'Public submitter signing slug.',
+    name: 'slug',
+  })
+  @ApiQuery({
+    description: 'Optional email click tracking token.',
+    name: 't',
+    required: false,
+  })
+  @ApiQuery({
+    description: 'Optional SMS click tracking token.',
+    name: 'c',
+    required: false,
+  })
+  @ApiOperation({
+    description:
+      'Returns the public signing form payload, including documents, fields, submitter state, preferences, and existing values.',
+    summary: 'Get public signing form by submitter slug',
+  })
   @ApiOkResponse({ type: SigningResponseDto })
   getSigningForm(
     @Param('slug') slug: string,
@@ -61,7 +81,26 @@ export class SigningController {
   }
 
   @Get(':slug/values')
-  @ApiOperation({ summary: 'Get public signing field value for QR polling' })
+  @ApiParam({
+    description: 'Public submitter signing slug.',
+    name: 'slug',
+  })
+  @ApiQuery({
+    description: 'Field UUID to poll for a remote signing value.',
+    name: 'field_uuid',
+    required: true,
+  })
+  @ApiQuery({
+    description:
+      'Optional ISO timestamp or cursor. Only values updated after this cursor are returned.',
+    name: 'after',
+    required: false,
+  })
+  @ApiOperation({
+    description:
+      'Polling endpoint used by phone/QR signing flows to retrieve a field value written from another device.',
+    summary: 'Get public signing field value for QR polling',
+  })
   @ApiOkResponse({ type: SigningFieldValueResponseDto })
   getFieldValue(
     @Param('slug') slug: string,
@@ -75,6 +114,8 @@ export class SigningController {
   @UseInterceptors(FileInterceptor('file'))
   @ApiConsumes('multipart/form-data')
   @ApiBody({
+    description:
+      'Multipart attachment upload for signature, initials, image, and file fields.',
     schema: {
       type: 'object',
       required: ['file'],
@@ -84,7 +125,15 @@ export class SigningController {
       },
     },
   })
-  @ApiOperation({ summary: 'Upload a signing attachment' })
+  @ApiParam({
+    description: 'Public submitter signing slug.',
+    name: 'slug',
+  })
+  @ApiOperation({
+    description:
+      'Uploads a file during the public signing flow and returns a signed attachment reference for field values.',
+    summary: 'Upload a signing attachment',
+  })
   @ApiOkResponse({ type: SigningAttachmentDto })
   uploadAttachment(
     @Param('slug') slug: string,
@@ -95,7 +144,15 @@ export class SigningController {
   }
 
   @Put(':slug/values')
-  @ApiOperation({ summary: 'Save public signing form values' })
+  @ApiParam({
+    description: 'Public submitter signing slug.',
+    name: 'slug',
+  })
+  @ApiOperation({
+    description:
+      'Persists in-progress signing values without completing the submitter. Used for autosave and step navigation.',
+    summary: 'Save public signing form values',
+  })
   @ApiOkResponse({ type: SigningResponseDto })
   updateValues(
     @Param('slug') slug: string,
@@ -110,7 +167,15 @@ export class SigningController {
   }
 
   @Post(':slug/complete')
-  @ApiOperation({ summary: 'Complete public signing form' })
+  @ApiParam({
+    description: 'Public submitter signing slug.',
+    name: 'slug',
+  })
+  @ApiOperation({
+    description:
+      'Validates required fields, finalizes the submitter, generates completed documents, and triggers completion notifications/webhooks.',
+    summary: 'Complete public signing form',
+  })
   @ApiOkResponse({ type: SigningResponseDto })
   complete(
     @Param('slug') slug: string,
@@ -128,7 +193,15 @@ export class SigningController {
   }
 
   @Post(':slug/decline')
-  @ApiOperation({ summary: 'Decline public signing form' })
+  @ApiParam({
+    description: 'Public submitter signing slug.',
+    name: 'slug',
+  })
+  @ApiOperation({
+    description:
+      'Marks the submitter as declined, stores the decline reason, and emits DocuSeal-compatible decline events.',
+    summary: 'Decline public signing form',
+  })
   @ApiOkResponse({ type: SigningResponseDto })
   decline(
     @Param('slug') slug: string,
@@ -143,7 +216,13 @@ export class SigningController {
   }
 
   @Post(':slug/delegate')
+  @ApiParam({
+    description: 'Public submitter signing slug.',
+    name: 'slug',
+  })
   @ApiOperation({
+    description:
+      'Delegates a signing request to another recipient when delegation is enabled for the template/account.',
     summary: 'Delegate public signing form to another recipient',
   })
   @ApiOkResponse({ type: SigningResponseDto })
@@ -160,7 +239,15 @@ export class SigningController {
   }
 
   @Post(':slug/resubmit')
-  @ApiOperation({ summary: 'Create a fresh public signing form revision' })
+  @ApiParam({
+    description: 'Public submitter signing slug.',
+    name: 'slug',
+  })
+  @ApiOperation({
+    description:
+      'Creates a fresh submitter revision for a completed form when resubmission is allowed.',
+    summary: 'Create a fresh public signing form revision',
+  })
   @ApiOkResponse({ type: SigningResponseDto })
   resubmit(
     @Param('slug') slug: string,
@@ -173,7 +260,15 @@ export class SigningController {
   }
 
   @Post(':slug/phone-verification/send')
-  @ApiOperation({ summary: 'Send public signing phone verification code' })
+  @ApiParam({
+    description: 'Public submitter signing slug.',
+    name: 'slug',
+  })
+  @ApiOperation({
+    description:
+      'Sends a phone verification code for signing fields or flows that require verified phone ownership.',
+    summary: 'Send public signing phone verification code',
+  })
   @ApiOkResponse({
     schema: {
       properties: {
@@ -195,7 +290,15 @@ export class SigningController {
   }
 
   @Post(':slug/phone-verification/validate')
-  @ApiOperation({ summary: 'Validate a public signing phone number' })
+  @ApiParam({
+    description: 'Public submitter signing slug.',
+    name: 'slug',
+  })
+  @ApiOperation({
+    description:
+      'Validates phone number format and configured country rules without sending a verification code.',
+    summary: 'Validate a public signing phone number',
+  })
   @ApiOkResponse({
     schema: {
       properties: {
@@ -212,7 +315,15 @@ export class SigningController {
   }
 
   @Post(':slug/phone-verification/check')
-  @ApiOperation({ summary: 'Verify public signing phone code' })
+  @ApiParam({
+    description: 'Public submitter signing slug.',
+    name: 'slug',
+  })
+  @ApiOperation({
+    description:
+      'Checks a phone verification code and records the phone as verified for the submitter session.',
+    summary: 'Verify public signing phone code',
+  })
   @ApiOkResponse({ type: SigningResponseDto })
   verifyPhoneCode(
     @Param('slug') slug: string,
@@ -227,7 +338,15 @@ export class SigningController {
   }
 
   @Post(':slug/email-verification/send')
-  @ApiOperation({ summary: 'Send public signing email verification code' })
+  @ApiParam({
+    description: 'Public submitter signing slug.',
+    name: 'slug',
+  })
+  @ApiOperation({
+    description:
+      'Sends an email verification code for shared-link or signing flows that require verified recipient email.',
+    summary: 'Send public signing email verification code',
+  })
   @ApiOkResponse({
     schema: {
       properties: {
@@ -249,7 +368,15 @@ export class SigningController {
   }
 
   @Post(':slug/email-verification/check')
-  @ApiOperation({ summary: 'Verify public signing email code' })
+  @ApiParam({
+    description: 'Public submitter signing slug.',
+    name: 'slug',
+  })
+  @ApiOperation({
+    description:
+      'Checks an email verification code and returns the updated signing form when verification succeeds.',
+    summary: 'Verify public signing email code',
+  })
   @ApiOkResponse({ type: SigningResponseDto })
   verifyEmailCode(
     @Param('slug') slug: string,
@@ -264,7 +391,15 @@ export class SigningController {
   }
 
   @Post(':slug/payment-attempts')
-  @ApiOperation({ summary: 'Record public signing payment attempt state' })
+  @ApiParam({
+    description: 'Public submitter signing slug.',
+    name: 'slug',
+  })
+  @ApiOperation({
+    description:
+      'Records payment provider attempt state for payment fields so the signing flow can block completion until payment succeeds.',
+    summary: 'Record public signing payment attempt state',
+  })
   @ApiOkResponse({
     schema: {
       properties: {
@@ -286,7 +421,13 @@ export class SigningController {
   }
 
   @Post(':slug/identity-verifications')
+  @ApiParam({
+    description: 'Public submitter signing slug.',
+    name: 'slug',
+  })
   @ApiOperation({
+    description:
+      'Records identity verification provider state for fields or flows that require KBA or identity checks.',
     summary: 'Record public signing identity verification state',
   })
   @ApiOkResponse({
@@ -310,7 +451,15 @@ export class SigningController {
   }
 
   @Get(':slug/download')
-  @ApiOperation({ summary: 'Get public signing form download URLs' })
+  @ApiParam({
+    description: 'Public submitter signing slug.',
+    name: 'slug',
+  })
+  @ApiOperation({
+    description:
+      'Returns signed download URLs for the completed document, audit trail, or combined package allowed for this submitter.',
+    summary: 'Get public signing form download URLs',
+  })
   @ApiOkResponse({ type: SigningDownloadResponseDto })
   download(@Param('slug') slug: string): Promise<SigningDownloadResponseDto> {
     return this.signingService.getDownload(slug);
@@ -324,7 +473,9 @@ function getSigningRequestMetadata(
 ): SigningRequestMetadata {
   return {
     ip: request.ip,
+    locale: request.get('x-signa-locale') ?? request.get('accept-language'),
     smsTrackingParam,
+    timezone: request.get('x-signa-timezone'),
     trackingParam,
     ua: request.get('user-agent'),
   };

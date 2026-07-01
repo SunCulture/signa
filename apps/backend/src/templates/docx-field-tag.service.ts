@@ -264,5 +264,18 @@ function defaultWidth(field: TemplateField): number {
 }
 
 function getErrorMessage(error: unknown): string {
+  const details = error as
+    | (Error & { code?: string; stderr?: string })
+    | undefined;
+  const stderr = details?.stderr ?? '';
+
+  if (details?.code === 'ENOENT') {
+    return 'pdftotext is not installed. Install poppler-utils on the server or rebuild the Docker image.';
+  }
+
+  if (/password|encrypt|permission/i.test(stderr)) {
+    return 'This PDF is password protected or encrypted. Password-protected PDFs are not supported yet.';
+  }
+
   return error instanceof Error ? error.message : 'Unknown error';
 }

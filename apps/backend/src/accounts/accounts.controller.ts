@@ -16,6 +16,8 @@ import {
   ApiBearerAuth,
   ApiConsumes,
   ApiOkResponse,
+  ApiOperation,
+  ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
 import type { AuthenticatedRequest } from '../auth/authenticated-request';
@@ -50,12 +52,22 @@ export class AccountsController {
   constructor(private readonly accountsService: AccountsService) {}
 
   @Get()
+  @ApiOperation({
+    description:
+      'Returns the current tenant account profile, locale, timezone, archived status, and core settings metadata.',
+    summary: 'Get account',
+  })
   @ApiOkResponse({ type: AccountResponseDto })
   show(@CurrentAccount() account: Account): AccountResponseDto {
     return this.accountsService.toAccountResponse(account);
   }
 
   @Get('preferences')
+  @ApiOperation({
+    description:
+      'Returns account-level signing, notification, e-signature, personalization, and compliance preferences.',
+    summary: 'Get account preferences',
+  })
   @ApiOkResponse({ type: AccountPreferencesResponseDto })
   preferences(
     @CurrentAccount() account: Account,
@@ -64,6 +76,11 @@ export class AccountsController {
   }
 
   @Patch()
+  @ApiOperation({
+    description:
+      'Updates account identity settings such as company name, locale, timezone, and related profile fields.',
+    summary: 'Update account',
+  })
   @ApiOkResponse({ type: AccountResponseDto })
   update(
     @CurrentAccount() account: Account,
@@ -73,6 +90,11 @@ export class AccountsController {
   }
 
   @Patch('preferences')
+  @ApiOperation({
+    description:
+      'Persists account-level preference flags, email templates, notification settings, document naming format, and signing policy options.',
+    summary: 'Update account preferences',
+  })
   @ApiOkResponse({ type: AccountPreferencesResponseDto })
   updatePreferences(
     @CurrentAccount() account: Account,
@@ -82,6 +104,11 @@ export class AccountsController {
   }
 
   @Get('logo')
+  @ApiOperation({
+    description:
+      'Returns the account logo attachment used on signing pages, email templates, and personalization settings.',
+    summary: 'Get account logo',
+  })
   @ApiOkResponse({ type: AccountLogoResponseDto })
   logo(
     @CurrentAccount() account: Account,
@@ -92,6 +119,11 @@ export class AccountsController {
   @Post('logo')
   @UseInterceptors(FileInterceptor('file'))
   @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    description:
+      'Uploads or replaces the account logo. Use multipart/form-data with field name file.',
+    summary: 'Upload account logo',
+  })
   @ApiOkResponse({ type: AccountLogoResponseDto })
   uploadLogo(
     @CurrentAccount() account: Account,
@@ -101,6 +133,10 @@ export class AccountsController {
   }
 
   @Delete('logo')
+  @ApiOperation({
+    description: 'Removes the account logo attachment.',
+    summary: 'Delete account logo',
+  })
   @ApiOkResponse({ type: AccountLogoResponseDto })
   deleteLogo(
     @CurrentAccount() account: Account,
@@ -109,6 +145,11 @@ export class AccountsController {
   }
 
   @Get('signing-certificates')
+  @ApiOperation({
+    description:
+      'Lists account PDF signing certificate metadata, default certificate, timestamp server URL, and timestamp mode.',
+    summary: 'List signing certificates',
+  })
   @ApiOkResponse({ type: SigningCertificateListResponseDto })
   signingCertificates(
     @CurrentAccount() account: Account,
@@ -119,6 +160,11 @@ export class AccountsController {
   @Post('signing-certificates')
   @UseInterceptors(FileInterceptor('file'))
   @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    description:
+      'Uploads a P12/PFX signing certificate and optional password for completed PDF signing.',
+    summary: 'Upload signing certificate',
+  })
   @ApiOkResponse({ type: SigningCertificateResponseDto })
   uploadSigningCertificate(
     @CurrentAccount() account: Account,
@@ -135,6 +181,11 @@ export class AccountsController {
   }
 
   @Patch('signing-certificates/default')
+  @ApiOperation({
+    description:
+      'Marks an uploaded signing certificate as the account default certificate for completed PDF signing.',
+    summary: 'Set default signing certificate',
+  })
   @ApiOkResponse({ type: SigningCertificateResponseDto })
   makeDefaultSigningCertificate(
     @CurrentAccount() account: Account,
@@ -144,6 +195,11 @@ export class AccountsController {
   }
 
   @Delete('signing-certificates')
+  @ApiOperation({
+    description:
+      'Deletes an uploaded signing certificate by name and updates default certificate selection if needed.',
+    summary: 'Delete signing certificate',
+  })
   @ApiOkResponse({ type: SigningCertificateResponseDto })
   deleteSigningCertificate(
     @CurrentAccount() account: Account,
@@ -153,6 +209,11 @@ export class AccountsController {
   }
 
   @Patch('signing-certificates/timestamp-server')
+  @ApiOperation({
+    description:
+      'Sets or clears the RFC3161 timestamp server URL used for document timestamp evidence.',
+    summary: 'Update timestamp server URL',
+  })
   @ApiOkResponse({ type: SigningCertificateListResponseDto })
   updateTimestampServerUrl(
     @CurrentAccount() account: Account,
@@ -165,6 +226,11 @@ export class AccountsController {
   }
 
   @Get('integrations')
+  @ApiOperation({
+    description:
+      'Lists connected account email integrations such as Gmail and Microsoft.',
+    summary: 'List email integrations',
+  })
   @ApiOkResponse({ type: AccountEmailIntegrationListResponseDto })
   integrations(
     @CurrentAccount() account: Account,
@@ -173,6 +239,15 @@ export class AccountsController {
   }
 
   @Post('integrations/:provider/connect')
+  @ApiParam({
+    description: 'Email provider key, for example gmail or microsoft.',
+    name: 'provider',
+  })
+  @ApiOperation({
+    description:
+      'Starts OAuth connection for an email provider and returns the authorization URL.',
+    summary: 'Start email integration connection',
+  })
   @ApiOkResponse({ type: AccountEmailIntegrationConnectResponseDto })
   connectIntegration(
     @CurrentAccount() account: Account,
@@ -185,6 +260,15 @@ export class AccountsController {
   }
 
   @Post('integrations/:provider/callback')
+  @ApiParam({
+    description: 'Email provider key, for example gmail or microsoft.',
+    name: 'provider',
+  })
+  @ApiOperation({
+    description:
+      'Completes email provider OAuth connection using the provider authorization code.',
+    summary: 'Complete email integration connection',
+  })
   @ApiOkResponse({ type: AccountEmailIntegrationResponseDto })
   completeIntegration(
     @CurrentAccount() account: Account,
@@ -199,6 +283,15 @@ export class AccountsController {
   }
 
   @Delete('integrations/:provider')
+  @ApiParam({
+    description: 'Email provider key, for example gmail or microsoft.',
+    name: 'provider',
+  })
+  @ApiOperation({
+    description:
+      'Disconnects an email provider and removes stored encrypted OAuth credentials.',
+    summary: 'Disconnect email integration',
+  })
   @ApiOkResponse({ type: AccountEmailIntegrationResponseDto })
   disconnectIntegration(
     @CurrentAccount() account: Account,
@@ -211,6 +304,11 @@ export class AccountsController {
   }
 
   @Post('mail/test')
+  @ApiOperation({
+    description:
+      'Queues or sends a test email through the configured account/global mail transport.',
+    summary: 'Send mail transport test',
+  })
   @ApiOkResponse({
     schema: {
       properties: {
@@ -229,6 +327,11 @@ export class AccountsController {
   }
 
   @Delete()
+  @ApiOperation({
+    description:
+      'Archives the current account. This is a destructive admin-only account lifecycle action.',
+    summary: 'Archive account',
+  })
   @ApiOkResponse({ type: AccountResponseDto })
   archive(
     @CurrentAccount() account: Account,

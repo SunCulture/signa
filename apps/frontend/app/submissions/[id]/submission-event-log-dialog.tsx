@@ -197,7 +197,26 @@ function EventLogItem({
           {event.message}
         </p>
       ) : null}
+      <EventMetadata event={event} />
     </li>
+  )
+}
+
+function EventMetadata({ event }: { event: SubmissionEventLogItem }) {
+  const details = [
+    [event.browser, event.os].filter(Boolean).join(" on "),
+    event.ip ? `IP ${event.ip}` : null,
+    event.timezone,
+  ].filter(Boolean)
+
+  if (!details.length) {
+    return null
+  }
+
+  return (
+    <p className="mt-1 text-xs text-[var(--auth-muted-foreground)]">
+      {details.join(" · ")}
+    </p>
   )
 }
 

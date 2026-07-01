@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import {
   PDFDocument,
@@ -9,6 +9,7 @@ import {
   rgb,
 } from 'pdf-lib';
 import sharp from 'sharp';
+import { PdfiumProcessingService } from '../pdf-processing/pdfium-processing.service';
 import { StorageAttachment } from '../storage/entities/storage-attachment.entity';
 import { StorageService } from '../storage/storage.service';
 import {
@@ -19,7 +20,12 @@ import { Submission } from './entities/submission.entity';
 
 @Injectable()
 export class SubmissionPdfGeneratorService {
-  constructor(private readonly storageService: StorageService) {}
+  private readonly logger = new Logger(SubmissionPdfGeneratorService.name);
+
+  constructor(
+    private readonly storageService: StorageService,
+    private readonly pdfiumProcessing: PdfiumProcessingService,
+  ) {}
 
   async stampPdfDocument(input: {
     document: SourceDocument;
@@ -30,20 +36,20 @@ export class SubmissionPdfGeneratorService {
     options?: PdfResultOptions;
   }): Promise<Buffer> {
     const source = await this.storageService.readBlob(input.document.blob);
-    const pdf = await PDFDocument.load(source, {
+    const options = input.options ?? {
+      flatten: true,
+      isTestMode: false,
+      withSignatureId: false,
+    };
+    const flattenedSource = await this.flattenSourcePdf(source, options);
+    const pdf = await PDFDocument.load(flattenedSource.buffer, {
       ignoreEncryption: true,
       updateMetadata: false,
     });
     const font = await pdf.embedFont(StandardFonts.Helvetica);
     const boldFont = await pdf.embedFont(StandardFonts.HelveticaBold);
 
-    const options = input.options ?? {
-      flatten: true,
-      isTestMode: false,
-      withSignatureId: false,
-    };
-
-    if (options.flatten !== false) {
+    if (options.flatten !== false && !flattenedSource.wasFlattenedByPdfium) {
       flattenSourceForm(pdf);
     }
 
@@ -93,6 +99,29 @@ export class SubmissionPdfGeneratorService {
     }
 
     return Buffer.from(await saveCompatiblePdf(pdf));
+  }
+
+  private async flattenSourcePdf(
+    source: Buffer,
+    options: PdfResultOptions,
+  ): Promise<{ buffer: Buffer; wasFlattenedByPdfium: boolean }> {
+    if (options.flatten === false) {
+      return { buffer: source, wasFlattenedByPdfium: false };
+    }
+
+    try {
+      const result = await this.pdfiumProcessing.flattenPdf(source);
+
+      return { buffer: result.buffer, wasFlattenedByPdfium: true };
+    } catch (error) {
+      this.logger.warn(
+        `PDFium flattening failed; falling back to pdf-lib flattening: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+
+      return { buffer: source, wasFlattenedByPdfium: false };
+    }
   }
 
   async mergePdfAttachments(attachments: StorageAttachment[]): Promise<Buffer> {

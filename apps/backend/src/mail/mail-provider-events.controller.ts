@@ -8,7 +8,14 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBody,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHmac, timingSafeEqual } from 'node:crypto';
@@ -28,6 +35,30 @@ export class MailProviderEventsController {
   ) {}
 
   @Post('provider')
+  @ApiOperation({
+    description:
+      'Receives normalized provider events such as delivered, opened, clicked, bounced, or failed. Supports optional callback secret and Mailgun signature verification.',
+    summary: 'Record email provider event',
+  })
+  @ApiQuery({
+    description:
+      'Optional callback secret when the provider cannot send the x-signa-callback-secret header.',
+    name: 'secret',
+    required: false,
+  })
+  @ApiBody({
+    description:
+      'Raw provider webhook payload. Arrays and single event objects are accepted.',
+    schema: {
+      example: {
+        email: 'recipient@example.com',
+        event: 'delivered',
+        message_id: '<mailgun-message-id>',
+        timestamp: 1782748800,
+      },
+      type: 'object',
+    },
+  })
   async recordProviderEvent(
     @Body() body: unknown,
     @Headers('x-signa-callback-secret') headerSecret?: string,
@@ -64,6 +95,21 @@ export class MailProviderEventsController {
   }
 
   @Get('messages')
+  @ApiOperation({
+    description:
+      'Lists recently queued/sent email messages, optionally scoped to one submission or submitter for debugging delivery.',
+    summary: 'List email messages',
+  })
+  @ApiQuery({
+    description: 'Optional submission id filter.',
+    name: 'submission_id',
+    required: false,
+  })
+  @ApiQuery({
+    description: 'Optional submitter id filter.',
+    name: 'submitter_id',
+    required: false,
+  })
   @ApiOkResponse({ type: Object })
   async listMessages(
     @Query('submission_id') submissionId?: string,
@@ -82,6 +128,12 @@ export class MailProviderEventsController {
   }
 
   @Get('messages/:id/events')
+  @ApiParam({ description: 'Email message id.', name: 'id' })
+  @ApiOperation({
+    description:
+      'Lists provider events recorded for a queued email message, including delivery and failure provider payloads.',
+    summary: 'List email message events',
+  })
   @ApiOkResponse({ type: Object })
   async listMessageEvents(
     @Param('id') id: string,

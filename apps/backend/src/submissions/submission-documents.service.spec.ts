@@ -7,6 +7,7 @@ import { StorageBlob } from '../storage/entities/storage-blob.entity';
 import { StorageService } from '../storage/storage.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { AccountConfig } from '../accounts/entities/account-config.entity';
+import { PdfiumProcessingService } from '../pdf-processing/pdfium-processing.service';
 import { PdfSignatureService } from '../pdf-signatures/pdf-signature.service';
 import { Submitter } from '../submitters/entities/submitter.entity';
 import { Template } from '../templates/entities/template.entity';
@@ -160,6 +161,18 @@ describe('SubmissionDocumentsService', () => {
           useValue: pdfSignatureService,
         },
         {
+          provide: PdfiumProcessingService,
+          useValue: {
+            flattenPdf: jest.fn((buffer: Buffer) =>
+              Promise.resolve({
+                buffer,
+                flattenedPages: 0,
+                pageCount: 1,
+              }),
+            ),
+          },
+        },
+        {
           provide: AccountsService,
           useValue: {
             getTestingAccountContext: jest
@@ -225,6 +238,7 @@ describe('SubmissionDocumentsService', () => {
     );
 
     expect(resultAttachmentInput).toBeDefined();
+    expect(resultAttachmentInput?.filename).toBe('contract.pdf');
     expect(resultAttachmentInput?.metadata).toMatchObject({
       original_uuid: 'attachment-uuid',
     });
@@ -238,6 +252,33 @@ describe('SubmissionDocumentsService', () => {
       submitterId: 'submitter-1',
     });
     expect(typeof completedDocumentInput?.sha256).toBe('string');
+  });
+
+  it('uses the account document filename format for completed downloads', async () => {
+    accountConfigs.find?.mockResolvedValue([
+      {
+        key: 'document_filename_format',
+        value:
+          '{document.name} - {submission.submitters} - {submission.completed_at}',
+      } as AccountConfig,
+    ]);
+    const submitter = createSubmitter({
+      completedAt: new Date('2026-06-20T00:00:00.000Z'),
+      email: 'ada@example.com',
+      values: { field_name: 'Ada' },
+    });
+    const submission = createSubmission({ submitters: [submitter] });
+    submitter.submission = submission;
+
+    await service.processSubmitterCompletion(submitter);
+
+    const resultAttachmentInput = createdPdfInputs.find(
+      (input) => input.name === 'documents',
+    );
+
+    expect(resultAttachmentInput?.filename).toBe(
+      'contract-ada@example.com-2026-06-20.pdf',
+    );
   });
 
   it('generates merged completed documents when merge is requested', async () => {

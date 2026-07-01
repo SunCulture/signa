@@ -1,41 +1,68 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 export class TeamMemberUserResponseDto {
-  @ApiProperty({ example: '1' })
+  @ApiProperty({ description: 'Account user id.', example: '1' })
   id!: string;
 
-  @ApiProperty({ example: 'Ada', nullable: true })
+  @ApiProperty({
+    description: 'User first name.',
+    example: 'Ada',
+    nullable: true,
+  })
   first_name!: string | null;
 
-  @ApiProperty({ example: 'Lovelace', nullable: true })
+  @ApiProperty({
+    description: 'User last name.',
+    example: 'Lovelace',
+    nullable: true,
+  })
   last_name!: string | null;
 
-  @ApiProperty({ example: 'ada@example.com' })
+  @ApiProperty({
+    description: 'User email address.',
+    example: 'ada@example.com',
+  })
   email!: string;
 
-  @ApiProperty({ example: 'admin' })
+  @ApiProperty({
+    description: 'Account-level role assigned to the user.',
+    example: 'admin',
+  })
   account_role!: string;
 }
 
 export class TeamMemberResponseDto {
-  @ApiProperty({ example: '1' })
+  @ApiProperty({ description: 'Team member row id.', example: '1' })
   id!: string;
 
-  @ApiProperty({ example: '1' })
+  @ApiProperty({ description: 'Team id.', example: '1' })
   team_id!: string;
 
-  @ApiProperty({ example: '1' })
+  @ApiProperty({ description: 'Account user id.', example: '1' })
   user_id!: string;
 
-  @ApiProperty({ example: 'manager' })
+  @ApiProperty({
+    description: 'Team-scoped role such as manager or member.',
+    example: 'manager',
+  })
   role!: string;
 
-  @ApiProperty({ type: TeamMemberUserResponseDto })
+  @ApiProperty({
+    description: 'Embedded account user details for display.',
+    type: TeamMemberUserResponseDto,
+  })
   user!: TeamMemberUserResponseDto;
 
-  @ApiProperty({ example: null, nullable: true })
+  @ApiProperty({
+    description: 'Archive timestamp when membership was removed.',
+    example: null,
+    nullable: true,
+  })
   archived_at!: Date | null;
 
-  @ApiProperty({ example: '2026-06-20T08:00:00.000Z' })
+  @ApiProperty({
+    description: 'UTC timestamp when the member was added.',
+    example: '2026-06-20T08:00:00.000Z',
+  })
   created_at!: Date;
 }

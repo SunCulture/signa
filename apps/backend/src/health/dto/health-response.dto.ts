@@ -4,13 +4,21 @@ export type HealthDependencyStatus = 'up' | 'down' | 'degraded';
 export type HealthStatus = 'ok' | 'degraded' | 'error';
 
 export class HealthDependencyDto {
-  @ApiProperty({ example: 'up', enum: ['up', 'down', 'degraded'] })
+  @ApiProperty({
+    description: 'Dependency status.',
+    example: 'up',
+    enum: ['up', 'down', 'degraded'],
+  })
   status: HealthDependencyStatus;
 
-  @ApiPropertyOptional({ example: 12 })
+  @ApiPropertyOptional({
+    description: 'Measured dependency latency in milliseconds.',
+    example: 12,
+  })
   latencyMs?: number;
 
   @ApiPropertyOptional({
+    description: 'Operator-readable dependency status message.',
     example: 'Database query failed. Verify PostgreSQL connectivity.',
   })
   message?: string;
@@ -23,41 +31,70 @@ export class HealthDependencyDto {
 }
 
 export class HealthResponseDto {
-  @ApiProperty({ example: 'ok', enum: ['ok', 'degraded', 'error'] })
+  @ApiProperty({
+    description: 'Overall service health status.',
+    example: 'ok',
+    enum: ['ok', 'degraded', 'error'],
+  })
   status: HealthStatus;
 
-  @ApiProperty({ example: 'backend' })
+  @ApiProperty({ description: 'Service name.', example: 'backend' })
   service: string;
 
-  @ApiProperty({ example: '0.0.1' })
+  @ApiProperty({ description: 'Application version.', example: '0.0.1' })
   version: string;
 
-  @ApiProperty({ example: 'development' })
+  @ApiProperty({
+    description: 'Runtime environment name.',
+    example: 'development',
+  })
   environment: string;
 
-  @ApiProperty({ example: '2026-06-19T00:00:00.000Z' })
+  @ApiProperty({
+    description: 'UTC timestamp when the health response was generated.',
+    example: '2026-06-19T00:00:00.000Z',
+  })
   timestamp: string;
 
-  @ApiProperty({ example: 12345 })
+  @ApiProperty({
+    description: 'Process uptime in seconds.',
+    example: 12345,
+  })
   uptimeSeconds: number;
 
   @ApiPropertyOptional({
+    description: 'Human-readable summary of the health result.',
     example: 'Core dependencies are ready to serve traffic.',
   })
   message?: string;
 
-  @ApiPropertyOptional({ type: HealthDependencyDto })
+  @ApiPropertyOptional({
+    description: 'Database health and latency details.',
+    type: HealthDependencyDto,
+  })
   database?: HealthDependencyDto;
 
-  @ApiPropertyOptional({ type: HealthDependencyDto })
+  @ApiPropertyOptional({
+    description: 'Redis/queue health and latency details.',
+    type: HealthDependencyDto,
+  })
   redis?: HealthDependencyDto;
 
-  @ApiPropertyOptional({ type: HealthDependencyDto })
+  @ApiPropertyOptional({
+    description: 'Storage path or object-store health details.',
+    type: HealthDependencyDto,
+  })
   storage?: HealthDependencyDto;
 
-  @ApiPropertyOptional({ type: HealthDependencyDto })
+  @ApiPropertyOptional({
+    description: 'Memory usage status details.',
+    type: HealthDependencyDto,
+  })
   memory?: HealthDependencyDto;
 
-  @ApiPropertyOptional({ type: HealthDependencyDto })
+  @ApiPropertyOptional({
+    description: 'Recent API latency/performance status details.',
+    type: HealthDependencyDto,
+  })
   apiPerformance?: HealthDependencyDto;
 }

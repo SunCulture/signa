@@ -175,6 +175,33 @@ export class UpdateAccountPreferencesDto {
   @IsBoolean()
   form_prefill_signature?: boolean;
 
+  @ApiPropertyOptional({
+    description:
+      'Automatically complete the configured owner role with the account owner saved signature when creating submissions.',
+    example: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  auto_sign_owner_enabled?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Template role completed by the account owner auto-sign flow. Defaults to First Party.',
+    example: 'First Party',
+  })
+  @IsOptional()
+  @IsString()
+  auto_sign_owner_role?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Send request email to the owner even when their role is auto-signed.',
+    example: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  auto_sign_owner_send_email?: boolean;
+
   @ApiPropertyOptional({ example: true })
   @IsOptional()
   @IsBoolean()

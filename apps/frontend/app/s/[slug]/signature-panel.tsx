@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   AsYouType,
@@ -14,6 +14,7 @@ import {
   CheckIcon,
   CalendarCheckIcon,
   ChevronDownIcon,
+  FileTextIcon,
   Maximize2Icon,
   ImageUpIcon,
   Minimize2Icon,
@@ -128,19 +129,18 @@ export function SignaturePanel({
     [],
   );
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [signatureDrawDataUrl, setSignatureDrawDataUrl] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [isSavedAssetDismissed, setIsSavedAssetDismissed] = useState(false);
+  const [invalidFieldKey, setInvalidFieldKey] = useState<string | null>(null);
   const [remoteSignatureAttachment, setRemoteSignatureAttachment] =
     useState<SigningAttachment | null>(null);
   const signaturePadRef = useRef<SignatureCanvasType | null>(null);
   const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const signaturePreviewUrlRef = useRef<string | null>(null);
+  const lastActiveFieldKeyRef = useRef("");
 
-  const incompleteFields = useMemo(
-    () =>
-      fields.filter((field) => !field.readonly && !hasFieldValue(form, field)),
-    [fields, form],
-  );
   const activeFieldKey = activeField ? getFieldKey(activeField) : "";
   const isSignatureField =
     activeField?.type === "signature" || activeField?.type === "initials";
@@ -162,6 +162,36 @@ export function SignaturePanel({
       ),
     [form.attachments],
   );
+  const editableFields = useMemo(
+    () => fields.filter((field) => !field.readonly),
+    [fields],
+  );
+  const previewFieldValue = useCallback(
+    (value: unknown, previewAttachment?: SigningAttachment) => {
+      if (!activeField) {
+        return;
+      }
+
+      const attachments = previewAttachment
+        ? [
+            ...form.attachments.filter(
+              (attachment) => attachment.uuid !== previewAttachment.uuid,
+            ),
+            previewAttachment,
+          ]
+        : form.attachments;
+
+      onFormChange({
+        ...form,
+        attachments,
+        values: {
+          ...form.values,
+          [activeFieldKey]: value,
+        },
+      });
+    },
+    [activeField, activeFieldKey, form, onFormChange],
+  );
 
   useEffect(() => {
     if (!activeField) {
@@ -169,18 +199,44 @@ export function SignaturePanel({
     }
 
     const value = form.values[activeFieldKey] ?? activeField.default_value;
+    const isNewActiveField = lastActiveFieldKeyRef.current !== activeFieldKey;
+
+    lastActiveFieldKeyRef.current = activeFieldKey;
 
     queueMicrotask(() => {
       setFieldValue(getStringFieldValue(value));
       setSelectedOptions(getStringArrayFieldValue(value));
       setAttachmentValueUuids(getStringArrayFieldValue(value));
       setSigningReason(getSigningReasonValue(form, activeField));
-      setUploadedFiles([]);
-      setRemoteSignatureAttachment(null);
-      setIsSavedAssetDismissed(false);
-      setIsMinimized(false);
+      if (isNewActiveField) {
+        setInvalidFieldKey(null);
+        clearSignaturePreviewUrl(signaturePreviewUrlRef);
+        setUploadedFiles([]);
+        setSignatureDrawDataUrl("");
+        setRemoteSignatureAttachment(null);
+        setIsSavedAssetDismissed(false);
+        setIsMinimized(false);
+        if (shouldUseSavedSignature && savedSignatureAsset) {
+          previewFieldValue(
+            savedSignatureAsset.uuid,
+            createLocalSigningAttachment(
+              savedSignatureAsset.uuid,
+              savedSignatureAsset.filename,
+              savedSignatureAsset.content_type,
+              savedSignatureAsset.url,
+            ),
+          );
+        }
+      }
     });
-  }, [activeField, activeFieldKey, form]);
+  }, [
+    activeField,
+    activeFieldKey,
+    form,
+    previewFieldValue,
+    savedSignatureAsset,
+    shouldUseSavedSignature,
+  ]);
 
   useEffect(() => {
     if (!activeField || mode !== "phone" || !isSignatureField) {
@@ -203,6 +259,7 @@ export function SignaturePanel({
         .then((response) => {
           if (response.attachment?.uuid) {
             setRemoteSignatureAttachment(response.attachment);
+            previewFieldValue(response.attachment.uuid, response.attachment);
             setMode("draw");
             window.clearInterval(interval);
           }
@@ -215,17 +272,132 @@ export function SignaturePanel({
     }, 2000);
 
     return () => window.clearInterval(interval);
-  }, [activeField, form.submitter.slug, isSignatureField, mode]);
+  }, [
+    activeField,
+    form.submitter.slug,
+    isSignatureField,
+    mode,
+    previewFieldValue,
+  ]);
+
+  useEffect(() => () => clearSignaturePreviewUrl(signaturePreviewUrlRef), []);
 
   if (!activeField) {
     return null;
   }
 
   const selectedField = activeField;
+  const activeStepIndex = getSigningStepIndex(editableFields, selectedField);
   const title =
     selectedField.name ||
     selectedField.title ||
     getDefaultFieldTitle(selectedField);
+  const isReadyToComplete =
+    hasRequiredFieldValue(form, selectedField) &&
+    getIncompleteFieldsExceptCurrent(fields, form, selectedField).length === 0;
+  const isInvalid = invalidFieldKey === getFieldKey(selectedField);
+
+  function guardCurrentFieldNavigation() {
+    const draftValue = getDraftFieldValue(selectedField);
+
+    if (
+      isRequiredField(selectedField) &&
+      !hasRequiredValue(selectedField, draftValue)
+    ) {
+      setInvalidFieldKey(getFieldKey(selectedField));
+      toast.error("Complete the required field", {
+        description: `${title} is required before you can continue.`,
+      });
+      return false;
+    }
+
+    return true;
+  }
+
+  function selectFieldAfterValidation(field: SigningField) {
+    if (getFieldKey(field) === getFieldKey(selectedField)) {
+      return;
+    }
+
+    if (guardCurrentFieldNavigation()) {
+      onSelectField(field);
+    }
+  }
+
+  function previewSignatureAttachment(attachment: SigningAttachment | null) {
+    if (!attachment) {
+      previewFieldValue("");
+      return;
+    }
+
+    previewFieldValue(attachment.uuid, attachment);
+  }
+
+  function previewSignatureDrawing() {
+    const pad = signaturePadRef.current;
+
+    if (!pad || pad.isEmpty()) {
+      setSignatureDrawDataUrl("");
+      previewSignatureAttachment(null);
+      return;
+    }
+
+    const dataUrl = pad.getTrimmedCanvas().toDataURL("image/png");
+
+    setSignatureDrawDataUrl(dataUrl);
+    previewSignatureAttachment(
+      createLocalSigningAttachment(
+        "signing-signature-preview",
+        "signature.png",
+        "image/png",
+        dataUrl,
+      ),
+    );
+  }
+
+  function previewSignatureFile(file: File | null) {
+    clearSignaturePreviewUrl(signaturePreviewUrlRef);
+
+    if (!file) {
+      previewSignatureAttachment(null);
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+    signaturePreviewUrlRef.current = previewUrl;
+
+    previewSignatureAttachment(
+      createLocalSigningAttachment(
+        "signing-upload-preview",
+        file.name,
+        file.type || "image/png",
+        previewUrl,
+      ),
+    );
+  }
+
+  async function previewTypedSignature(value: string) {
+    const signature = value.trim();
+
+    if (!signature) {
+      previewSignatureAttachment(null);
+      return;
+    }
+
+    const file = await typedSignatureToFile(signature);
+    const previewUrl = URL.createObjectURL(file);
+
+    clearSignaturePreviewUrl(signaturePreviewUrlRef);
+    signaturePreviewUrlRef.current = previewUrl;
+    previewSignatureAttachment(
+      createLocalSigningAttachment(
+        "signing-typed-preview",
+        file.name,
+        file.type || "image/png",
+        previewUrl,
+      ),
+    );
+  }
 
   if (isMinimized) {
     const minimizedLabel =
@@ -252,13 +424,31 @@ export function SignaturePanel({
   }
 
   async function saveActiveField() {
+    if (!guardCurrentFieldNavigation()) {
+      return;
+    }
+
+    const draftValue = getDraftFieldValue(selectedField);
     setIsSaving(true);
 
     try {
       const extraValues = collectExtraFieldValues(selectedField);
-      const value = await collectActiveFieldValue(selectedField);
-
-      const isLastRequiredField = incompleteFields.length <= 1;
+      const value =
+        !isRequiredField(selectedField) &&
+        !hasRequiredValue(selectedField, draftValue)
+          ? draftValue
+          : await collectActiveFieldValue(selectedField);
+      const nextValues = {
+        ...form.values,
+        ...extraValues,
+        [getFieldKey(selectedField)]: value,
+      };
+      const isLastRequiredField =
+        getIncompleteFieldsExceptCurrent(
+          fields,
+          { ...form, values: nextValues },
+          selectedField,
+        ).length === 0;
 
       if (isLastRequiredField) {
         await onComplete(selectedField, value, extraValues);
@@ -272,10 +462,56 @@ export function SignaturePanel({
           ? saveError.message
           : "Field could not be saved.";
 
+      setInvalidFieldKey(getFieldKey(selectedField));
       toast.error("Signing failed", { description: message });
     } finally {
       setIsSaving(false);
     }
+  }
+
+  function getDraftFieldValue(field: SigningField): unknown {
+    if (field.type === "multiple") {
+      return selectedOptions;
+    }
+
+    if (field.type === "file") {
+      return [
+        ...attachmentValueUuids,
+        ...uploadedFiles.map((file) => file.name),
+      ];
+    }
+
+    if (field.type === "image" || field.type === "stamp") {
+      return fieldValue || uploadedFiles[0]?.name || "";
+    }
+
+    if (field.type === "signature" || field.type === "initials") {
+      if (remoteSignatureAttachment?.uuid) {
+        return remoteSignatureAttachment.uuid;
+      }
+
+      if (shouldUseSavedSignature && savedSignatureAsset) {
+        return savedSignatureAsset.uuid;
+      }
+
+      if (mode === "draw") {
+        return signatureDrawDataUrl || signaturePadRef.current?.toData().length
+          ? "drawn-signature"
+          : "";
+      }
+
+      if (mode === "upload") {
+        return uploadedFiles[0]?.name ?? "";
+      }
+
+      if (mode === "type") {
+        return typedSignature.trim();
+      }
+
+      return "";
+    }
+
+    return fieldValue;
   }
 
   function collectExtraFieldValues(
@@ -302,6 +538,8 @@ export function SignaturePanel({
   }
 
   async function collectSignatureValue(): Promise<string> {
+    clearSignaturePreviewUrl(signaturePreviewUrlRef);
+
     if (remoteSignatureAttachment?.uuid) {
       return remoteSignatureAttachment.uuid;
     }
@@ -318,11 +556,14 @@ export function SignaturePanel({
     if (mode === "draw") {
       const pad = signaturePadRef.current;
 
-      if (!pad || pad.isEmpty()) {
+      if ((!pad || pad.isEmpty()) && !signatureDrawDataUrl) {
         throw new Error("Draw your signature before completing.");
       }
 
-      const dataUrl = pad.getTrimmedCanvas().toDataURL("image/png");
+      const dataUrl =
+        pad && !pad.isEmpty()
+          ? pad.getTrimmedCanvas().toDataURL("image/png")
+          : signatureDrawDataUrl;
       const file = dataUrlToFile(dataUrl, `${signingType}.png`);
 
       return onUploadAttachment(file, signingType);
@@ -403,10 +644,17 @@ export function SignaturePanel({
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 flex justify-center px-0 sm:bottom-4 sm:px-4">
       <section className="max-h-[min(86svh,640px)] w-full overflow-y-auto rounded-t-xl border border-[var(--auth-input-border)] bg-card p-4 shadow-2xl sm:max-w-3xl sm:rounded-xl sm:p-5">
-        <div className="mb-3.5 flex items-end justify-between gap-3 md:mb-4">
-          <h2 className="min-w-0 flex-1 truncate text-xl font-medium sm:text-2xl">
-            {title}
-          </h2>
+        <div
+          className={cn(
+            "flex items-end justify-between gap-3",
+            isSignatureField ? "mb-3.5 md:mb-4" : "mb-2 justify-end",
+          )}
+        >
+          {isSignatureField ? (
+            <h2 className="min-w-0 flex-1 truncate text-xl font-medium text-[var(--auth-primary)] sm:text-2xl">
+              {title}
+            </h2>
+          ) : null}
           <div className="flex flex-none items-center justify-end gap-2">
             {isSignatureField ? (
               shouldUseSavedSignature ? (
@@ -416,14 +664,26 @@ export function SignaturePanel({
                       active={false}
                       icon={<TypeIcon data-icon="inline-start" />}
                       label="Type"
-                      onClick={() => setMode("type")}
+                      onClick={() => {
+                        setIsSavedAssetDismissed(true);
+                        setInvalidFieldKey(null);
+                        setSignatureDrawDataUrl("");
+                        previewSignatureAttachment(null);
+                        setMode("type");
+                      }}
                     />
                   ) : null}
                   <ModeButton
                     active={false}
                     icon={<ImageUpIcon data-icon="inline-start" />}
                     label="Upload"
-                    onClick={() => setMode("upload")}
+                    onClick={() => {
+                      setIsSavedAssetDismissed(true);
+                      setInvalidFieldKey(null);
+                      setSignatureDrawDataUrl("");
+                      previewSignatureAttachment(null);
+                      setMode("upload");
+                    }}
                   />
                   <ModeButton
                     active={false}
@@ -431,6 +691,10 @@ export function SignaturePanel({
                     label="Redraw"
                     onClick={() => {
                       setIsSavedAssetDismissed(true);
+                      setInvalidFieldKey(null);
+                      setSignatureDrawDataUrl("");
+                      previewSignatureAttachment(null);
+                      setMode("draw");
                       queueMicrotask(() => signaturePadRef.current?.clear());
                     }}
                   />
@@ -441,28 +705,40 @@ export function SignaturePanel({
                     active={mode === "draw"}
                     icon={<PenLineIcon data-icon="inline-start" />}
                     label="Draw"
-                    onClick={() => setMode("draw")}
+                    onClick={() => {
+                      setInvalidFieldKey(null);
+                      setMode("draw");
+                    }}
                   />
                   {canTypeSignature ? (
                     <ModeButton
                       active={mode === "type"}
                       icon={<TypeIcon data-icon="inline-start" />}
                       label="Type"
-                      onClick={() => setMode("type")}
+                      onClick={() => {
+                        setInvalidFieldKey(null);
+                        setMode("type");
+                      }}
                     />
                   ) : null}
                   <ModeButton
                     active={mode === "upload"}
                     icon={<ImageUpIcon data-icon="inline-start" />}
                     label="Upload"
-                    onClick={() => setMode("upload")}
+                    onClick={() => {
+                      setInvalidFieldKey(null);
+                      setMode("upload");
+                    }}
                   />
                   <ModeButton
                     active={mode === "phone"}
                     className="hidden md:inline-flex"
                     icon={<QrCodeIcon data-icon="inline-start" />}
                     label="Phone"
-                    onClick={() => setMode("phone")}
+                    onClick={() => {
+                      setInvalidFieldKey(null);
+                      setMode("phone");
+                    }}
                   />
                 </>
               )
@@ -479,30 +755,10 @@ export function SignaturePanel({
           </div>
         </div>
 
-        {incompleteFields.length > 1 ? (
-          <div className="mb-3 flex gap-2 overflow-x-auto pb-1 sm:mb-4">
-            {incompleteFields.map((field) => (
-              <Button
-                className={cn(
-                  "h-9 shrink-0 rounded-full px-4 text-xs font-bold",
-                  field === selectedField
-                    ? "bg-[var(--auth-primary)] text-[var(--auth-primary-foreground)]"
-                    : "border-[var(--auth-input-border)] text-[var(--auth-primary)]",
-                )}
-                key={getFieldKey(field)}
-                onClick={() => onSelectField(field)}
-                type="button"
-                variant={field === selectedField ? "default" : "outline"}
-              >
-                {field.name || field.title || getDefaultFieldTitle(field)}
-              </Button>
-            ))}
-          </div>
-        ) : null}
-
         {isSignatureField ? (
-          <div className="flex flex-col gap-3">
+          <div className="mx-auto flex w-full max-w-[582px] flex-col gap-3">
             <SignatureInput
+              isInvalid={isInvalid}
               mode={mode}
               mobileUrl={
                 selectedField.uuid
@@ -514,14 +770,27 @@ export function SignaturePanel({
               }
               onClear={() => signaturePadRef.current?.clear()}
               onHideQr={() => setMode("draw")}
-              onFileChange={(file) => setUploadedFiles(file ? [file] : [])}
+              onFileChange={(file) => {
+                setInvalidFieldKey(null);
+                setUploadedFiles(file ? [file] : []);
+                previewSignatureFile(file);
+              }}
               padRef={signaturePadRef}
               qrCanvasRef={qrCanvasRef}
               remoteAttachment={remoteSignatureAttachment}
               savedAsset={shouldUseSavedSignature ? savedSignatureAsset : null}
+              signatureDrawDataUrl={signatureDrawDataUrl}
               typedSignature={typedSignature}
               uploadedFile={uploadedFiles[0] ?? null}
-              onTypedSignatureChange={setTypedSignature}
+              onDrawChange={() => {
+                setInvalidFieldKey(null);
+                previewSignatureDrawing();
+              }}
+              onTypedSignatureChange={(value) => {
+                setInvalidFieldKey(null);
+                setTypedSignature(value);
+                void previewTypedSignature(value);
+              }}
             />
             {form.configs.require_signing_reason ? (
               <Field>
@@ -536,32 +805,52 @@ export function SignaturePanel({
             ) : null}
           </div>
         ) : (
-          <SignerFieldInput
-            field={selectedField}
-            attachmentsIndex={attachmentsIndex}
-            attachmentValueUuids={attachmentValueUuids}
-            form={form}
-            selectedOptions={selectedOptions}
-            uploadedFiles={uploadedFiles}
-            value={fieldValue}
-            onAttachmentValueUuidsChange={setAttachmentValueUuids}
-            onFormChange={onFormChange}
-            onFilesChange={setUploadedFiles}
-            onChange={setFieldValue}
-            onSelectedOptionsChange={setSelectedOptions}
-          />
+          <div className="mx-auto w-full max-w-[582px]">
+            <SignerFieldInput
+              field={selectedField}
+              attachmentsIndex={attachmentsIndex}
+              attachmentValueUuids={attachmentValueUuids}
+              form={form}
+              selectedOptions={selectedOptions}
+              isInvalid={isInvalid}
+              uploadedFiles={uploadedFiles}
+              value={fieldValue}
+              onAttachmentValueUuidsChange={(value) => {
+                setInvalidFieldKey(null);
+                setAttachmentValueUuids(value);
+                previewFieldValue(value);
+              }}
+              onFormChange={onFormChange}
+              onFilesChange={(files) => {
+                setInvalidFieldKey(null);
+                setUploadedFiles(files);
+              }}
+              onChange={(value) => {
+                setInvalidFieldKey(null);
+                setFieldValue(value);
+                previewFieldValue(value);
+              }}
+              onSelectedOptionsChange={(value) => {
+                setInvalidFieldKey(null);
+                setSelectedOptions(value);
+                previewFieldValue(value);
+              }}
+            />
+          </div>
         )}
 
-        <p className="mt-2 text-center text-xs text-[var(--auth-muted-foreground)] sm:mt-2.5">
-          By clicking &quot;Sign and Complete&quot;, you agree to the{" "}
-          <span className="sm:hidden">eSignature Disclosure</span>
-          <span className="hidden sm:inline">
-            Electronic Signature Disclosure
-          </span>
-          .
-        </p>
+        {isReadyToComplete ? (
+          <p className="mt-2 text-center text-xs text-[var(--auth-muted-foreground)] sm:mt-2.5">
+            By clicking &quot;Sign and Complete&quot;, you agree to the{" "}
+            <span className="sm:hidden">eSignature Disclosure</span>
+            <span className="hidden sm:inline">
+              Electronic Signature Disclosure
+            </span>
+            .
+          </p>
+        ) : null}
         <Button
-          className="mt-3 h-12 w-full rounded-full bg-[var(--auth-primary)] text-sm font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
+          className="mx-auto mt-3 flex h-12 w-full max-w-[582px] rounded-full bg-[var(--auth-primary)] text-sm font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
           disabled={isSaving}
           onClick={() => void saveActiveField()}
           type="button"
@@ -571,17 +860,89 @@ export function SignaturePanel({
           ) : (
             <CheckIcon data-icon="inline-start" />
           )}
-          {incompleteFields.length <= 1 ? "SIGN AND COMPLETE" : "SAVE AND NEXT"}
+          {isReadyToComplete ? "SIGN AND COMPLETE" : "SAVE AND NEXT"}
         </Button>
+        <SigningStepDots
+          activeIndex={activeStepIndex}
+          fields={editableFields}
+          onSelectField={selectFieldAfterValidation}
+        />
       </section>
     </div>
   );
 }
 
+function getSigningStepIndex(
+  fields: SigningField[],
+  activeField: SigningField,
+): number {
+  const index = fields.findIndex(
+    (field) => getFieldKey(field) === getFieldKey(activeField),
+  );
+
+  return Math.max(0, index);
+}
+
+function SigningStepDots({
+  activeIndex,
+  fields,
+  onSelectField,
+}: {
+  activeIndex: number;
+  fields: SigningField[];
+  onSelectField: (field: SigningField) => void;
+}) {
+  const stepFields = fields.length ? fields : [];
+  const total = Math.max(stepFields.length + 1, 1);
+  const finalStepIndex = total - 1;
+
+  return (
+    <div
+      aria-label={`Step ${activeIndex + 1} of ${total}`}
+      className="mt-4 flex justify-center gap-2"
+      role="status"
+    >
+      {Array.from({ length: total }).map((_, index) => {
+        const field = stepFields[index];
+        const isFinalStep = index === finalStepIndex;
+        const isActive = index === activeIndex;
+        const label =
+          field?.name ||
+          field?.title ||
+          (field ? getDefaultFieldTitle(field) : "Field");
+
+        return (
+          <button
+            aria-current={isActive ? "step" : undefined}
+            aria-label={isFinalStep ? "Completion step" : `Go to ${label}`}
+            className={cn(
+              "size-2.5 rounded-full border border-[var(--auth-primary)]/20 transition",
+              isActive ? "bg-[var(--auth-primary)]" : "bg-[var(--auth-muted)]",
+              isFinalStep
+                ? "cursor-default opacity-70"
+                : "hover:border-[var(--auth-primary)] hover:bg-[var(--auth-primary)]/30",
+            )}
+            disabled={isFinalStep || !field}
+            key={index}
+            onClick={() => {
+              if (field) {
+                onSelectField(field);
+              }
+            }}
+            type="button"
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 function SignatureInput({
+  isInvalid,
   mobileUrl,
   mode,
   onClear,
+  onDrawChange,
   onFileChange,
   onHideQr,
   onTypedSignatureChange,
@@ -589,12 +950,15 @@ function SignatureInput({
   qrCanvasRef,
   remoteAttachment,
   savedAsset,
+  signatureDrawDataUrl,
   typedSignature,
   uploadedFile,
 }: {
+  isInvalid: boolean;
   mobileUrl: string;
   mode: SignatureMode;
   onClear: () => void;
+  onDrawChange: () => void;
   onFileChange: (file: File | null) => void;
   onHideQr: () => void;
   onTypedSignatureChange: (value: string) => void;
@@ -602,9 +966,29 @@ function SignatureInput({
   qrCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
   remoteAttachment: SigningAttachment | null;
   savedAsset: SavedSignatureAsset | null;
+  signatureDrawDataUrl: string;
   typedSignature: string;
   uploadedFile: File | null;
 }) {
+  useEffect(() => {
+    if (
+      mode !== "draw" ||
+      remoteAttachment ||
+      savedAsset ||
+      !signatureDrawDataUrl
+    ) {
+      return;
+    }
+
+    const pad = padRef.current;
+
+    if (!pad || !pad.isEmpty()) {
+      return;
+    }
+
+    pad.fromDataURL(signatureDrawDataUrl);
+  }, [mode, padRef, remoteAttachment, savedAsset, signatureDrawDataUrl]);
+
   if (mode === "type") {
     return (
       <Input
@@ -676,7 +1060,12 @@ function SignatureInput({
 
   if (remoteAttachment) {
     return (
-      <div className="flex h-44 items-center justify-center rounded-2xl border border-[var(--auth-input-border)] bg-white p-4 sm:h-48">
+      <div
+        className={cn(
+          "flex h-44 items-center justify-center rounded-2xl border border-[var(--auth-input-border)] bg-white p-4 sm:h-48",
+          isInvalid && "border-red-500 ring-2 ring-red-500/25",
+        )}
+      >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           alt={remoteAttachment.filename}
@@ -689,7 +1078,12 @@ function SignatureInput({
 
   if (savedAsset) {
     return (
-      <div className="relative h-44 overflow-hidden rounded-2xl border border-[var(--auth-input-border)] bg-white sm:h-48">
+      <div
+        className={cn(
+          "relative h-44 overflow-hidden rounded-2xl border border-[var(--auth-input-border)] bg-white sm:h-48",
+          isInvalid && "border-red-500 ring-2 ring-red-500/25",
+        )}
+      >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           alt={savedAsset.filename}
@@ -701,9 +1095,18 @@ function SignatureInput({
   }
 
   return (
-    <div className="relative h-44 overflow-hidden rounded-2xl border border-[var(--auth-input-border)] bg-white sm:h-48">
+    <div
+      className={cn(
+        "relative h-44 overflow-hidden rounded-2xl border border-[var(--auth-input-border)] bg-white sm:h-48",
+        isInvalid && "border-red-500 ring-2 ring-red-500/25",
+      )}
+    >
       <SignatureCanvas
-        canvasProps={{ className: "h-full w-full touch-none" }}
+        canvasProps={{
+          className: "h-full w-full touch-none",
+          onMouseUp: onDrawChange,
+          onTouchEnd: onDrawChange,
+        }}
         penColor="#16304f"
         ref={padRef}
         throttle={8}
@@ -711,7 +1114,10 @@ function SignatureInput({
       <Button
         aria-label="Clear signature"
         className="absolute right-3 top-3 h-8 rounded-full bg-white/90 px-3 text-xs font-bold text-[var(--auth-primary)] shadow-sm hover:bg-[var(--auth-muted)] md:h-9"
-        onClick={onClear}
+        onClick={() => {
+          onClear();
+          onDrawChange();
+        }}
         type="button"
         variant="ghost"
       >
@@ -727,6 +1133,7 @@ function SignerFieldInput({
   attachmentsIndex,
   field,
   form,
+  isInvalid,
   onAttachmentValueUuidsChange,
   onChange,
   onFormChange,
@@ -740,6 +1147,7 @@ function SignerFieldInput({
   attachmentsIndex: Record<string, { filename: string; url: string }>;
   field: SigningField;
   form: SigningForm;
+  isInvalid: boolean;
   onAttachmentValueUuidsChange: (value: string[]) => void;
   onChange: (value: string) => void;
   onFormChange: (form: SigningForm) => void;
@@ -750,16 +1158,26 @@ function SignerFieldInput({
   value: string;
 }) {
   if (field.type === "checkbox") {
+    const label =
+      field.description || field.name || getDefaultFieldTitle(field);
+
     return (
       <FieldGroup>
-        <Field orientation="horizontal">
-          <Checkbox
-            checked={value === "true"}
-            onCheckedChange={(checked) => onChange(checked ? "true" : "")}
-          />
-          <FieldLabel className="cursor-pointer">
-            {field.description || "Check this box"}
-          </FieldLabel>
+        <Field>
+          <FieldLabel className="sr-only">{label}</FieldLabel>
+          <div className="mx-auto flex w-fit items-center gap-3">
+            <Checkbox
+              checked={value === "true"}
+              className={cn(
+                "size-7 rounded border-[var(--auth-input-border)] data-[state=checked]:border-[var(--auth-primary)] data-[state=checked]:bg-[var(--auth-primary)] data-[state=checked]:text-[var(--auth-primary-foreground)]",
+                isInvalid && "border-red-500 ring-2 ring-red-500/30",
+              )}
+              onCheckedChange={(checked) => onChange(checked ? "true" : "")}
+            />
+            <span className="text-2xl font-normal leading-none text-[var(--auth-primary)]">
+              {label}
+            </span>
+          </div>
         </Field>
       </FieldGroup>
     );
@@ -776,6 +1194,7 @@ function SignerFieldInput({
         attachmentsIndex={attachmentsIndex}
         field={field}
         files={uploadedFiles}
+        isInvalid={isInvalid}
         value={value}
         onAttachmentValueUuidsChange={onAttachmentValueUuidsChange}
         onChange={onChange}
@@ -786,7 +1205,12 @@ function SignerFieldInput({
 
   if (field.type === "select") {
     return (
-      <OptionSelectInput field={field} value={value} onChange={onChange} />
+      <OptionSelectInput
+        field={field}
+        isInvalid={isInvalid}
+        value={value}
+        onChange={onChange}
+      />
     );
   }
 
@@ -794,6 +1218,7 @@ function SignerFieldInput({
     return (
       <OptionToggleInput
         field={field}
+        isInvalid={isInvalid}
         type="single"
         value={value}
         onChange={onChange}
@@ -805,6 +1230,7 @@ function SignerFieldInput({
     return (
       <OptionToggleInput
         field={field}
+        isInvalid={isInvalid}
         selectedOptions={selectedOptions}
         type="multiple"
         onSelectedOptionsChange={onSelectedOptionsChange}
@@ -816,6 +1242,7 @@ function SignerFieldInput({
     <TextLikeFieldInput
       field={field}
       form={form}
+      isInvalid={isInvalid}
       value={value}
       onFormChange={onFormChange}
       onChange={onChange}
@@ -828,6 +1255,7 @@ function AttachmentFieldInput({
   attachmentsIndex,
   field,
   files,
+  isInvalid,
   onAttachmentValueUuidsChange,
   onChange,
   onFilesChange,
@@ -837,6 +1265,7 @@ function AttachmentFieldInput({
   attachmentsIndex: Record<string, { filename: string; url: string }>;
   field: SigningField;
   files: File[];
+  isInvalid: boolean;
   onAttachmentValueUuidsChange: (value: string[]) => void;
   onChange: (value: string) => void;
   onFilesChange: (files: File[]) => void;
@@ -869,7 +1298,12 @@ function AttachmentFieldInput({
             onValueUuidsChange={onAttachmentValueUuidsChange}
           />
         ) : null}
-        <label className="flex h-40 cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[var(--auth-input-border)] bg-[var(--auth-muted)] px-4 text-center transition hover:border-[var(--auth-primary)] hover:bg-[var(--auth-primary)]/5">
+        <label
+          className={cn(
+            "flex h-40 cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[var(--auth-input-border)] bg-[var(--auth-muted)] px-4 text-center transition hover:border-[var(--auth-primary)] hover:bg-[var(--auth-primary)]/5",
+            isInvalid && "border-red-500 bg-red-50 ring-2 ring-red-500/25",
+          )}
+        >
           {isImage ? (
             <ImageUpIcon className="size-8 text-[var(--auth-primary)]" />
           ) : (
@@ -1038,12 +1472,14 @@ function UploadedFileList({
 function TextLikeFieldInput({
   field,
   form,
+  isInvalid,
   onChange,
   onFormChange,
   value,
 }: {
   field: SigningField;
   form: SigningForm;
+  isInvalid: boolean;
   onChange: (value: string) => void;
   onFormChange: (form: SigningForm) => void;
   value: string;
@@ -1051,7 +1487,14 @@ function TextLikeFieldInput({
   const [isMultiline, setIsMultiline] = useState(false);
 
   if (field.type === "date") {
-    return <DateFieldInput field={field} value={value} onChange={onChange} />;
+    return (
+      <DateFieldInput
+        field={field}
+        isInvalid={isInvalid}
+        value={value}
+        onChange={onChange}
+      />
+    );
   }
 
   if (field.type === "payment") {
@@ -1073,6 +1516,7 @@ function TextLikeFieldInput({
       <PhoneFieldInput
         field={field}
         form={form}
+        isInvalid={isInvalid}
         value={value}
         onFormChange={onFormChange}
         onChange={onChange}
@@ -1085,42 +1529,61 @@ function TextLikeFieldInput({
   const maxLength = getCellsMaxLength(field);
 
   return (
-    <FieldGroup>
-      <Field>
+    <FieldGroup className="gap-3">
+      <Field className="gap-3">
         {field.description ? (
           <FieldDescription>{field.description}</FieldDescription>
         ) : null}
         {isMultiline ? (
           <Textarea
-            className="min-h-32 rounded-2xl border-[var(--auth-input-border)] px-5 py-4 text-xl shadow-none focus-visible:ring-0"
+            className={cn(
+              "min-h-32 rounded-2xl border-[var(--auth-input-border)] px-5 py-4 text-2xl shadow-none focus-visible:ring-0",
+              isInvalid && "border-red-500 ring-2 ring-red-500/25",
+            )}
             maxLength={maxLength}
             onChange={(event) => onChange(event.target.value)}
             placeholder={field.name || getDefaultFieldTitle(field)}
             value={value}
           />
         ) : (
-          <Input
-            className="h-14 rounded-full border-[var(--auth-input-border)] px-5 text-xl shadow-none focus-visible:ring-0"
-            inputMode={getInputMode(field)}
-            max={getValidationNumber(field, "max")}
-            maxLength={maxLength}
-            min={getValidationNumber(field, "min")}
-            onChange={(event) => onChange(event.target.value)}
-            pattern={getValidationPattern(field)}
-            placeholder={field.name || getDefaultFieldTitle(field)}
-            step={getValidationNumber(field, "step")}
-            type={getInputType(field)}
-            value={value}
-          />
+          <div className="relative">
+            <Input
+              className={cn(
+                "h-12 rounded-full border-[var(--auth-input-border)] bg-white px-5 pr-14 text-2xl shadow-none placeholder:text-muted-foreground/65 focus-visible:ring-0 sm:h-14",
+                isInvalid && "border-red-500 ring-2 ring-red-500/25",
+              )}
+              inputMode={getInputMode(field)}
+              max={getValidationNumber(field, "max")}
+              maxLength={maxLength}
+              min={getValidationNumber(field, "min")}
+              onChange={(event) => onChange(event.target.value)}
+              pattern={getValidationPattern(field)}
+              placeholder={field.name || getDefaultFieldTitle(field)}
+              step={getValidationNumber(field, "step")}
+              type={getInputType(field)}
+              value={value}
+            />
+            {canToggleMultiline ? (
+              <Button
+                aria-label="Use multiple lines"
+                className="absolute right-4 top-1/2 size-7 -translate-y-1/2 rounded-none border-0 bg-transparent p-0 text-[var(--auth-primary)] shadow-none hover:bg-transparent hover:text-[var(--auth-primary-hover)]"
+                onClick={() => setIsMultiline(true)}
+                type="button"
+                variant="ghost"
+              >
+                <FileTextIcon className="size-6" data-icon="icon-only" />
+              </Button>
+            ) : null}
+          </div>
         )}
-        {canToggleMultiline ? (
+        {canToggleMultiline && isMultiline ? (
           <Button
             className="mx-auto h-9 rounded-full px-4 text-xs font-bold"
             onClick={() => setIsMultiline((current) => !current)}
             type="button"
             variant="outline"
           >
-            {isMultiline ? "Use single line" : "Add multiple lines"}
+            Use single line
           </Button>
         ) : null}
       </Field>
@@ -1131,12 +1594,14 @@ function TextLikeFieldInput({
 function PhoneFieldInput({
   field,
   form,
+  isInvalid,
   onChange,
   onFormChange,
   value,
 }: {
   field: SigningField;
   form: SigningForm;
+  isInvalid: boolean;
   onChange: (value: string) => void;
   onFormChange: (form: SigningForm) => void;
   value: string;
@@ -1172,7 +1637,9 @@ function PhoneFieldInput({
     const nextCountry =
       phoneCountries.find((country) => country.dial === nextCountryDialCode) ??
       selectedCountry;
-    const formatter = new AsYouType(nextCountry.iso.toUpperCase() as CountryCode);
+    const formatter = new AsYouType(
+      nextCountry.iso.toUpperCase() as CountryCode,
+    );
     const formattedValue = formatter.input(
       cleanedNationalValue.replace(/[^\d]/g, ""),
     );
@@ -1277,6 +1744,7 @@ function PhoneFieldInput({
             value && !phoneValidation.isValid
               ? "border-red-300"
               : "border-[var(--auth-input-border)]",
+            isInvalid && "border-red-500 ring-2 ring-red-500/25",
           )}
         >
           <PhoneCountryPicker
@@ -1309,10 +1777,8 @@ function PhoneFieldInput({
           {isPhoneAccepted ? (
             <>
               <CheckIcon className="size-4" />
-              Phone number is valid{isPhoneFieldVerified(form, field, value)
-                ? " and verified"
-                : ""}
-              .
+              Phone number is valid
+              {isPhoneFieldVerified(form, field, value) ? " and verified" : ""}.
             </>
           ) : value && !phoneValidation.isValid ? (
             `Enter a valid ${selectedCountry.name} number, for example ${examplePlaceholder}.`
@@ -1325,7 +1791,9 @@ function PhoneFieldInput({
         <div className="flex flex-col gap-3 rounded-2xl border border-[var(--auth-input-border)] bg-[var(--auth-muted)] p-3 sm:flex-row">
           <Button
             className="h-11 rounded-full px-5 font-bold"
-            disabled={!phoneValidation.isValid || isPhoneAccepted || isAccepting}
+            disabled={
+              !phoneValidation.isValid || isPhoneAccepted || isAccepting
+            }
             onClick={() => void acceptValidatedPhone()}
             type="button"
             variant="outline"
@@ -1374,10 +1842,12 @@ function PhoneFieldInput({
 
 function DateFieldInput({
   field,
+  isInvalid,
   onChange,
   value,
 }: {
   field: SigningField;
+  isInvalid: boolean;
   onChange: (value: string) => void;
   value: string;
 }) {
@@ -1387,17 +1857,17 @@ function DateFieldInput({
 
   return (
     <FieldGroup>
-      <Field>
-        <div className="flex items-end justify-between gap-3">
+      <Field className="gap-3">
+        <div className="flex items-center justify-between gap-3 px-1">
           <FieldLabel className="sr-only">
             {field.name || getDefaultFieldTitle(field)}
           </FieldLabel>
-          <span className="text-sm font-semibold">
+          <span className="text-2xl font-medium text-[var(--auth-primary)]">
             {field.description || field.name || getDefaultFieldTitle(field)}
           </span>
           {canSetToday(field, inputType) ? (
             <Button
-              className="h-8 rounded-full px-3 text-xs font-bold"
+              className="h-9 rounded-full border-[var(--auth-primary)] px-4 text-sm font-medium text-[var(--auth-primary)]"
               onClick={() => onChange(todayValue)}
               type="button"
               variant="outline"
@@ -1408,7 +1878,10 @@ function DateFieldInput({
           ) : null}
         </div>
         <Input
-          className="h-14 rounded-full border-[var(--auth-input-border)] px-5 text-xl shadow-none focus-visible:ring-0"
+          className={cn(
+            "h-12 rounded-full border-[var(--auth-input-border)] bg-white px-5 text-center text-2xl shadow-none placeholder:text-muted-foreground/65 focus-visible:ring-0 sm:h-14",
+            isInvalid && "border-red-500 ring-2 ring-red-500/25",
+          )}
           max={getDateValidationValue(field, "max", inputType)}
           min={getDateValidationValue(field, "min", inputType)}
           onChange={(event) => {
@@ -1434,10 +1907,12 @@ function DateFieldInput({
 
 function OptionSelectInput({
   field,
+  isInvalid,
   onChange,
   value,
 }: {
   field: SigningField;
+  isInvalid: boolean;
   onChange: (value: string) => void;
   value: string;
 }) {
@@ -1450,7 +1925,12 @@ function OptionSelectInput({
           {field.name || "Select option"}
         </FieldLabel>
         <Select value={value} onValueChange={onChange}>
-          <SelectTrigger className="h-14 w-full rounded-full border-[var(--auth-input-border)] px-5 shadow-none">
+          <SelectTrigger
+            className={cn(
+              "h-12 w-full rounded-full border-[var(--auth-input-border)] px-5 text-center text-2xl shadow-none sm:h-14",
+              isInvalid && "border-red-500 ring-2 ring-red-500/25",
+            )}
+          >
             <SelectValue placeholder="Select an option" />
           </SelectTrigger>
           <SelectContent>
@@ -1470,6 +1950,7 @@ function OptionSelectInput({
 
 function OptionToggleInput({
   field,
+  isInvalid,
   onChange,
   onSelectedOptionsChange,
   selectedOptions,
@@ -1477,6 +1958,7 @@ function OptionToggleInput({
   value,
 }: {
   field: SigningField;
+  isInvalid: boolean;
   onChange?: (value: string) => void;
   onSelectedOptionsChange?: (value: string[]) => void;
   selectedOptions?: string[];
@@ -1493,17 +1975,32 @@ function OptionToggleInput({
             {field.name || "Choose option"}
           </FieldLabel>
           <RadioGroup
-            className="mx-auto max-h-44 w-fit overflow-y-auto"
+            className={cn(
+              "mx-auto flex w-fit flex-col gap-3",
+              options.length > 4 && "max-h-44 overflow-y-auto pr-2",
+            )}
             value={value}
             onValueChange={(nextValue: string) => onChange?.(nextValue)}
           >
             {options.map((option) => (
-              <Field className="flex-row items-center gap-3" key={option.uuid}>
-                <RadioGroupItem className="size-7" value={option.value} />
-                <FieldLabel className="text-xl font-normal">
+              <label
+                className={cn(
+                  "flex w-fit cursor-pointer items-center gap-3 rounded-lg",
+                  isInvalid && "ring-2 ring-red-500/25",
+                )}
+                key={option.uuid}
+              >
+                <RadioGroupItem
+                  className={cn(
+                    "size-7 border-[var(--auth-input-border)] text-[var(--auth-primary)]",
+                    isInvalid && "border-red-500",
+                  )}
+                  value={option.value}
+                />
+                <span className="text-2xl font-normal leading-none text-[var(--auth-primary)]">
                   {option.value}
-                </FieldLabel>
-              </Field>
+                </span>
+              </label>
             ))}
           </RadioGroup>
         </Field>
@@ -1517,12 +2014,26 @@ function OptionToggleInput({
         <FieldLabel className="sr-only">
           {field.name || "Select options"}
         </FieldLabel>
-        <div className="mx-auto flex max-h-44 w-fit flex-col gap-3.5 overflow-y-auto">
+        <div
+          className={cn(
+            "mx-auto flex w-fit flex-col gap-3",
+            options.length > 4 && "max-h-44 overflow-y-auto pr-2",
+          )}
+        >
           {options.map((option) => (
-            <Field className="flex-row items-center gap-3" key={option.uuid}>
+            <label
+              className={cn(
+                "flex w-fit cursor-pointer items-center gap-3 rounded-lg",
+                isInvalid && "ring-2 ring-red-500/25",
+              )}
+              key={option.uuid}
+            >
               <Checkbox
                 checked={(selectedOptions ?? []).includes(option.value)}
-                className="size-7"
+                className={cn(
+                  "size-7 rounded border-[var(--auth-input-border)] data-[state=checked]:border-[var(--auth-primary)] data-[state=checked]:bg-[var(--auth-primary)] data-[state=checked]:text-[var(--auth-primary-foreground)]",
+                  isInvalid && "border-red-500",
+                )}
                 onCheckedChange={(checked) => {
                   const current = selectedOptions ?? [];
                   onSelectedOptionsChange?.(
@@ -1532,10 +2043,10 @@ function OptionToggleInput({
                   );
                 }}
               />
-              <FieldLabel className="text-xl font-normal">
+              <span className="text-2xl font-normal leading-none text-[var(--auth-primary)]">
                 {option.value}
-              </FieldLabel>
-            </Field>
+              </span>
+            </label>
           ))}
         </div>
       </Field>
@@ -1625,6 +2136,31 @@ async function remoteImageToFile(asset: SavedSignatureAsset): Promise<File> {
   return new File([blob], asset.filename, { type: contentType });
 }
 
+function createLocalSigningAttachment(
+  uuid: string,
+  filename: string,
+  contentType: string | null,
+  url: string,
+): SigningAttachment {
+  return {
+    content_type: contentType,
+    filename,
+    url,
+    uuid,
+  };
+}
+
+function clearSignaturePreviewUrl(
+  previewUrlRef: React.MutableRefObject<string | null>,
+) {
+  if (!previewUrlRef.current) {
+    return;
+  }
+
+  URL.revokeObjectURL(previewUrlRef.current);
+  previewUrlRef.current = null;
+}
+
 function collectSimpleFieldValue(field: SigningField, value: string): unknown {
   if (field.type === "checkbox") {
     return value === "true";
@@ -1640,11 +2176,53 @@ function collectSimpleFieldValue(field: SigningField, value: string): unknown {
 function hasFieldValue(form: SigningForm, field: SigningField): boolean {
   const value = form.values[getFieldKey(field)];
 
+  return hasRequiredValue(field, value);
+}
+
+function hasRequiredFieldValue(
+  form: SigningForm,
+  field: SigningField,
+): boolean {
+  if (!isRequiredField(field)) {
+    return true;
+  }
+
+  return hasRequiredValue(field, form.values[getFieldKey(field)]);
+}
+
+function isRequiredField(field: SigningField): boolean {
+  return field.required !== false && field.readonly !== true;
+}
+
+function hasRequiredValue(field: SigningField, value: unknown): boolean {
+  if (!isRequiredField(field)) {
+    return true;
+  }
+
   if (Array.isArray(value)) {
     return value.length > 0;
   }
 
+  if (field.type === "checkbox") {
+    return value === true || value === "true";
+  }
+
   return value !== null && value !== undefined && value !== "";
+}
+
+function getIncompleteFieldsExceptCurrent(
+  fields: SigningField[],
+  form: SigningForm,
+  currentField: SigningField,
+): SigningField[] {
+  const currentFieldKey = getFieldKey(currentField);
+
+  return fields.filter(
+    (field) =>
+      isRequiredField(field) &&
+      getFieldKey(field) !== currentFieldKey &&
+      !hasRequiredFieldValue(form, field),
+  );
 }
 
 function isPhoneFieldVerified(
@@ -1805,7 +2383,8 @@ function getAreaFieldOptions(field: SigningField): Array<{
   return (field.areas ?? [])
     .filter((area) => typeof area.option_uuid === "string")
     .map((area, index) => ({
-      uuid: area.option_uuid ?? `${field.uuid ?? field.name ?? "field"}-${index}`,
+      uuid:
+        area.option_uuid ?? `${field.uuid ?? field.name ?? "field"}-${index}`,
       value: `Option ${index + 1}`,
     }));
 }
@@ -1964,7 +2543,9 @@ function PhoneCountryPicker({
         >
           <span className="flex min-w-0 items-center gap-2 leading-none">
             <span className="text-lg leading-none">{selectedCountry.flag}</span>
-            <span className="truncate leading-none">+{selectedCountry.dial}</span>
+            <span className="truncate leading-none">
+              +{selectedCountry.dial}
+            </span>
           </span>
           <ChevronDownIcon className="size-4 shrink-0 opacity-70" />
         </button>
@@ -2012,7 +2593,9 @@ function PhoneCountryPicker({
                       </span>
                     </span>
                   </span>
-                  {isSelected ? <CheckIcon className="size-4 shrink-0" /> : null}
+                  {isSelected ? (
+                    <CheckIcon className="size-4 shrink-0" />
+                  ) : null}
                 </button>
               );
             })
@@ -2046,7 +2629,8 @@ function getPhoneFieldCountry(field: SigningField) {
 
   return (
     phoneCountries.find(
-      (phoneCountry) => phoneCountry.iso.toUpperCase() === country.toUpperCase(),
+      (phoneCountry) =>
+        phoneCountry.iso.toUpperCase() === country.toUpperCase(),
     ) ?? null
   );
 }

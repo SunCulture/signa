@@ -6,11 +6,16 @@ import { In, Repository } from 'typeorm';
 import { StorageAttachment } from '../storage/entities/storage-attachment.entity';
 import { CompletedDocument } from '../submissions/entities/completed-document.entity';
 import {
+  detectPdfSignatures,
+  DetectedPdfSignature,
+} from '../pdf-signatures/pdf-signature-detection';
+import {
   MergePdfsDto,
   MergePdfsResponseDto,
   VerifyPdfDto,
   VerifyPdfResponseDto,
 } from './dto/tools.dto';
+import { PdfSignatureVerifierService } from './pdf-signature-verifier.service';
 
 @Injectable()
 export class ToolsService {
@@ -19,6 +24,7 @@ export class ToolsService {
     private readonly completedDocuments: Repository<CompletedDocument>,
     @InjectRepository(StorageAttachment)
     private readonly storageAttachments: Repository<StorageAttachment>,
+    private readonly pdfSignatureVerifier: PdfSignatureVerifierService,
   ) {}
 
   async merge(input: MergePdfsDto): Promise<MergePdfsResponseDto> {
@@ -47,13 +53,19 @@ export class ToolsService {
     const checksum = createHash('sha256').update(file).digest('base64url');
     const isChecksumFound = await this.isCompletedDocumentChecksum(checksum);
 
+    const signatures = await Promise.all(
+      detectPdfSignatures(file).map((signature) =>
+        this.toSignatureVerificationResponse(signature, isChecksumFound, file),
+      ),
+    );
+
     return {
       checksum_status: isChecksumFound ? 'verified' : 'not_found',
       sha256: checksum,
-      cryptographic_verification: false,
-      signatures: detectPdfSignatures(file).map((signature) =>
-        this.toSignatureVerificationResponse(signature, isChecksumFound),
+      cryptographic_verification: signatures.some(
+        (signature) => signature.cms_signature_valid === true,
       ),
+      signatures,
     };
   }
 
@@ -115,10 +127,16 @@ export class ToolsService {
     }
   }
 
-  private toSignatureVerificationResponse(
+  private async toSignatureVerificationResponse(
     signature: DetectedPdfSignature,
     isChecksumFound: boolean,
+    file: Buffer,
   ) {
+    const cmsVerification = await this.pdfSignatureVerifier.verify({
+      cmsContents: signature.contents,
+      pdfBuffer: file,
+      signedBytes: signature.byteRange.signedBytes,
+    });
     const messages = [
       isChecksumFound
         ? 'checksum_verified: final PDF bytes match a completed Signa document'
@@ -129,187 +147,55 @@ export class ToolsService {
       signature.signatureType === padesSubFilter
         ? 'pades_subfilter: signature uses ETSI.CAdES.detached'
         : 'legacy_subfilter: signature does not use ETSI.CAdES.detached',
-      'cryptographic_verification_pending: certificate-chain validation requires the dedicated PDF verifier service',
+      signature.isTimestampSignature
+        ? 'timestamp_signature: PDF contains an embedded RFC3161 document timestamp signature'
+        : 'timestamp_signature_missing: PDF does not contain an embedded RFC3161 document timestamp signature',
+      ...cmsVerification.messages,
+      signature.hasDss
+        ? 'dss_present: PDF contains a DSS dictionary for long-term validation evidence'
+        : 'dss_missing: PDF does not contain a DSS dictionary for long-term validation evidence',
     ];
 
     return {
       byte_range_sha256: signature.byteRange.sha256,
       byte_range_valid: signature.byteRange.valid,
+      certificate_chain: cmsVerification.certificateChain.map(
+        certificateToResponse,
+      ),
+      certificate_chain_status: cmsVerification.certificateChainStatus,
+      cms_message_digest_valid: cmsVerification.cmsMessageDigestValid,
+      cms_signature_valid: cmsVerification.cmsSignatureValid,
+      ltv_status: cmsVerification.ltvStatus,
       pades_compliant_sub_filter: signature.signatureType === padesSubFilter,
+      revocation_status: cmsVerification.revocationStatus,
       verification_result: messages,
       signer_name: signature.signerName,
       signing_reason: signature.signingReason,
       signing_time: signature.signingTime,
       signature_type: signature.signatureType,
+      timestamp_signature: signature.isTimestampSignature,
     };
   }
 }
 
-type DetectedPdfSignature = {
-  byteRange: PdfSignatureByteRange;
-  signerName: string | null;
-  signingReason: string | null;
-  signingTime: string | null;
-  signatureType: string | null;
-};
-
-type PdfSignatureByteRange = {
-  sha256: string | null;
-  valid: boolean;
+type PdfSignatureCertificate = {
+  issuer: string | null;
+  serialNumber: string | null;
+  subject: string | null;
+  validFrom: string | null;
+  validTo: string | null;
 };
 
 const padesSubFilter = 'ETSI.CAdES.detached';
 
-function detectPdfSignatures(file: Buffer): DetectedPdfSignature[] {
-  const text = file.toString('latin1');
-  const matches = [...text.matchAll(/\/ByteRange\s*\[[^\]]+\]/g)];
-
-  return matches.map((match) => {
-    const signatureObject = extractPdfObjectContaining(text, match.index ?? 0);
-
-    return {
-      byteRange: inspectByteRange(file, match[0]),
-      signerName: extractPdfString(signatureObject, 'Name'),
-      signingReason: extractPdfString(signatureObject, 'Reason'),
-      signingTime: normalizePdfDate(extractPdfString(signatureObject, 'M')),
-      signatureType: extractPdfName(signatureObject, 'SubFilter'),
-    };
-  });
-}
-
-function inspectByteRange(
-  file: Buffer,
-  byteRangeText: string,
-): PdfSignatureByteRange {
-  const values = byteRangeText.match(/\d+/g)?.map(Number) ?? [];
-
-  if (
-    values.length !== 4 ||
-    values.some((value) => !Number.isSafeInteger(value))
-  ) {
-    return { sha256: null, valid: false };
-  }
-
-  const [firstOffset, firstLength, secondOffset, secondLength] = values;
-  const firstEnd = firstOffset + firstLength;
-  const secondEnd = secondOffset + secondLength;
-  const isValid =
-    firstOffset === 0 &&
-    firstLength >= 0 &&
-    secondOffset >= firstEnd &&
-    secondLength >= 0 &&
-    secondEnd <= file.byteLength;
-
-  if (!isValid) {
-    return { sha256: null, valid: false };
-  }
-
-  const signedBytes = Buffer.concat([
-    file.subarray(firstOffset, firstEnd),
-    file.subarray(secondOffset, secondEnd),
-  ]);
-
+function certificateToResponse(
+  certificate: PdfSignatureCertificate,
+): Record<string, string | null> {
   return {
-    sha256: createHash('sha256').update(signedBytes).digest('base64url'),
-    valid: true,
+    issuer: certificate.issuer,
+    serial_number: certificate.serialNumber,
+    subject: certificate.subject,
+    valid_from: certificate.validFrom,
+    valid_to: certificate.validTo,
   };
-}
-
-function extractPdfObjectContaining(text: string, index: number): string {
-  const objectStart = Math.max(
-    0,
-    text.lastIndexOf(' obj', index) === -1
-      ? text.lastIndexOf('<<', index)
-      : text.lastIndexOf('\n', text.lastIndexOf(' obj', index)),
-  );
-  const objectEndMarker = text.indexOf('endobj', index);
-  const objectEnd =
-    objectEndMarker === -1
-      ? Math.min(text.length, index + 20_000)
-      : objectEndMarker;
-
-  return text.slice(objectStart, objectEnd);
-}
-
-function extractPdfString(text: string, key: string): string | null {
-  return extractPdfLiteral(text, key) ?? extractPdfHexString(text, key);
-}
-
-function extractPdfLiteral(text: string, key: string): string | null {
-  const keyMatch = new RegExp(`/${key}\\s*\\(`).exec(text);
-
-  if (!keyMatch || keyMatch.index === undefined) {
-    return null;
-  }
-
-  const valueStart = keyMatch.index + keyMatch[0].length;
-  let escaped = false;
-
-  for (let index = valueStart; index < text.length; index += 1) {
-    const char = text[index];
-
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-
-    if (char === '\\') {
-      escaped = true;
-      continue;
-    }
-
-    if (char === ')') {
-      return unescapePdfLiteral(text.slice(valueStart, index));
-    }
-  }
-
-  return null;
-}
-
-function extractPdfHexString(text: string, key: string): string | null {
-  const match = new RegExp(`/${key}\\s*<([0-9A-Fa-f\\s]+)>`).exec(text);
-
-  if (!match) {
-    return null;
-  }
-
-  const hex = match[1].replace(/\s/g, '');
-
-  if (!hex) {
-    return null;
-  }
-
-  const buffer = Buffer.from(hex, 'hex');
-
-  if (buffer.length >= 2 && buffer[0] === 0xfe && buffer[1] === 0xff) {
-    return buffer.subarray(2).toString('utf16le').replace(/\0/g, '');
-  }
-
-  return buffer.toString('utf8');
-}
-
-function unescapePdfLiteral(value: string): string {
-  return value
-    .replaceAll('\\\\', '\\')
-    .replaceAll('\\(', '(')
-    .replaceAll('\\)', ')')
-    .replaceAll('\\n', '\n')
-    .replaceAll('\\r', '\r')
-    .replaceAll('\\t', '\t')
-    .replaceAll('\\b', '\b')
-    .replaceAll('\\f', '\f');
-}
-
-function extractPdfName(text: string, key: string): string | null {
-  const match = new RegExp(`/${key}\\s*/([A-Za-z0-9_.-]+)`).exec(text);
-
-  return match?.[1] ?? null;
-}
-
-function normalizePdfDate(value: string | null): string | null {
-  if (!value) {
-    return null;
-  }
-
-  return value.startsWith('D:') ? value.slice(2) : value;
 }

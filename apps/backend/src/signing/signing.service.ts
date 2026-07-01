@@ -48,6 +48,7 @@ import {
 } from './dto/signing-response.dto';
 import {
   buildEventData,
+  parseSignerMetadata,
   SigningRequestMetadata,
 } from './signing-request-metadata';
 import { PhoneVerificationService } from './phone-verification/phone-verification.service';
@@ -193,6 +194,7 @@ export class SigningService {
       ...(submitter.values ?? {}),
       ...input.values,
     };
+    this.applyLatestRequestMetadata(submitter, metadata);
 
     if (input.completed) {
       this.assertRequiredFieldsComplete(submitter);
@@ -773,9 +775,13 @@ export class SigningService {
     if (isFirstOpen) {
       submitter.openedAt = new Date();
     }
+    const hasLatestMetadata = this.applyLatestRequestMetadata(
+      submitter,
+      metadata,
+    );
 
     await this.dataSource.transaction(async (manager) => {
-      if (isFirstOpen) {
+      if (isFirstOpen || hasLatestMetadata) {
         await manager.getRepository(Submitter).save(submitter);
       }
 
@@ -1013,6 +1019,37 @@ export class SigningService {
         data: buildEventData(metadata, data),
       }),
     );
+  }
+
+  private applyLatestRequestMetadata(
+    submitter: Submitter,
+    metadata?: SigningRequestMetadata,
+  ): boolean {
+    if (!metadata) {
+      return false;
+    }
+
+    const context = removeUndefinedValues({
+      ...parseSignerMetadata(metadata),
+      ip: metadata.ip,
+      locale: metadata.locale,
+      timezone: metadata.timezone,
+      ua: metadata.ua,
+    });
+
+    if (!Object.keys(context).length) {
+      return false;
+    }
+
+    submitter.ip = metadata.ip ?? submitter.ip;
+    submitter.ua = metadata.ua ?? submitter.ua;
+    submitter.timezone = metadata.timezone ?? submitter.timezone;
+    submitter.metadata = {
+      ...(submitter.metadata ?? {}),
+      latest_signing_context: context,
+    };
+
+    return true;
   }
 
   private assertCanUpdate(submitter: Submitter): void {
@@ -1548,4 +1585,12 @@ function getSigningReasonValueKey(fieldUuid: string): string {
 
 function booleanOrNull(value: unknown): boolean | null {
   return typeof value === 'boolean' ? value : null;
+}
+
+function removeUndefinedValues(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== undefined),
+  );
 }

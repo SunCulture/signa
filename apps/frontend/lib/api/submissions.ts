@@ -18,6 +18,8 @@ export type CreateSubmissionMessageInput = {
 };
 
 export type CreateSubmissionInput = {
+  auto_sign_owner?: boolean;
+  auto_sign_owner_role?: string;
   message?: CreateSubmissionMessageInput;
   name?: string;
   send_email?: boolean;
@@ -126,6 +128,10 @@ export type SubmissionEventLogItem = {
   title: string;
   actor: string | null;
   device: string | null;
+  browser: string | null;
+  os: string | null;
+  ip: string | null;
+  timezone: string | null;
   message: string;
   data: Record<string, unknown>;
 };

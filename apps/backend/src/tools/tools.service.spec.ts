@@ -6,6 +6,7 @@ import { Repository } from 'typeorm';
 import { StorageAttachment } from '../storage/entities/storage-attachment.entity';
 import { StorageBlob } from '../storage/entities/storage-blob.entity';
 import { CompletedDocument } from '../submissions/entities/completed-document.entity';
+import { PdfSignatureVerifierService } from './pdf-signature-verifier.service';
 import { ToolsService } from './tools.service';
 
 type MockRepository<T extends object> = Partial<
@@ -15,11 +16,26 @@ type MockRepository<T extends object> = Partial<
 describe('ToolsService', () => {
   let service: ToolsService;
   let completedDocuments: MockRepository<CompletedDocument>;
+  let pdfSignatureVerifier: Pick<PdfSignatureVerifierService, 'verify'>;
   let storageAttachments: MockRepository<StorageAttachment>;
 
   beforeEach(async () => {
     completedDocuments = {
       exists: jest.fn().mockResolvedValue(false),
+    };
+    pdfSignatureVerifier = {
+      verify: jest.fn().mockResolvedValue({
+        certificateChain: [],
+        certificateChainStatus: 'missing',
+        cmsMessageDigestValid: null,
+        cmsSignatureValid: null,
+        ltvStatus: 'missing',
+        messages: [
+          'certificate_chain_missing: CMS certificate chain was not found',
+          'revocation_evidence_missing: no embedded OCSP or CRL evidence was found',
+        ],
+        revocationStatus: 'missing',
+      }),
     };
     storageAttachments = {
       find: jest.fn().mockResolvedValue([]),
@@ -35,6 +51,10 @@ describe('ToolsService', () => {
         {
           provide: getRepositoryToken(StorageAttachment),
           useValue: storageAttachments,
+        },
+        {
+          provide: PdfSignatureVerifierService,
+          useValue: pdfSignatureVerifier,
         },
       ],
     }).compile();
@@ -146,9 +166,52 @@ trailer
         {
           byte_range_sha256: expectedByteRangeSha256,
           byte_range_valid: true,
+          cms_message_digest_valid: null,
+          cms_signature_valid: null,
+          ltv_status: 'missing',
           pades_compliant_sub_filter: true,
+          revocation_status: 'missing',
           signer_name: 'Ada Lovelace',
           signature_type: 'ETSI.CAdES.detached',
+        },
+      ],
+    });
+    expect(lastVerifyInput(pdfSignatureVerifier)).toMatchObject({
+      cmsContents: null,
+      pdfBuffer: signedPdf,
+    });
+    expect(lastVerifyInput(pdfSignatureVerifier).signedBytes).toBeInstanceOf(
+      Buffer,
+    );
+  });
+
+  it('detects RFC3161 document timestamp signatures', async () => {
+    const timestampedPdf = Buffer.from(
+      `%PDF-1.7
+1 0 obj
+<<
+/Type /DocTimeStamp
+/Filter /Adobe.PPKLite
+/SubFilter /ETSI.RFC3161
+/M (D:20260622120000Z)
+/ByteRange [0 120 220 60]
+/Contents <00>
+>>
+endobj
+trailer
+<<>>
+%%EOF`,
+      'latin1',
+    );
+
+    jest.spyOn(PDFDocument, 'load').mockResolvedValueOnce({} as PDFDocument);
+
+    await expect(service.verify(timestampedPdf)).resolves.toMatchObject({
+      cryptographic_verification: false,
+      signatures: [
+        {
+          signature_type: 'ETSI.RFC3161',
+          timestamp_signature: true,
         },
       ],
     });
@@ -178,6 +241,27 @@ async function buildPdfBase64(): Promise<string> {
   pdf.addPage([200, 200]);
 
   return Buffer.from(await pdf.save()).toString('base64');
+}
+
+function lastVerifyInput(
+  verifier: Pick<PdfSignatureVerifierService, 'verify'>,
+): {
+  cmsContents: Buffer | null;
+  pdfBuffer: Buffer;
+  signedBytes: Buffer | null;
+} {
+  const verify = verifier.verify as jest.Mock;
+  const call: unknown = verify.mock.calls.at(-1);
+
+  if (!Array.isArray(call) || !call[0] || typeof call[0] !== 'object') {
+    throw new Error('PdfSignatureVerifierService.verify was not called');
+  }
+
+  return call[0] as {
+    cmsContents: Buffer | null;
+    pdfBuffer: Buffer;
+    signedBytes: Buffer | null;
+  };
 }
 
 function buildSignedPdfFixture(input: {

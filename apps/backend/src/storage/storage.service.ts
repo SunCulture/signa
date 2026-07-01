@@ -2,7 +2,6 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-  OnModuleDestroy,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -12,26 +11,21 @@ import { basename, extname, isAbsolute, join, resolve } from 'node:path';
 import { PDFDocument } from 'pdf-lib';
 import sharp from 'sharp';
 import { Repository } from 'typeorm';
-import { PDFiumLibrary, type PDFiumPageRenderOptions } from '@hyzyla/pdfium';
+import { PdfiumProcessingService } from '../pdf-processing/pdfium-processing.service';
 import { StorageAttachment } from './entities/storage-attachment.entity';
 import { StorageBlob } from './entities/storage-blob.entity';
 import { CreateAttachmentInput } from './storage.types';
 
 @Injectable()
-export class StorageService implements OnModuleDestroy {
-  private pdfiumLibrary?: PDFiumLibrary;
-
+export class StorageService {
   constructor(
     @InjectRepository(StorageBlob)
     private readonly blobs: Repository<StorageBlob>,
     @InjectRepository(StorageAttachment)
     private readonly attachments: Repository<StorageAttachment>,
     private readonly config: ConfigService,
+    private readonly pdfiumProcessing: PdfiumProcessingService,
   ) {}
-
-  onModuleDestroy(): void {
-    this.pdfiumLibrary?.destroy();
-  }
 
   async createAttachment(
     input: CreateAttachmentInput,
@@ -237,54 +231,32 @@ export class StorageService implements OnModuleDestroy {
     attachment: StorageAttachment,
     buffer: Buffer,
   ): Promise<void> {
-    const library = await this.getPdfiumLibrary();
-    const document = await library.loadDocument(buffer);
+    const renderedPages = await this.pdfiumProcessing.renderPagePreviews(
+      buffer,
+      {
+        maxPages: this.config.get<number>('PDF_PREVIEW_MAX_PAGES', 15),
+        maxWidth: this.config.get<number>('PDF_PREVIEW_MAX_WIDTH', 1400),
+      },
+    );
 
-    try {
-      const pageCount = document.getPageCount();
-      const maxPages = Math.min(
-        pageCount,
-        this.config.get<number>('PDF_PREVIEW_MAX_PAGES', 15),
-      );
+    for (const [pageIndex, rendered] of renderedPages.entries()) {
+      const preview = await renderPdfPageToPng(rendered);
 
-      for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
-        const page = document.getPage(pageIndex);
-        const { originalWidth } = page.getOriginalSize();
-        const previewMaxWidth = this.config.get<number>(
-          'PDF_PREVIEW_MAX_WIDTH',
-          1400,
-        );
-        const rendered = await page.render({
-          scale: previewMaxWidth / originalWidth,
-          render: renderPdfPageToPng,
-          renderFormFields: true,
-        });
-        const preview = Buffer.from(rendered.data);
-
-        await this.createAttachment({
-          buffer: preview,
-          filename: `${pageIndex}.png`,
-          contentType: 'image/png',
-          name: 'preview_images',
-          recordType: 'ActiveStorage::Attachment',
-          recordId: attachment.id,
-          metadata: {
-            analyzed: true,
-            identified: true,
-            width: rendered.width,
-            height: rendered.height,
-          },
-        });
-      }
-    } finally {
-      document.destroy();
+      await this.createAttachment({
+        buffer: preview,
+        filename: `${pageIndex}.png`,
+        contentType: 'image/png',
+        name: 'preview_images',
+        recordType: 'ActiveStorage::Attachment',
+        recordId: attachment.id,
+        metadata: {
+          analyzed: true,
+          identified: true,
+          width: rendered.width,
+          height: rendered.height,
+        },
+      });
     }
-  }
-
-  private async getPdfiumLibrary(): Promise<PDFiumLibrary> {
-    this.pdfiumLibrary ??= await PDFiumLibrary.init();
-
-    return this.pdfiumLibrary;
   }
 
   private async findAttachmentOrFail(
@@ -350,13 +322,15 @@ function isBackendAppCwd(): boolean {
   return process.cwd().replaceAll('\\', '/').endsWith('/apps/backend');
 }
 
-async function renderPdfPageToPng(
-  options: PDFiumPageRenderOptions,
-): Promise<Uint8Array> {
-  return sharp(options.data, {
+async function renderPdfPageToPng(rendered: {
+  data: Buffer;
+  width: number;
+  height: number;
+}): Promise<Buffer> {
+  return sharp(rendered.data, {
     raw: {
-      width: options.width,
-      height: options.height,
+      width: rendered.width,
+      height: rendered.height,
       channels: 4,
     },
   })

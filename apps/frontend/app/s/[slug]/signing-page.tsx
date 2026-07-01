@@ -2,8 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import confetti from "canvas-confetti";
-import { CheckCircle2Icon, DownloadIcon, FileWarningIcon } from "lucide-react";
+import {
+  CheckCircle2Icon,
+  DownloadIcon,
+  FileWarningIcon,
+  MailIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -28,7 +34,9 @@ import {
   declineSigningForm,
   getSigningDownload,
   getSigningForm,
+  sendSigningCompletedCopy,
   type SigningField,
+  type SigningFieldArea,
   type SigningForm,
   updateSigningValues,
   uploadSigningAttachment,
@@ -60,12 +68,15 @@ export function SigningPage({
   slug: string;
   trackingParam?: string;
 }) {
+  const router = useRouter();
   const [form, setForm] = useState<SigningForm | null>(null);
   const [activePanel, setActivePanel] = useState<ActivePanelState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isDeclineOpen, setIsDeclineOpen] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRedirectingCompletedForm, setIsRedirectingCompletedForm] =
+    useState(false);
   const [savedAssets, setSavedAssets] = useState<SavedSignerAssets>({
     initials: null,
     signature: null,
@@ -74,8 +85,18 @@ export function SigningPage({
   useEffect(() => {
     getSigningForm(slug, trackingParam)
       .then((loadedForm) => {
+        if (loadedForm.submitter.completed_at) {
+          setIsRedirectingCompletedForm(true);
+          router.replace(`/s/${loadedForm.submitter.slug}/completed`);
+          return;
+        }
+
         setForm(loadedForm);
-        setActivePanel(getInitialPanelState(loadedForm, focusFieldPrefix));
+        setActivePanel(
+          isClosedSigningForm(loadedForm)
+            ? null
+            : getInitialPanelState(loadedForm, focusFieldPrefix),
+        );
         void loadSavedSignerAssets(loadedForm).then(setSavedAssets);
       })
       .catch((loadError: unknown) => {
@@ -87,7 +108,7 @@ export function SigningPage({
         setError(message);
       })
       .finally(() => setIsLoading(false));
-  }, [focusFieldPrefix, slug, trackingParam]);
+  }, [focusFieldPrefix, router, slug, trackingParam]);
 
   const orderedFields = useMemo(() => {
     if (!form) {
@@ -171,7 +192,21 @@ export function SigningPage({
     }
   }
 
-  if (isLoading) {
+  async function sendCopyViaEmail() {
+    try {
+      await sendSigningCompletedCopy(slug);
+      toast.success("Document copy email queued");
+    } catch (copyError) {
+      toast.error("Copy email failed", {
+        description:
+          copyError instanceof Error
+            ? copyError.message
+            : "Document copy email could not be sent.",
+      });
+    }
+  }
+
+  if (isLoading || isRedirectingCompletedForm) {
     return (
       <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] text-[var(--auth-foreground)]">
         <div className="flex items-center gap-3 text-sm font-semibold">
@@ -198,6 +233,7 @@ export function SigningPage({
 
   const isCompleted = Boolean(form.submitter.completed_at);
   const isDeclined = Boolean(form.submitter.declined_at);
+  const isReadOnly = isCompleted || isDeclined;
 
   return (
     <main className="min-h-svh bg-[var(--auth-background)] text-[var(--auth-foreground)]">
@@ -248,28 +284,38 @@ export function SigningPage({
           </div>
         </div>
 
-        {isCompleted || isDeclined ? (
+        {isDeclined ? (
           <div
             className={cn(
               "mx-auto mb-4 flex w-full max-w-[920px] items-start gap-3 rounded-lg border px-4 py-3 text-sm font-semibold shadow-sm",
-              isCompleted
-                ? "border-[var(--auth-primary)]/20 bg-[var(--auth-primary)]/8 text-[var(--auth-primary)]"
-                : "border-destructive/40 bg-destructive/10 text-destructive",
+              "border-destructive/40 bg-destructive/10 text-destructive",
             )}
           >
             <CheckCircle2Icon className="mt-0.5 size-4 shrink-0" />
-            <CompletedStatusContent form={form} isCompleted={isCompleted} />
+            <span>This document has been declined.</span>
           </div>
         ) : null}
 
-        <section className="flex flex-col items-center gap-4 pb-64 sm:gap-5 sm:pb-36">
+        <section
+          className={cn(
+            "flex flex-col items-center gap-4 sm:gap-5",
+            isCompleted
+              ? "pb-80 sm:pb-72"
+              : isDeclined
+                ? "pb-8"
+                : "pb-64 sm:pb-36",
+          )}
+        >
           {form.documents.map((document) =>
             document.preview_images.map((previewImage, pageIndex) => (
               <DocumentPage
-                activeFieldUuid={activePanel?.field.uuid ?? null}
+                activeFieldUuid={
+                  isReadOnly ? null : activePanel?.field.uuid ?? null
+                }
                 documentUuid={document.uuid}
                 fields={orderedFields}
                 form={form}
+                isReadOnly={isReadOnly}
                 key={`${document.uuid}-${previewImage.id ?? pageIndex}`}
                 onSelectField={(field) =>
                   setActivePanel({ field, mode: "field" })
@@ -279,6 +325,13 @@ export function SigningPage({
               />
             )),
           )}
+          <p className="pt-2 text-center text-sm text-[var(--auth-muted-foreground)]">
+            Powered by{" "}
+            <span className="font-semibold text-[var(--auth-primary)]">
+              Signa
+            </span>{" "}
+            - open source documents software
+          </p>
         </section>
       </div>
 
@@ -293,6 +346,13 @@ export function SigningPage({
           onSelectField={(field) => setActivePanel({ field, mode: "field" })}
           onUploadAttachment={uploadFieldAttachment}
           savedAssets={savedAssets}
+        />
+      ) : isCompleted ? (
+        <CompletedSigningPanel
+          form={form}
+          isDownloading={isDownloading}
+          onDownload={() => void downloadDocuments()}
+          onSendCopy={() => void sendCopyViaEmail()}
         />
       ) : null}
 
@@ -318,40 +378,95 @@ export function SigningPage({
   );
 }
 
-function CompletedStatusContent({
+function CompletedSigningPanel({
   form,
-  isCompleted,
+  isDownloading,
+  onDownload,
+  onSendCopy,
 }: {
   form: SigningForm;
-  isCompleted: boolean;
+  isDownloading: boolean;
+  onDownload: () => void;
+  onSendCopy: () => void;
 }) {
-  if (!isCompleted) {
-    return <span>This document has been declined.</span>;
-  }
-
   const message = form.configs.completed_message;
   const button = form.configs.completed_button;
 
   return (
-    <div className="grid gap-1">
-      <span>{message.title || "This document has been completed."}</span>
-      {message.body ? (
-        <span className="font-normal text-[var(--auth-foreground)]">
-          {message.body}
-        </span>
-      ) : null}
-      {button.title && button.url ? (
-        <a
-          className="mt-1 font-bold underline underline-offset-4"
-          href={button.url}
-          rel="noreferrer"
-          target="_blank"
-        >
-          {button.title}
-        </a>
-      ) : null}
+    <div className="fixed inset-x-0 bottom-0 z-30 flex justify-center px-0 sm:bottom-4 sm:px-4">
+      <section
+        className="w-full rounded-t-xl border border-[var(--auth-input-border)] bg-card px-5 py-5 text-center shadow-2xl sm:max-w-3xl sm:rounded-xl sm:px-8"
+        role="status"
+      >
+        <div className="flex items-center justify-center gap-2 text-2xl font-bold text-[var(--auth-primary)]">
+          <CheckCircle2Icon className="size-7 text-emerald-500" />
+          <span>{message.title || getDefaultCompletedTitle(form)}</span>
+        </div>
+        {message.body ? (
+          <p className="mx-auto mt-2 max-w-xl text-sm text-[var(--auth-muted-foreground)]">
+            {message.body}
+          </p>
+        ) : null}
+        <div className="mx-auto mt-5 flex max-w-xl flex-col gap-3">
+          {button.title && button.url ? (
+            <Button
+              asChild
+              className="h-12 rounded-full border-[var(--auth-primary)] text-sm font-bold text-[var(--auth-primary)] hover:bg-[var(--auth-primary)] hover:text-[var(--auth-primary-foreground)]"
+              variant="outline"
+            >
+              <a href={button.url} rel="noreferrer" target="_blank">
+                {button.title}
+              </a>
+            </Button>
+          ) : null}
+          <Button
+            className="h-12 rounded-full border-[var(--auth-primary)] text-sm font-bold text-[var(--auth-primary)] hover:bg-[var(--auth-primary)] hover:text-[var(--auth-primary-foreground)]"
+            onClick={onSendCopy}
+            type="button"
+            variant="outline"
+          >
+            <MailIcon data-icon="inline-start" />
+            SEND COPY VIA EMAIL
+          </Button>
+          <Button
+            className="h-12 rounded-full bg-[var(--auth-primary)] text-sm font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
+            disabled={isDownloading}
+            onClick={onDownload}
+            type="button"
+          >
+            {isDownloading ? (
+              <Spinner className="size-4" />
+            ) : (
+              <DownloadIcon data-icon="inline-start" />
+            )}
+            DOWNLOAD
+          </Button>
+        </div>
+        <p className="mt-4 text-center text-sm text-[var(--auth-foreground)]">
+          Powered by{" "}
+          <span className="font-semibold text-[var(--auth-primary)]">
+            Signa
+          </span>{" "}
+          - open source documents software
+        </p>
+        <SigningProgressDots isComplete total={getSigningStepCount(form)} />
+      </section>
     </div>
   );
+}
+
+function getDefaultCompletedTitle(form: SigningForm): string {
+  const signatureFields = form.fields.filter((field) =>
+    ["signature", "initials"].includes(field.type ?? ""),
+  );
+
+  if (!signatureFields.length) {
+    return "Form has been completed!";
+  }
+
+  return form.documents.length > 1
+    ? "Documents have been signed!"
+    : "Document has been signed!";
 }
 
 async function loadSavedSignerAssets(
@@ -401,6 +516,7 @@ function DocumentPage({
   documentUuid,
   fields,
   form,
+  isReadOnly,
   onSelectField,
   pageIndex,
   previewImage,
@@ -409,6 +525,7 @@ function DocumentPage({
   documentUuid: string;
   fields: SigningField[];
   form: SigningForm;
+  isReadOnly: boolean;
   onSelectField: (field: SigningField) => void;
   pageIndex: number;
   previewImage: {
@@ -449,25 +566,108 @@ function DocumentPage({
                 area.page === pageIndex,
             )
             .map((area, areaIndex) => (
-              <button
-                className={cn(
-                  "absolute flex items-center justify-center rounded-sm border bg-red-100/70 px-1 text-left text-[var(--auth-primary)] transition",
-                  "hover:border-red-500 hover:bg-red-100/90",
-                  field.uuid === activeFieldUuid
-                    ? "border-red-500 ring-2 ring-red-500/20"
-                    : "border-red-400/80",
-                )}
+              <SigningFieldOverlay
+                area={area}
+                field={field}
+                form={form}
+                isActive={field.uuid === activeFieldUuid}
+                isReadOnly={isReadOnly}
                 key={`${field.uuid}-${areaIndex}`}
-                onClick={() => onSelectField(field)}
-                style={areaToStyle(area)}
-                type="button"
-              >
-                <FieldDisplayValue area={area} field={field} form={form} />
-              </button>
+                onSelectField={onSelectField}
+              />
             )),
         )}
       </div>
     </div>
+  );
+}
+
+function SigningFieldOverlay({
+  area,
+  field,
+  form,
+  isActive,
+  isReadOnly,
+  onSelectField,
+}: {
+  area: SigningFieldArea;
+  field: SigningField;
+  form: SigningForm;
+  isActive: boolean;
+  isReadOnly: boolean;
+  onSelectField: (field: SigningField) => void;
+}) {
+  const content = <FieldDisplayValue area={area} field={field} form={form} />;
+  const label = field.name || field.title || getDefaultFieldTitle(field);
+  const hasValue = hasAreaValue(form, field, area);
+  const isOptionArea = isNativeChoiceArea(field, area);
+  const className = cn(
+    "group/signing-field absolute flex appearance-none items-center justify-center overflow-visible px-0.5 text-left text-[var(--auth-primary)] transition focus:outline-none",
+    isActive && !isReadOnly
+      ? "z-10 outline outline-2 -outline-offset-1 outline-dashed outline-red-500"
+      : "",
+    hasValue
+      ? "border border-red-200 bg-red-100/75"
+      : "border border-transparent bg-red-100/85",
+    !isReadOnly && "cursor-pointer hover:bg-red-100/95",
+  );
+
+  if (isReadOnly || isOptionArea) {
+    return (
+      <div
+        className={cn(className, !isReadOnly && "cursor-pointer")}
+        onClick={isReadOnly ? undefined : () => onSelectField(field)}
+        onKeyDown={
+          isReadOnly
+            ? undefined
+            : (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelectField(field);
+                }
+              }
+        }
+        role={isReadOnly ? undefined : "button"}
+        style={areaToStyle(area)}
+        tabIndex={isReadOnly ? undefined : 0}
+      >
+        <SigningFieldLabel isActive={isActive} label={label} />
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      className={className}
+      onClick={() => onSelectField(field)}
+      style={areaToStyle(area)}
+      type="button"
+    >
+      <SigningFieldLabel isActive={isActive} label={label} />
+      {content}
+    </button>
+  );
+}
+
+function SigningFieldLabel({
+  isActive,
+  label,
+}: {
+  isActive: boolean;
+  label: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "pointer-events-none absolute -top-7 left-0 z-20 max-w-[min(240px,90vw)] truncate rounded bg-[var(--auth-primary)] px-2 py-0.5 text-sm font-bold text-[var(--auth-primary-foreground)] shadow-sm transition-opacity",
+        isActive
+          ? "opacity-100"
+          : "opacity-0 group-hover/signing-field:opacity-100",
+      )}
+    >
+      {label}
+    </span>
   );
 }
 
@@ -476,7 +676,7 @@ function FieldDisplayValue({
   field,
   form,
 }: {
-  area: { option_uuid?: string };
+  area: SigningFieldArea;
   field: SigningField;
   form: SigningForm;
 }) {
@@ -503,13 +703,11 @@ function FieldDisplayValue({
   }
 
   if (field.type === "checkbox") {
-    return <span className="text-lg font-bold">{value ? "✓" : ""}</span>;
+    return <ChoiceMark isSelected={Boolean(value)} shape="square" />;
   }
 
   if (["multiple", "radio", "select"].includes(field.type ?? "")) {
-    return (
-      <ChoiceFieldDisplay area={area} field={field} value={value} />
-    );
+    return <ChoiceFieldDisplay area={area} field={field} value={value} />;
   }
 
   if (
@@ -538,7 +736,7 @@ function FieldDisplayValue({
   }
 
   return (
-    <span className="truncate text-sm font-semibold">
+    <span className="flex w-full items-center truncate px-0.5 text-sm font-semibold">
       {isBlankValue(value)
         ? field.name || field.title || "Field"
         : String(value)}
@@ -551,7 +749,7 @@ function ChoiceFieldDisplay({
   field,
   value,
 }: {
-  area: { option_uuid?: string };
+  area: SigningFieldArea;
   field: SigningField;
   value: unknown;
 }) {
@@ -563,21 +761,12 @@ function ChoiceFieldDisplay({
     const label = option?.value ?? "Option";
 
     return (
-      <span className="flex h-full min-w-0 items-center gap-1.5 text-[var(--auth-primary)]">
-        <span
-          className={cn(
-            "flex size-4 shrink-0 items-center justify-center rounded-sm border text-[10px] font-bold",
-            field.type === "radio" ? "rounded-full" : "",
-            isSelected
-              ? "border-[var(--auth-primary)] bg-[var(--auth-primary)] text-[var(--auth-primary-foreground)]"
-              : "border-[var(--auth-primary)]/55 bg-white/80",
-          )}
-        >
-          {isSelected ? "✓" : ""}
-        </span>
-        <span className="truncate text-xs font-semibold leading-none">
-          {label}
-        </span>
+      <span className="flex h-full w-full items-center justify-center text-[var(--auth-primary)]">
+        <ChoiceMark
+          isSelected={isSelected}
+          shape={field.type === "radio" ? "circle" : "square"}
+        />
+        <span className="sr-only">{label}</span>
       </span>
     );
   }
@@ -593,6 +782,60 @@ function ChoiceFieldDisplay({
         : field.name || field.title || "Select"}
     </span>
   );
+}
+
+function ChoiceMark({
+  isSelected,
+  shape,
+}: {
+  isSelected: boolean;
+  shape: "circle" | "square";
+}) {
+  return (
+    <span
+      className={cn(
+        "flex aspect-square h-[min(100%,1.75rem)] max-h-7 min-h-4 items-center justify-center border bg-white text-sm font-bold leading-none text-[var(--auth-primary)]",
+        shape === "circle" ? "rounded-full" : "rounded-[4px]",
+        isSelected
+          ? "border-[var(--auth-primary)] bg-[var(--auth-primary)] text-[var(--auth-primary-foreground)]"
+          : "border-[var(--auth-input-border)]",
+      )}
+    >
+      {isSelected ? (shape === "circle" ? "" : "✓") : ""}
+      {isSelected && shape === "circle" ? (
+        <span className="size-3 rounded-full bg-[var(--auth-primary)] ring-4 ring-white" />
+      ) : null}
+    </span>
+  );
+}
+
+function isNativeChoiceArea(
+  field: SigningField,
+  area: SigningFieldArea,
+): boolean {
+  return (
+    field.type === "checkbox" ||
+    ((field.type === "multiple" || field.type === "radio") &&
+      typeof area.option_uuid === "string")
+  );
+}
+
+function hasAreaValue(
+  form: SigningForm,
+  field: SigningField,
+  area: SigningFieldArea,
+): boolean {
+  const value = form.values[getFieldKey(field)] ?? field.default_value;
+
+  if (["multiple", "radio", "select"].includes(field.type ?? "")) {
+    const option = getSigningChoiceOptions(field).find(
+      (item) => item.uuid === area.option_uuid,
+    );
+
+    return option ? isOptionSelected(value, option) : !isBlankValue(value);
+  }
+
+  return !isBlankValue(value);
 }
 
 function getValueAttachment(form: SigningForm, value: unknown) {
@@ -624,6 +867,10 @@ function getInitialPanelState(
   return field ? { field, mode: "field" } : null;
 }
 
+function isClosedSigningForm(form: SigningForm): boolean {
+  return Boolean(form.submitter.completed_at || form.submitter.declined_at);
+}
+
 function getNextPanelState(
   form: SigningForm,
   currentField: SigningField,
@@ -652,8 +899,77 @@ function hasFieldValue(form: SigningForm, field: SigningField): boolean {
   return !isBlankValue(form.values[getFieldKey(field)]);
 }
 
+function getSigningStepCount(form: SigningForm): number {
+  return Math.max(
+    1,
+    form.fields.filter((field) => !field.readonly).length,
+  );
+}
+
+function SigningProgressDots({
+  activeIndex,
+  isComplete = false,
+  total,
+}: {
+  activeIndex?: number;
+  isComplete?: boolean;
+  total: number;
+}) {
+  const cappedTotal = Math.min(Math.max(total, 1), 8);
+
+  return (
+    <div className="mt-4 flex justify-center gap-2">
+      {Array.from({ length: cappedTotal }).map((_, index) => (
+        <span
+          aria-hidden="true"
+          className={cn(
+            "size-2.5 rounded-full border border-[var(--auth-primary)]/20",
+            isComplete || index === activeIndex
+              ? "bg-[var(--auth-primary)]"
+              : "bg-[var(--auth-muted)]",
+          )}
+          key={index}
+        />
+      ))}
+    </div>
+  );
+}
+
 function getFieldKey(field: SigningField): string {
   return field.uuid ?? field.name ?? "field";
+}
+
+function getDefaultFieldTitle(field: SigningField): string {
+  switch (field.type) {
+    case "date":
+      return "Date";
+    case "file":
+      return "File";
+    case "image":
+      return "Image";
+    case "initials":
+      return "Initials";
+    case "multiple":
+      return "Multiple choice";
+    case "number":
+      return "Number";
+    case "payment":
+      return "Payment";
+    case "phone":
+      return "Phone";
+    case "radio":
+      return "Radio";
+    case "select":
+      return "Select";
+    case "signature":
+      return "Signature";
+    case "stamp":
+      return "Stamp";
+    case "text":
+      return "Text";
+    default:
+      return "Field";
+  }
 }
 
 function isBlankValue(value: unknown): boolean {

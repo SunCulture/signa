@@ -19,8 +19,12 @@ async function bootstrap() {
   configureApp(app);
   setupSwagger(app);
 
-  // start app server
-  await app.listen(process.env.PORT ?? 3001);
+  const port = Number(process.env.PORT ?? 3001);
+  const host = process.env.HOSTNAME ?? '0.0.0.0';
+
+  // Bind explicitly so Docker and production runtimes publish the API outside
+  // the container instead of relying on platform-specific loopback defaults.
+  await app.listen(port, host);
   logger.log(`Server is running on: ${await app.getUrl()}`);
 }
 

@@ -49,7 +49,7 @@ ENV SQLITE_DATABASE_PATH=/data/signa.sqlite
 ENV STORAGE_PATH=/storage
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates libreoffice fonts-dejavu fonts-liberation \
+  && apt-get install -y --no-install-recommends ca-certificates libreoffice poppler-utils fonts-dejavu fonts-liberation \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -12,6 +12,7 @@ import {
   ApiBearerAuth,
   ApiConsumes,
   ApiOkResponse,
+  ApiOperation,
   ApiSecurity,
   ApiTags,
 } from '@nestjs/swagger';
@@ -35,6 +36,11 @@ export class ToolsController {
   constructor(private readonly toolsService: ToolsService) {}
 
   @Post('merge')
+  @ApiOperation({
+    description:
+      'Merges two or more base64-encoded PDFs into one base64-encoded PDF using the same PDF merge path as completed document generation.',
+    summary: 'Merge PDF files',
+  })
   @ApiOkResponse({ type: MergePdfsResponseDto })
   merge(@Body() body: MergePdfsDto): Promise<MergePdfsResponseDto> {
     return this.toolsService.merge(body);
@@ -44,6 +50,8 @@ export class ToolsController {
   @UseInterceptors(FileInterceptor('file'))
   @ApiConsumes('multipart/form-data', 'application/json')
   @ApiBody({
+    description:
+      'Upload a PDF as multipart/form-data with field name "file", or send JSON with a base64-encoded file property.',
     schema: {
       oneOf: [
         {
@@ -65,6 +73,11 @@ export class ToolsController {
         },
       ],
     },
+  })
+  @ApiOperation({
+    description:
+      'Verifies a completed Signa PDF by checksum and inspects embedded PDF signature dictionaries, ByteRange data, PAdES SubFilter, signer name, signing reason, signing time, and RFC3161 timestamp entries.',
+    summary: 'Verify a signed PDF',
   })
   @ApiOkResponse({ type: VerifyPdfResponseDto })
   verify(

@@ -4,7 +4,10 @@ import { createHash } from 'node:crypto';
 import { In, Repository } from 'typeorm';
 import { AccountsService } from '../accounts/accounts.service';
 import { AccountConfig } from '../accounts/entities/account-config.entity';
-import { PdfSignatureService } from '../pdf-signatures/pdf-signature.service';
+import {
+  PdfSignatureResult,
+  PdfSignatureService,
+} from '../pdf-signatures/pdf-signature.service';
 import { StorageAttachment } from '../storage/entities/storage-attachment.entity';
 import { StorageService } from '../storage/storage.service';
 import { Submitter } from '../submitters/entities/submitter.entity';
@@ -24,6 +27,7 @@ import {
 
 type ResultGenerationOptions = {
   documentId: string;
+  documentFilenameFormat: string;
   flatten: boolean;
   isTestMode: boolean;
   signingCertificateName: string | null;
@@ -168,6 +172,11 @@ export class SubmissionDocumentsService {
     const generated: StorageAttachment[] = [];
 
     for (const document of documents) {
+      const filename = this.buildResultFilename(
+        submission,
+        document.filename,
+        generationOptions.documentFilenameFormat,
+      );
       const pdf = await this.pdfGenerator.stampPdfDocument({
         document,
         fields,
@@ -188,17 +197,12 @@ export class SubmissionDocumentsService {
       generated.push(
         await this.storageService.createPdfAttachment({
           buffer: signed.buffer,
-          filename: document.filename,
+          filename,
           name: 'documents',
           recordType: 'Submitter',
           recordId: submitter.id,
           metadata: {
-            cryptographic_signature_certificate:
-              signed.certificateName ?? undefined,
-            cryptographic_signature_timestamp_server:
-              signed.timestampServerUrl ?? undefined,
-            cryptographic_signature_sub_filter: signed.signatureSubFilter,
-            cryptographic_signed: signed.signed,
+            ...this.buildCryptographicSignatureMetadata(signed),
             original_sha256: getAttachmentChecksum(document.attachment),
             original_uuid: document.uuid,
             values_hash: valuesHash,
@@ -296,7 +300,7 @@ export class SubmissionDocumentsService {
 
     return this.storageService.createPdfAttachment({
       buffer: merged,
-      filename: `${this.getSubmissionBaseName(submission)}.pdf`,
+      filename: ensurePdfFilename(this.getSubmissionBaseName(submission)),
       name: 'preview_merged_document',
       recordType: 'Submission',
       recordId: submission.id,
@@ -356,17 +360,16 @@ export class SubmissionDocumentsService {
 
     const attachment = await this.storageService.createPdfAttachment({
       buffer: signed.buffer,
-      filename: `${this.getSubmissionBaseName(submission)}.pdf`,
+      filename: this.buildResultFilename(
+        submission,
+        this.getSubmissionBaseName(submission),
+        generationOptions.documentFilenameFormat,
+      ),
       name: attachmentName,
       recordType: 'Submission',
       recordId: submitter.submissionId,
       metadata: {
-        cryptographic_signature_certificate:
-          signed.certificateName ?? undefined,
-        cryptographic_signature_timestamp_server:
-          signed.timestampServerUrl ?? undefined,
-        cryptographic_signature_sub_filter: signed.signatureSubFilter,
-        cryptographic_signed: signed.signed,
+        ...this.buildCryptographicSignatureMetadata(signed),
         values_hash: valuesHash,
       },
     });
@@ -417,17 +420,14 @@ export class SubmissionDocumentsService {
 
     return this.storageService.createPdfAttachment({
       buffer: signed.buffer,
-      filename: `${this.getSubmissionBaseName(submission)}-audit-log.pdf`,
+      filename: ensurePdfFilename(
+        `${this.getSubmissionBaseName(submission)}-audit-log`,
+      ),
       name: 'audit_trail',
       recordType: 'Submission',
       recordId: submission.id,
       metadata: {
-        cryptographic_signature_certificate:
-          signed.certificateName ?? undefined,
-        cryptographic_signature_timestamp_server:
-          signed.timestampServerUrl ?? undefined,
-        cryptographic_signature_sub_filter: signed.signatureSubFilter,
-        cryptographic_signed: signed.signed,
+        ...this.buildCryptographicSignatureMetadata(signed),
       },
     });
   }
@@ -624,7 +624,11 @@ export class SubmissionDocumentsService {
     const configs = await this.accountConfigs.find({
       where: {
         accountId: submission.accountId,
-        key: In(['flatten_result_pdf', 'with_signature_id']),
+        key: In([
+          'document_filename_format',
+          'flatten_result_pdf',
+          'with_signature_id',
+        ]),
       },
     });
     const configByKey = new Map(configs.map((config) => [config.key, config]));
@@ -641,6 +645,7 @@ export class SubmissionDocumentsService {
         .update(submission.slug)
         .digest('hex')
         .toUpperCase(),
+      documentFilenameFormat: this.getDocumentFilenameFormat(configByKey),
       flatten: configByKey.get('flatten_result_pdf')?.value !== false,
       isTestMode: accountContext.isTestMode,
       signingCertificateName: certificate.name,
@@ -658,6 +663,37 @@ export class SubmissionDocumentsService {
     signingTime: Date;
   }) {
     return this.pdfSignatureService.signPdf(input);
+  }
+
+  private buildCryptographicSignatureMetadata(signed: PdfSignatureResult) {
+    const timestamp = signed.timestamp ?? {
+      embedded: false,
+      required: false,
+      status: signed.timestampServerUrl ? 'failed' : 'disabled',
+      tokenSha256: null,
+      url: signed.timestampServerUrl,
+    };
+    const ltv = signed.ltv ?? {
+      evidenceStatus: 'missing',
+      ltvRequired: false,
+    };
+
+    return {
+      cryptographic_signature_certificate: signed.certificateName ?? undefined,
+      cryptographic_signature_sub_filter: signed.signatureSubFilter,
+      cryptographic_signature_timestamp_embedded: timestamp.embedded,
+      cryptographic_signature_timestamp_required: timestamp.required,
+      cryptographic_signature_timestamp_server:
+        timestamp.url ?? signed.timestampServerUrl ?? undefined,
+      cryptographic_signature_timestamp_status: timestamp.status,
+      cryptographic_signature_timestamp_token_sha256:
+        timestamp.tokenSha256 ?? undefined,
+      cryptographic_signature_ltv_required: ltv.ltvRequired,
+      cryptographic_signature_ltv_status:
+        ltv.evidenceStatus === 'good' ? 'valid' : 'missing',
+      cryptographic_signature_revocation_status: ltv.evidenceStatus,
+      cryptographic_signed: signed.signed,
+    };
   }
 
   private buildValuesHash(
@@ -699,6 +735,50 @@ export class SubmissionDocumentsService {
     return sanitizeFilename(
       submission.name ?? submission.template?.name ?? 'document',
     );
+  }
+
+  private getDocumentFilenameFormat(
+    configByKey: Map<string, AccountConfig>,
+  ): string {
+    const value = configByKey.get('document_filename_format')?.value;
+
+    return typeof value === 'string' && value.trim()
+      ? value
+      : '{document.name}';
+  }
+
+  private buildResultFilename(
+    submission: Submission,
+    documentName: string,
+    format: string,
+  ): string {
+    const completedAt =
+      submission.submitters
+        ?.map((submitter) => submitter.completedAt)
+        .filter((date): date is Date => date instanceof Date)
+        .sort((a, b) => Number(a) - Number(b))
+        .at(-1) ?? null;
+    const submitters =
+      submission.submitters
+        ?.map((submitter) => submitter.email ?? submitter.name)
+        .filter((value): value is string => Boolean(value?.trim()))
+        .join(', ') || 'submitters';
+    const replacements: Record<string, string> = {
+      '{document.name}': removePdfExtension(documentName),
+      '{submission.completed_at}': completedAt
+        ? formatDateForFilename(completedAt)
+        : formatDateForFilename(new Date()),
+      '{submission.status}': this.isSubmissionCompleted(submission)
+        ? 'completed'
+        : 'pending',
+      '{submission.submitters}': submitters,
+    };
+    const filename = Object.entries(replacements).reduce(
+      (next, [token, replacement]) => next.replaceAll(token, replacement),
+      format,
+    );
+
+    return ensurePdfFilename(sanitizeFilename(filename));
   }
 }
 
@@ -767,5 +847,22 @@ function getSchemaOrderedAttachments(
 }
 
 function sanitizeFilename(value: string): string {
-  return value.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'document';
+  return (
+    value
+      .replace(/[^\w.@-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'document'
+  );
+}
+
+function ensurePdfFilename(filename: string): string {
+  return filename.toLowerCase().endsWith('.pdf') ? filename : `${filename}.pdf`;
+}
+
+function removePdfExtension(filename: string): string {
+  return filename.replace(/\.pdf$/i, '');
+}
+
+function formatDateForFilename(date: Date): string {
+  return date.toISOString().slice(0, 10);
 }

@@ -1,5 +1,10 @@
 import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import { AccountHydrationGuard } from '../auth/guards/account-hydration/account-hydration.guard';
 import { JwtGuard } from '../auth/guards/jwt/jwt.guard';
 import { CurrentAccount } from '../common/decorators/account.decorator';
@@ -18,6 +23,11 @@ export class AccountCustomFieldsController {
   constructor(private readonly accountsService: AccountsService) {}
 
   @Get()
+  @ApiOperation({
+    description:
+      'Returns the account custom field library used by the template editor Save as custom field action.',
+    summary: 'List account custom fields',
+  })
   @ApiOkResponse({ type: AccountCustomFieldResponseDto })
   async list(
     @CurrentAccount() account: Account,
@@ -28,6 +38,11 @@ export class AccountCustomFieldsController {
   }
 
   @Post()
+  @ApiOperation({
+    description:
+      'Replaces the account custom field library with the supplied normalized field definitions.',
+    summary: 'Save account custom fields',
+  })
   @ApiOkResponse({ type: AccountCustomFieldResponseDto, isArray: true })
   save(
     @CurrentAccount() account: Account,

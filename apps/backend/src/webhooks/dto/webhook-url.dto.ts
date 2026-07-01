@@ -11,11 +11,20 @@ import {
 import { webhookEventTypes } from '../webhook-events';
 
 export class CreateWebhookUrlDto {
-  @ApiProperty({ example: 'https://example.com/docuseal-webhooks' })
+  @ApiProperty({
+    description:
+      'HTTPS endpoint that receives webhook POST deliveries. Payloads are signed with X-Docuseal-Signature-compatible HMAC.',
+    example: 'https://example.com/docuseal-webhooks',
+  })
   @IsUrl({ require_protocol: true })
   url!: string;
 
-  @ApiPropertyOptional({ enum: webhookEventTypes, isArray: true })
+  @ApiPropertyOptional({
+    description:
+      'Event types to deliver. When omitted, all supported webhook events are selected.',
+    enum: webhookEventTypes,
+    isArray: true,
+  })
   @IsOptional()
   @IsArray()
   @ArrayUnique()
@@ -23,6 +32,8 @@ export class CreateWebhookUrlDto {
   events?: string[];
 
   @ApiPropertyOptional({
+    description:
+      'Optional custom headers/secrets saved with the webhook configuration. The generated hmac_secret is returned separately.',
     example: { 'X-Custom-Header': 'secret-value' },
     type: Object,
   })
@@ -32,12 +43,19 @@ export class CreateWebhookUrlDto {
 }
 
 export class UpdateWebhookUrlDto {
-  @ApiPropertyOptional({ example: 'https://example.com/docuseal-webhooks' })
+  @ApiPropertyOptional({
+    description: 'Replacement HTTPS endpoint URL.',
+    example: 'https://example.com/docuseal-webhooks',
+  })
   @IsOptional()
   @IsUrl({ require_protocol: true })
   url?: string;
 
-  @ApiPropertyOptional({ enum: webhookEventTypes, isArray: true })
+  @ApiPropertyOptional({
+    description: 'Replacement event selection.',
+    enum: webhookEventTypes,
+    isArray: true,
+  })
   @IsOptional()
   @IsArray()
   @ArrayUnique()
@@ -45,6 +63,7 @@ export class UpdateWebhookUrlDto {
   events?: string[];
 
   @ApiPropertyOptional({
+    description: 'Replacement custom header/secret metadata.',
     example: { 'X-Custom-Header': 'secret-value' },
     type: Object,
   })
@@ -66,45 +85,78 @@ export class ListWebhookEventsQueryDto {
 }
 
 export class WebhookAttemptResponseDto {
-  @ApiProperty()
+  @ApiProperty({ description: 'Webhook delivery attempt id.', example: '12' })
   id!: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'One-based attempt number.', example: 1 })
   attempt!: number;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'HTTP status code returned by the receiving endpoint.',
+    example: 200,
+  })
   response_status_code!: number;
 
-  @ApiProperty({ nullable: true })
+  @ApiProperty({
+    description: 'Truncated response body captured for diagnostics.',
+    example: '{"ok":true}',
+    nullable: true,
+  })
   response_body!: string | null;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'Timestamp when the attempt was made.',
+    example: '2026-06-30T12:00:00.000Z',
+  })
   created_at!: Date;
 }
 
 export class WebhookEventResponseDto {
-  @ApiProperty()
+  @ApiProperty({ description: 'Webhook event id.', example: '42' })
   id!: string;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'Stable webhook event UUID used for idempotency.',
+    example: '0954d146-db8c-4772-aafe-2effc7c0e0c0',
+  })
   uuid!: string;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'Delivered event type, for example submission.completed.',
+    example: 'submission.completed',
+  })
   event_type!: string;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'Record family serialized into the payload.',
+    example: 'Submission',
+  })
   record_type!: string;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'Record id serialized into the payload.',
+    example: '99',
+  })
   record_id!: string;
 
-  @ApiProperty({ enum: ['pending', 'success', 'error'] })
+  @ApiProperty({
+    description: 'Delivery status across attempts.',
+    enum: ['pending', 'success', 'error'],
+  })
   status!: string;
 
-  @ApiProperty({ nullable: true, type: Object })
+  @ApiProperty({
+    description:
+      'DocuSeal-compatible serialized webhook payload for the event type.',
+    nullable: true,
+    type: Object,
+  })
   payload!: Record<string, unknown> | null;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'Timestamp when the event was created.',
+    example: '2026-06-30T12:00:00.000Z',
+  })
   created_at!: Date;
 
   @ApiProperty({ type: WebhookAttemptResponseDto, isArray: true })
@@ -112,25 +164,39 @@ export class WebhookEventResponseDto {
 }
 
 export class WebhookUrlResponseDto {
-  @ApiProperty()
+  @ApiProperty({ description: 'Webhook URL id.', example: '1' })
   id!: string;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'HTTPS endpoint receiving webhook deliveries.',
+    example: 'https://example.com/docuseal-webhooks',
+  })
   url!: string;
 
-  @ApiProperty({ enum: webhookEventTypes, isArray: true })
+  @ApiProperty({
+    description: 'Selected event types delivered to this webhook URL.',
+    enum: webhookEventTypes,
+    isArray: true,
+  })
   events!: string[];
 
-  @ApiProperty()
+  @ApiProperty({
+    description:
+      'HMAC secret used to validate X-Docuseal-Signature-compatible delivery headers.',
+    example: 'whsec_1234567890abcdef',
+  })
   hmac_secret!: string;
 
-  @ApiProperty({ type: Object })
+  @ApiProperty({
+    description: 'Custom secret/header metadata configured by the account.',
+    type: Object,
+  })
   secret!: Record<string, string>;
 
-  @ApiProperty()
+  @ApiProperty({ example: '2026-06-30T12:00:00.000Z' })
   created_at!: Date;
 
-  @ApiProperty()
+  @ApiProperty({ example: '2026-06-30T12:00:00.000Z' })
   updated_at!: Date;
 }
 
@@ -145,6 +211,9 @@ export class WebhookEventsListResponseDto {
 }
 
 export class WebhookTestResponseDto {
-  @ApiProperty()
+  @ApiProperty({
+    description: 'True when the delivery/test/resend job was queued.',
+    example: true,
+  })
   queued!: boolean;
 }

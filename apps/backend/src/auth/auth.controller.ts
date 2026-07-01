@@ -11,6 +11,7 @@ import {
   ApiBearerAuth,
   ApiCreatedResponse,
   ApiOkResponse,
+  ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import type { AuthenticatedRequest } from './authenticated-request';
@@ -36,18 +37,33 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register')
+  @ApiOperation({
+    description:
+      'Creates a new account and owner user, then returns the bearer token and hydrated account/user session payload.',
+    summary: 'Register a new account',
+  })
   @ApiCreatedResponse({ type: AuthResponseDto })
   register(@Body() body: RegisterDto): Promise<AuthResponseDto> {
     return this.authService.register(body);
   }
 
   @Post('login')
+  @ApiOperation({
+    description:
+      'Authenticates a user with email/password and optional authenticator OTP when MFA is enabled.',
+    summary: 'Login',
+  })
   @ApiOkResponse({ type: AuthResponseDto })
   login(@Body() body: LoginDto): Promise<AuthResponseDto> {
     return this.authService.login(body);
   }
 
   @Post('forgot-password')
+  @ApiOperation({
+    description:
+      'Queues a password reset email when the account exists. The response is intentionally generic to avoid account enumeration.',
+    summary: 'Request password reset',
+  })
   @ApiOkResponse({ type: PasswordResetResponseDto })
   forgotPassword(
     @Body() body: ForgotPasswordDto,
@@ -56,6 +72,11 @@ export class AuthController {
   }
 
   @Post('reset-password')
+  @ApiOperation({
+    description:
+      'Consumes a password reset token and sets a new password for the associated user.',
+    summary: 'Reset password',
+  })
   @ApiOkResponse({ type: PasswordResetResponseDto })
   resetPassword(
     @Body() body: ResetPasswordDto,
@@ -66,6 +87,11 @@ export class AuthController {
   @Get('api-token')
   @UseGuards(JwtGuard)
   @ApiBearerAuth()
+  @ApiOperation({
+    description:
+      'Returns the current user API token metadata, masked token value, selected permissions, last-used time, and revocation status.',
+    summary: 'Get current user API token',
+  })
   @ApiOkResponse({ type: ApiTokenResponseDto })
   apiToken(@Req() request: AuthenticatedRequest): Promise<ApiTokenResponseDto> {
     return this.authService.getUserApiToken(request.session!.userId);
@@ -74,6 +100,11 @@ export class AuthController {
   @Post('api-token/reveal')
   @UseGuards(JwtGuard)
   @ApiBearerAuth()
+  @ApiOperation({
+    description:
+      'Reveals the encrypted API token after confirming the current user password.',
+    summary: 'Reveal API token',
+  })
   @ApiOkResponse({ type: ApiTokenRevealResponseDto })
   revealApiToken(
     @Req() request: AuthenticatedRequest,
@@ -88,6 +119,11 @@ export class AuthController {
   @Post('api-token/rotate')
   @UseGuards(JwtGuard)
   @ApiBearerAuth()
+  @ApiOperation({
+    description:
+      'Rotates the user API token after password confirmation and returns the newly generated token once.',
+    summary: 'Rotate API token',
+  })
   @ApiOkResponse({ type: ApiTokenRevealResponseDto })
   rotateApiToken(
     @Req() request: AuthenticatedRequest,
@@ -99,6 +135,11 @@ export class AuthController {
   @Patch('api-token/permissions')
   @UseGuards(JwtGuard)
   @ApiBearerAuth()
+  @ApiOperation({
+    description:
+      'Updates resource permissions on the current user API token. Permissions are enforced by API-key guards.',
+    summary: 'Update API token permissions',
+  })
   @ApiOkResponse({ type: ApiTokenResponseDto })
   updateApiTokenPermissions(
     @Req() request: AuthenticatedRequest,
