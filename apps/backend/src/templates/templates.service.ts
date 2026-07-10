@@ -51,6 +51,7 @@ import { Template } from './entities/template.entity';
 import { TemplateVersion } from './entities/template-version.entity';
 import { PdfAcroFormService } from './pdf-acro-form/pdf-acro-form.service';
 import { PdfTextTagService } from './pdf-text-tag.service';
+import { PdfXfaFormService } from './pdf-xfa-form/pdf-xfa-form.service';
 import {
   TemplateDocumentResponse,
   TemplateField,
@@ -79,6 +80,7 @@ export class TemplatesService {
     private readonly dynamicDocumentVersions: Repository<DynamicDocumentVersion>,
     private readonly storageService: StorageService,
     private readonly pdfAcroFormService: PdfAcroFormService,
+    private readonly pdfXfaFormService: PdfXfaFormService,
     private readonly documentConversionService: DocumentConversionService,
     private readonly docxFieldTagService: DocxFieldTagService,
     private readonly docxVariableService: DocxVariableService,
@@ -1020,7 +1022,7 @@ export class TemplatesService {
       ),
     );
     const operations = (
-      await this.extractAcroFieldsForDocuments(documents)
+      await this.extractNativePdfFieldsForDocuments(documents)
     ).map((document) => ({ document }));
     const before = this.buildTemplateSnapshot(template);
     const oldFields = JSON.stringify(template.fields);
@@ -1507,7 +1509,7 @@ export class TemplatesService {
         ),
       );
 
-      return (await this.extractAcroFieldsForDocuments(documents)).map(
+      return (await this.extractNativePdfFieldsForDocuments(documents)).map(
         (document) => ({ document }),
       );
     }
@@ -1599,7 +1601,7 @@ export class TemplatesService {
       .map((operation) => operation.document)
       .filter((document): document is ResolvedPdfDocument => !!document);
     const extractedDocuments =
-      await this.extractAcroFieldsForDocuments(documentsToExtract);
+      await this.extractNativePdfFieldsForDocuments(documentsToExtract);
     let documentIndex = 0;
 
     return operations.map((operation) => {
@@ -1932,7 +1934,8 @@ export class TemplatesService {
     documents: ResolvedPdfDocument[],
     removeTags: boolean,
   ): Promise<ResolvedPdfDocument[]> {
-    const acroDocuments = await this.extractAcroFieldsForDocuments(documents);
+    const acroDocuments =
+      await this.extractNativePdfFieldsForDocuments(documents);
 
     return Promise.all(
       acroDocuments.map(async (document) => {
@@ -1951,7 +1954,7 @@ export class TemplatesService {
     );
   }
 
-  private async extractAcroFieldsForDocuments(
+  private async extractNativePdfFieldsForDocuments(
     documents: ResolvedPdfDocument[],
   ): Promise<ResolvedPdfDocument[]> {
     return Promise.all(
@@ -1960,10 +1963,13 @@ export class TemplatesService {
           return document;
         }
 
-        const extractedFields = await this.pdfAcroFormService.extractFields(
+        const acroFields = await this.pdfAcroFormService.extractFields(
           document.buffer,
           '',
         );
+        const extractedFields = acroFields.length
+          ? acroFields
+          : await this.pdfXfaFormService.extractFields(document.buffer, '');
 
         return {
           ...document,

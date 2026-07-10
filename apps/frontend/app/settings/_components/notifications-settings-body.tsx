@@ -29,6 +29,7 @@ import {
   updateAccountPreferences,
 } from "@/lib/api/auth"
 import { ApiError } from "@/lib/api/http"
+import { getChangedFields } from "@/lib/object-diff"
 import { SettingsSidebar } from "./settings-sidebar"
 
 type NotificationFormState = {
@@ -40,6 +41,8 @@ type ReminderKey =
   | "first_duration"
   | "second_duration"
   | "third_duration"
+
+type ReminderFormState = Record<ReminderKey, string | null>
 
 const reminderDurations = [
   { label: "None", value: "none" },
@@ -77,19 +80,26 @@ function NotificationsPanel() {
     bccEmails: "",
     receiveCompletedEmail: true,
   })
-  const [reminders, setReminders] = useState({
-    first_duration: null as string | null,
-    second_duration: null as string | null,
-    third_duration: null as string | null,
+  const [initialForm, setInitialForm] = useState<NotificationFormState>(form)
+  const [reminders, setReminders] = useState<ReminderFormState>({
+    first_duration: null,
+    second_duration: null,
+    third_duration: null,
   })
+  const [initialReminders, setInitialReminders] =
+    useState<ReminderFormState>(reminders)
   const [isSavingNotifications, setIsSavingNotifications] = useState(false)
   const [isSavingReminders, setIsSavingReminders] = useState(false)
 
   useEffect(() => {
     getAccountPreferences()
       .then((preferences) => {
-        setForm(toNotificationForm(preferences))
+        const nextForm = toNotificationForm(preferences)
+
+        setForm(nextForm)
+        setInitialForm(nextForm)
         setReminders(preferences.submitter_reminders)
+        setInitialReminders(preferences.submitter_reminders)
       })
       .catch((error: unknown) => {
         if (error instanceof ApiError && error.status === 401) {
@@ -106,15 +116,20 @@ function NotificationsPanel() {
 
   async function saveNotifications(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    const patch = getNotificationPatch(form, initialForm)
+
+    if (Object.keys(patch).length === 0) {
+      return
+    }
+
     setIsSavingNotifications(true)
 
     try {
-      const preferences = await updateAccountPreferences({
-        bcc_emails: form.bccEmails,
-        receive_completed_email: form.receiveCompletedEmail,
-      })
+      const preferences = await updateAccountPreferences(patch)
+      const nextForm = toNotificationForm(preferences)
 
-      setForm(toNotificationForm(preferences))
+      setForm(nextForm)
+      setInitialForm(nextForm)
       toast.success("Notification settings saved")
     } catch (error) {
       toast.error("Notification settings failed to save", {
@@ -128,14 +143,24 @@ function NotificationsPanel() {
 
   async function saveReminders(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    const nextReminders = getChangedFields(reminders, initialReminders)
+
+    if (Object.keys(nextReminders).length === 0) {
+      return
+    }
+
     setIsSavingReminders(true)
 
     try {
       const preferences = await updateAccountPreferences({
-        submitter_reminders: reminders,
+        submitter_reminders: {
+          ...initialReminders,
+          ...nextReminders,
+        },
       })
 
       setReminders(preferences.submitter_reminders)
+      setInitialReminders(preferences.submitter_reminders)
       toast.success("Email reminders saved")
     } catch (error) {
       toast.error("Email reminders failed to save", {
@@ -153,6 +178,11 @@ function NotificationsPanel() {
       [key]: value === "none" ? null : value,
     }))
   }
+
+  const notificationPatch = getNotificationPatch(form, initialForm)
+  const hasNotificationChanges = Object.keys(notificationPatch).length > 0
+  const reminderPatch = getChangedFields(reminders, initialReminders)
+  const hasReminderChanges = Object.keys(reminderPatch).length > 0
 
   return (
     <section className="w-full max-w-xl">
@@ -206,7 +236,7 @@ function NotificationsPanel() {
 
         <Button
           className="h-12 rounded-full"
-          disabled={isSavingNotifications}
+          disabled={isSavingNotifications || !hasNotificationChanges}
           type="submit"
         >
           {isSavingNotifications ? "SAVING..." : "SAVE"}
@@ -238,7 +268,7 @@ function NotificationsPanel() {
 
         <Button
           className="h-12 rounded-full"
-          disabled={isSavingReminders}
+          disabled={isSavingReminders || !hasReminderChanges}
           type="submit"
         >
           {isSavingReminders ? "SAVING..." : "SAVE"}
@@ -283,6 +313,24 @@ function toNotificationForm(
     bccEmails: preferences.bcc_emails,
     receiveCompletedEmail: preferences.receive_completed_email,
   }
+}
+
+function getNotificationPatch(
+  form: NotificationFormState,
+  initialForm: NotificationFormState,
+): Partial<AccountPreferences> {
+  const changes = getChangedFields(form, initialForm)
+  const patch: Partial<AccountPreferences> = {}
+
+  if (changes.bccEmails !== undefined) {
+    patch.bcc_emails = changes.bccEmails
+  }
+
+  if (changes.receiveCompletedEmail !== undefined) {
+    patch.receive_completed_email = changes.receiveCompletedEmail
+  }
+
+  return patch
 }
 
 function getErrorMessage(error: unknown): string {

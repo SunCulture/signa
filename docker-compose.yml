@@ -30,7 +30,17 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-production-secret}
       API_PUBLIC_URL: ${API_PUBLIC_URL:-http://localhost:3001/api}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
+      STORAGE_SERVICE: ${STORAGE_SERVICE:-auto}
       STORAGE_PATH: /storage
+      AWS_REGION: ${AWS_REGION:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-}
+      AWS_S3_PREFIX: ${AWS_S3_PREFIX:-}
+      AWS_S3_ENDPOINT: ${AWS_S3_ENDPOINT:-}
+      AWS_S3_FORCE_PATH_STYLE: ${AWS_S3_FORCE_PATH_STYLE:-false}
+      AWS_S3_SERVER_SIDE_ENCRYPTION: ${AWS_S3_SERVER_SIDE_ENCRYPTION:-}
       REDIS_URL: redis://redis:6379
       QUEUE_ENABLED: ${QUEUE_ENABLED:-true}
       QUEUE_REDIS_URL: redis://redis:6379

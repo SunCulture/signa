@@ -4,6 +4,7 @@ import { normalizeLocale, persistLocale } from "@/lib/i18n/config";
 
 const authStorageKey = "signa.auth";
 const authStorageEvent = "signa.auth.changed";
+const tokenExpirySkewSeconds = 15;
 
 export type AuthUser = {
   id: string;
@@ -172,6 +173,23 @@ export type SigningCertificateList = {
   timestamp_server_url: string | null;
 };
 
+export type SigningTrustRoot = {
+  created_at: string;
+  enabled: boolean;
+  fingerprint_sha256: string;
+  id: string;
+  issuer: string;
+  name: string;
+  serial_number: string;
+  subject: string;
+  valid_from: string;
+  valid_to: string;
+};
+
+export type SigningTrustRootList = {
+  data: SigningTrustRoot[];
+};
+
 export type AccountEmailIntegrationProvider = "gmail" | "microsoft";
 
 export type SocialAuthProvider = "google" | "microsoft";
@@ -328,7 +346,14 @@ export function getAuthSession(): AuthResponse | null {
   }
 
   try {
-    return JSON.parse(rawSession) as AuthResponse;
+    const session = JSON.parse(rawSession) as AuthResponse;
+
+    if (isAuthSessionExpired(session)) {
+      clearAuthSession();
+      return null;
+    }
+
+    return session;
   } catch {
     window.localStorage.removeItem(authStorageKey);
     return null;
@@ -565,6 +590,39 @@ export function deleteSigningCertificate(
   );
 }
 
+export function listSigningTrustRoots(): Promise<SigningTrustRootList> {
+  return authenticatedApiFetch<SigningTrustRootList>(
+    "/account/signing-trust-roots",
+  );
+}
+
+export function uploadSigningTrustRoot(
+  file: File,
+  name: string,
+): Promise<SigningTrustRoot> {
+  const formData = new FormData();
+
+  formData.set("name", name);
+  formData.set("file", file, file.name);
+
+  return authenticatedApiFetch<SigningTrustRoot>(
+    "/account/signing-trust-roots",
+    {
+      body: formData,
+      method: "POST",
+    },
+  );
+}
+
+export function deleteSigningTrustRoot(id: string): Promise<SigningTrustRoot> {
+  return authenticatedApiFetch<SigningTrustRoot>(
+    `/account/signing-trust-roots/${id}`,
+    {
+      method: "DELETE",
+    },
+  );
+}
+
 export async function listAccountEmailIntegrations(): Promise<
   AccountEmailIntegration[]
 > {
@@ -705,7 +763,8 @@ export function authenticatedApiFetch<TResponse>(
   const token = getAuthToken();
 
   if (!token) {
-    throw new ApiError("Not authenticated", 401);
+    redirectToLogin();
+    return Promise.reject(new ApiError("Not authenticated", 401));
   }
 
   const headers = new Headers(init?.headers);
@@ -715,7 +774,61 @@ export function authenticatedApiFetch<TResponse>(
   return apiFetch<TResponse>(path, {
     ...init,
     headers,
+  }).catch((error: unknown) => {
+    if (error instanceof ApiError && error.status === 401) {
+      clearAuthSession();
+      redirectToLogin();
+    }
+
+    throw error;
   });
+}
+
+function isAuthSessionExpired(session: AuthResponse): boolean {
+  const expiresAt = getJwtExpiresAt(session.access_token);
+
+  if (!expiresAt) {
+    return false;
+  }
+
+  return expiresAt <= Date.now() + tokenExpirySkewSeconds * 1000;
+}
+
+function getJwtExpiresAt(token: string): number | null {
+  const [, payload] = token.split(".");
+
+  if (!payload) {
+    return null;
+  }
+
+  try {
+    const decoded = JSON.parse(atob(toBase64(payload))) as { exp?: unknown };
+
+    return typeof decoded.exp === "number" ? decoded.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+function toBase64(base64Url: string): string {
+  const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+  const padding = base64.length % 4;
+
+  return padding ? `${base64}${"=".repeat(4 - padding)}` : base64;
+}
+
+function redirectToLogin(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const next = `${window.location.pathname}${window.location.search}`;
+
+  if (window.location.pathname.startsWith("/auth")) {
+    return;
+  }
+
+  window.location.replace(`/auth/login?next=${encodeURIComponent(next)}`);
 }
 
 function mergeAuthUserSession(user: AuthUser): void {

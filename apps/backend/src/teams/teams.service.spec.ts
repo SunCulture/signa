@@ -12,6 +12,8 @@ type MockRepository<T extends object> = {
   create: jest.Mock<T, [Partial<T>]>;
   existsBy: jest.Mock<Promise<boolean>, [Record<string, unknown>]>;
   find: jest.Mock<Promise<T[]>, [Record<string, unknown>]>;
+  findOne: jest.Mock<Promise<T | null>, [Record<string, unknown>]>;
+  findOneBy: jest.Mock<Promise<T | null>, [Record<string, unknown>]>;
   save: jest.Mock<Promise<T>, [Partial<T>]>;
 };
 
@@ -23,6 +25,8 @@ function createRepository<T extends object>(): jest.Mocked<MockRepository<T>> {
       return Promise.resolve(false);
     }),
     find: jest.fn(),
+    findOne: jest.fn(),
+    findOneBy: jest.fn(),
     save: jest.fn((input) => Promise.resolve(input as T)),
   };
 }
@@ -38,7 +42,13 @@ describe('TeamsService', () => {
     teams = createRepository<Team>();
     teamMembers = createRepository<TeamMember>();
     invitations = createRepository<TeamInvitation>();
-    mail = { sendTeamInvitation: jest.fn(() => Promise.resolve({})) };
+    mail = {
+      sendTeamInvitation: jest.fn((input: unknown) => {
+        void input;
+
+        return Promise.resolve({});
+      }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -94,13 +104,13 @@ describe('TeamsService', () => {
   });
 
   it('emails the raw accept token when creating a team invitation', async () => {
-    teams.findOne = jest.fn(() =>
+    teams.findOne.mockImplementation(() =>
       Promise.resolve({
         id: 'team-1',
         name: 'Legal',
       } as Team),
     );
-    teamMembers.findOneBy = jest.fn(() =>
+    teamMembers.findOneBy.mockImplementation(() =>
       Promise.resolve({
         id: 'member-1',
         role: 'manager',

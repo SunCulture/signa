@@ -371,7 +371,7 @@ describe('SubmissionsService', () => {
           id: 'preview-blob-1',
           filename: '0.png',
           metadata: { width: 1400, height: 1800 },
-        } as StorageBlob,
+        } as unknown as StorageBlob,
       }),
     ]);
 

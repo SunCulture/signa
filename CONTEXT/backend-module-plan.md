@@ -231,7 +231,7 @@ Current Signa status:
 - `GET /api/templates/:id/events` and `GET /api/templates/:id/versions` are implemented for dashboard timelines and version inspection.
 - Frontend `/templates/:id/edit` now supports backend-backed document list ordering, append, replace, remove, rename, and center-canvas preview rendering.
 - Frontend `/templates/:id/edit` now supports DocuSeal-style normalized field placement on preview pages, including click/draw create, page overlays, select, move, resize, delete, and persistence through `PUT /api/templates/:id`.
-- Pending for deeper parity: embedded text-tag extraction/removal, DocuSeal-grade PDF flattening/signing, PDF/A/LTV/timestamp support, and XFA support.
+- Pending for deeper parity: safer content-stream text-tag removal, broader DocuSeal-grade PDF flattening edge cases, and more exhaustive OCSP responder-chain validation. PDF/A is available through the optional Ghostscript/veraPDF adapter, and external customer trust roots are account-managed through `pdf_trust_roots`.
 - Template lifecycle webhook enqueue is implemented through the Webhooks module.
 
 Tests:

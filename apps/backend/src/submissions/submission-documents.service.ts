@@ -691,6 +691,14 @@ export class SubmissionDocumentsService {
       cryptographic_signature_ltv_required: ltv.ltvRequired,
       cryptographic_signature_ltv_status:
         ltv.evidenceStatus === 'good' ? 'valid' : 'missing',
+      cryptographic_signature_pdfa_conversion_status:
+        signed.pdfA.conversionStatus,
+      cryptographic_signature_pdfa_enabled: signed.pdfA.enabled,
+      cryptographic_signature_pdfa_error: signed.pdfA.error ?? undefined,
+      cryptographic_signature_pdfa_level: signed.pdfA.level,
+      cryptographic_signature_pdfa_required: signed.pdfA.required,
+      cryptographic_signature_pdfa_validation_status:
+        signed.pdfA.validationStatus,
       cryptographic_signature_revocation_status: ltv.evidenceStatus,
       cryptographic_signed: signed.signed,
     };

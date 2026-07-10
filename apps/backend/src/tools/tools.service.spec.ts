@@ -6,6 +6,7 @@ import { Repository } from 'typeorm';
 import { StorageAttachment } from '../storage/entities/storage-attachment.entity';
 import { StorageBlob } from '../storage/entities/storage-blob.entity';
 import { CompletedDocument } from '../submissions/entities/completed-document.entity';
+import { PdfTrustRootService } from '../pdf-signatures/pdf-trust-root.service';
 import { PdfSignatureVerifierService } from './pdf-signature-verifier.service';
 import { ToolsService } from './tools.service';
 
@@ -27,6 +28,7 @@ describe('ToolsService', () => {
       verify: jest.fn().mockResolvedValue({
         certificateChain: [],
         certificateChainStatus: 'missing',
+        certificatePolicyErrors: [],
         cmsMessageDigestValid: null,
         cmsSignatureValid: null,
         ltvStatus: 'missing',
@@ -35,6 +37,8 @@ describe('ToolsService', () => {
           'revocation_evidence_missing: no embedded OCSP or CRL evidence was found',
         ],
         revocationStatus: 'missing',
+        trustAnchor: null,
+        trustAnchorFingerprint: null,
       }),
     };
     storageAttachments = {
@@ -55,6 +59,12 @@ describe('ToolsService', () => {
         {
           provide: PdfSignatureVerifierService,
           useValue: pdfSignatureVerifier,
+        },
+        {
+          provide: PdfTrustRootService,
+          useValue: {
+            getTrustedCertificates: jest.fn().mockResolvedValue([]),
+          },
         },
       ],
     }).compile();
@@ -141,7 +151,7 @@ trailer
           pades_compliant_sub_filter: false,
           signer_name: 'Ada Lovelace',
           signing_reason: 'Signed document',
-          signing_time: "20260622120000+03'00'",
+          signing_time: '2026-06-22T09:00:00.000Z',
           signature_type: 'adbe.pkcs7.detached',
         },
       ],
@@ -210,6 +220,9 @@ trailer
       cryptographic_verification: false,
       signatures: [
         {
+          signer_name: 'timestamp authority',
+          signing_reason: 'Document timestamp',
+          signing_time: '2026-06-22T12:00:00.000Z',
           signature_type: 'ETSI.RFC3161',
           timestamp_signature: true,
         },

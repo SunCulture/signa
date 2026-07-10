@@ -8,11 +8,32 @@ export type VerifyPdfResponse = {
     byte_range_sha256: string | null;
     byte_range_valid: boolean;
     pades_compliant_sub_filter: boolean;
+    timestamp_signature: boolean;
     verification_result: string[];
+    certificate_chain_status:
+      | "expired"
+      | "external"
+      | "invalid"
+      | "missing"
+      | "trusted";
+    certificate_policy_errors: string[];
+    certificate_chain: Array<{
+      issuer: string | null;
+      serial_number: string | null;
+      subject: string | null;
+      valid_from: string | null;
+      valid_to: string | null;
+    }>;
+    cms_message_digest_valid: boolean | null;
+    cms_signature_valid: boolean | null;
+    ltv_status: "invalid" | "missing" | "valid";
+    revocation_status: "good" | "missing" | "revoked" | "unavailable" | "unknown";
     signer_name: string | null;
     signing_reason: string | null;
     signing_time: string | null;
     signature_type: string | null;
+    trust_anchor: string | null;
+    trust_anchor_fingerprint: string | null;
   }>;
 };
 

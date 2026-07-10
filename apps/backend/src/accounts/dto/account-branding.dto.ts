@@ -47,3 +47,70 @@ export class SigningCertificateListResponseDto {
   @ApiProperty({ example: 'https://freetsa.org/tsr', nullable: true })
   timestamp_server_url!: string | null;
 }
+
+export class SigningTrustRootResponseDto {
+  @ApiProperty({
+    description: 'Application-generated trust root identifier.',
+    example: '80d5f422-3ef3-4c3e-a17d-e1f4ff2455ef',
+  })
+  id!: string;
+
+  @ApiProperty({
+    description: 'Display name for this uploaded trust root.',
+    example: 'Customer Root CA',
+  })
+  name!: string;
+
+  @ApiProperty({
+    description: 'SHA-256 fingerprint of the DER certificate.',
+    example: '75f8c0df1d1cbcf482b0f9b6d0f36e8f2e9b5c0a7e...',
+  })
+  fingerprint_sha256!: string;
+
+  @ApiProperty({
+    description: 'X.509 subject distinguished name.',
+    example: 'CN=Customer Root CA, O=Customer, C=KE',
+  })
+  subject!: string;
+
+  @ApiProperty({
+    description: 'X.509 issuer distinguished name.',
+    example: 'CN=Customer Root CA, O=Customer, C=KE',
+  })
+  issuer!: string;
+
+  @ApiProperty({
+    description: 'Certificate serial number.',
+    example: '3f7a91c4',
+  })
+  serial_number!: string;
+
+  @ApiProperty({
+    description: 'Certificate validity start time.',
+    example: '2026-07-01T00:00:00.000Z',
+  })
+  valid_from!: string;
+
+  @ApiProperty({
+    description: 'Certificate validity end time.',
+    example: '2036-07-01T00:00:00.000Z',
+  })
+  valid_to!: string;
+
+  @ApiProperty({
+    description: 'Whether this trust root is active for verification policy.',
+    example: true,
+  })
+  enabled!: boolean;
+
+  @ApiProperty({
+    description: 'Upload time.',
+    example: '2026-07-05T08:00:00.000Z',
+  })
+  created_at!: string;
+}
+
+export class SigningTrustRootListResponseDto {
+  @ApiProperty({ type: [SigningTrustRootResponseDto] })
+  data!: SigningTrustRootResponseDto[];
+}

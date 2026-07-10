@@ -106,7 +106,31 @@ const validationSchema = Joi.object({
   WEBHOOK_MAX_ATTEMPTS: Joi.number().integer().min(1).default(8),
   WEBHOOK_BACKOFF_MS: Joi.number().integer().min(1000).default(30_000),
 
+  STORAGE_SERVICE: Joi.string().valid('auto', 'local', 's3').default('auto'),
   STORAGE_PATH: Joi.string().default('storage'),
+  AWS_REGION: Joi.when('STORAGE_SERVICE', {
+    is: 's3',
+    then: Joi.string().required(),
+    otherwise: Joi.string().allow('').optional(),
+  }),
+  AWS_ACCESS_KEY_ID: Joi.string().allow('').optional(),
+  AWS_SECRET_ACCESS_KEY: Joi.string().allow('').optional(),
+  AWS_SESSION_TOKEN: Joi.string().allow('').optional(),
+  AWS_S3_BUCKET: Joi.when('STORAGE_SERVICE', {
+    is: 's3',
+    then: Joi.string().required(),
+    otherwise: Joi.string().allow('').optional(),
+  }),
+  AWS_S3_PREFIX: Joi.string().allow('').default(''),
+  AWS_S3_ENDPOINT: Joi.string().uri().allow('').optional(),
+  AWS_S3_FORCE_PATH_STYLE: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .default(false),
+  AWS_S3_SERVER_SIDE_ENCRYPTION: Joi.string()
+    .valid('AES256', 'aws:kms')
+    .allow('')
+    .optional(),
   ATTACHMENT_INGEST_MAX_BYTES: Joi.number()
     .integer()
     .min(1)
@@ -123,6 +147,12 @@ const validationSchema = Joi.object({
   PDF_TIMESTAMP_TIMEOUT_MS: Joi.number().integer().min(1000).default(10_000),
   PDF_LTV_REQUIRED: Joi.boolean().truthy('true').falsy('false').default(false),
   PDF_LTV_HTTP_TIMEOUT_MS: Joi.number().integer().min(1000).default(10_000),
+  PDF_A_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  PDF_A_REQUIRED: Joi.boolean().truthy('true').falsy('false').default(false),
+  PDF_A_LEVEL: Joi.string().valid('1b', '2b', '3b').default('2b'),
+  PDF_A_GHOSTSCRIPT_PATH: Joi.string().default('gs'),
+  PDF_A_VERAPDF_PATH: Joi.string().default('verapdf'),
+  PDF_A_TIMEOUT_MS: Joi.number().integer().min(1000).default(60_000),
   DOCUMENT_CONVERSION_MAX_BYTES: Joi.number()
     .integer()
     .min(1)

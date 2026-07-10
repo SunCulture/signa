@@ -106,10 +106,23 @@ export class VerifyPdfSignatureDto {
   @ApiProperty({
     description:
       'Certificate-chain classification from the CMS signature contents.',
-    enum: ['trusted', 'external', 'missing'],
+    enum: ['trusted', 'external', 'expired', 'invalid', 'missing'],
     example: 'trusted',
   })
-  certificate_chain_status!: 'external' | 'missing' | 'trusted';
+  certificate_chain_status!:
+    | 'expired'
+    | 'external'
+    | 'invalid'
+    | 'missing'
+    | 'trusted';
+
+  @ApiProperty({
+    description:
+      'Local certificate policy errors, for example expired certificates or non-CA trust anchors.',
+    example: [],
+    type: [String],
+  })
+  certificate_policy_errors!: string[];
 
   @ApiProperty({
     description:
@@ -147,6 +160,21 @@ export class VerifyPdfSignatureDto {
     example: 'missing',
   })
   ltv_status!: 'invalid' | 'missing' | 'valid';
+
+  @ApiProperty({
+    description:
+      'Subject name of the Signa or account-uploaded trust root that anchored this chain.',
+    example: 'CN=Signa Root CA, O=Signa, C=US',
+    nullable: true,
+  })
+  trust_anchor!: string | null;
+
+  @ApiProperty({
+    description: 'SHA-256 fingerprint of the matched trust anchor.',
+    example: '75f8c0df1d1cbcf482b0f9b6d0f36e8f2e9b5c0a7e...',
+    nullable: true,
+  })
+  trust_anchor_fingerprint!: string | null;
 
   @ApiProperty({
     description:

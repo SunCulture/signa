@@ -881,7 +881,7 @@ function getNextPanelState(
   );
   const nextField = fields
     .slice(Math.max(currentIndex + 1, 0))
-    .find((field) => !field.readonly && !hasFieldValue(form, field));
+    .find((field) => !field.readonly);
 
   return nextField ? { field: nextField, mode: "field" } : null;
 }

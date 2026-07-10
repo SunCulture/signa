@@ -11,6 +11,7 @@ import {
 } from './pdf-signature-certificate';
 import { PdfDssVriEmbedder } from './pdf-dss-vri-embedder';
 import { PdfDocumentTimestampEmbedder } from './pdf-document-timestamp-embedder';
+import { PdfAService } from './pdf-a.service';
 import { PdfRevocationCollectorService } from './pdf-revocation-collector.service';
 import { PdfSignatureService } from './pdf-signature.service';
 import { Rfc3161TimestampClient } from './rfc3161-timestamp-client';
@@ -35,6 +36,9 @@ describe('PdfSignatureService', () => {
   };
   let dssVriEmbedder: {
     embed: jest.Mock;
+  };
+  let pdfAService: {
+    convertBeforeSigning: jest.Mock;
   };
   const configs = new Map<string, EncryptedConfig>();
 
@@ -102,6 +106,21 @@ describe('PdfSignatureService', () => {
         (input: { evidences: unknown[]; pdfBuffer: Buffer }) => input.pdfBuffer,
       ),
     };
+    pdfAService = {
+      convertBeforeSigning: jest.fn((buffer: Buffer) =>
+        Promise.resolve({
+          buffer,
+          metadata: {
+            conversionStatus: 'disabled',
+            enabled: false,
+            error: null,
+            level: '2b',
+            required: false,
+            validationStatus: 'disabled',
+          },
+        }),
+      ),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -129,6 +148,10 @@ describe('PdfSignatureService', () => {
         {
           provide: PdfDssVriEmbedder,
           useValue: dssVriEmbedder,
+        },
+        {
+          provide: PdfAService,
+          useValue: pdfAService,
         },
       ],
     }).compile();

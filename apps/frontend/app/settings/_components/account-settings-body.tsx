@@ -49,6 +49,7 @@ import {
   updateAccount,
   updateAccountPreferences,
   type AuthAccount,
+  type UpdateAccountInput,
 } from "@/lib/api/auth";
 import type { AppDictionary } from "@/lib/i18n/app-dictionaries";
 import {
@@ -58,6 +59,7 @@ import {
   toAccountLocale,
 } from "@/lib/i18n/config";
 import { useAppI18n } from "@/lib/i18n/use-app-i18n";
+import { getChangedFields } from "@/lib/object-diff";
 import { SettingsSidebar } from "./settings-sidebar";
 
 type AccountFormState = {
@@ -124,6 +126,9 @@ function AccountPanel() {
   const [form, setForm] = useState<AccountFormState>(() =>
     getFormState(getInitialAccount()),
   );
+  const [initialForm, setInitialForm] = useState<AccountFormState>(() =>
+    getFormState(getInitialAccount()),
+  );
   const [preferences, setPreferences] = useState<AccountPreferences | null>(
     null,
   );
@@ -161,7 +166,10 @@ function AccountPanel() {
   useEffect(() => {
     Promise.all([getAccount(), getAccountPreferences()])
       .then(([account, accountPreferences]) => {
-        setForm(getFormState(account));
+        const nextForm = getFormState(account);
+
+        setForm(nextForm);
+        setInitialForm(nextForm);
         setPreferences(accountPreferences);
       })
       .catch((loadError: unknown) => {
@@ -180,13 +188,21 @@ function AccountPanel() {
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const patch = getAccountPatch(form, initialForm);
+
+    if (Object.keys(patch).length === 0) {
+      return;
+    }
+
     setIsSubmitting(true);
     setError(null);
 
     try {
-      const account = await updateAccount(form);
+      const account = await updateAccount(patch);
+      const nextForm = getFormState(account);
 
-      setForm(getFormState(account));
+      setForm(nextForm);
+      setInitialForm(nextForm);
       setLocale(normalizeLocale(account.locale));
       toast.success(dictionary.account.updated, {
         description: dictionary.account.savedDescription,
@@ -208,6 +224,10 @@ function AccountPanel() {
   async function handleLocaleChange(locale: string) {
     const previousLocale = form.locale;
 
+    if (locale === previousLocale) {
+      return;
+    }
+
     setForm((current) => ({ ...current, locale }));
     setLocale(normalizeLocale(locale));
     setIsSavingLocale(true);
@@ -217,6 +237,10 @@ function AccountPanel() {
       const account = await updateAccount({ locale });
 
       setForm((current) => ({
+        ...current,
+        locale: account.locale,
+      }));
+      setInitialForm((current) => ({
         ...current,
         locale: account.locale,
       }));
@@ -241,6 +265,10 @@ function AccountPanel() {
     value: boolean,
   ) {
     if (!preferences) {
+      return;
+    }
+
+    if (preferences[key] === value) {
       return;
     }
 
@@ -296,6 +324,9 @@ function AccountPanel() {
       setIsDeleting(false);
     }
   }
+
+  const accountPatch = getAccountPatch(form, initialForm);
+  const hasAccountChanges = Object.keys(accountPatch).length > 0;
 
   return (
     <TooltipProvider>
@@ -373,7 +404,7 @@ function AccountPanel() {
             </div>
             <Button
               className="h-12 rounded-full bg-[var(--auth-primary)] font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !hasAccountChanges}
               type="submit"
             >
               {isSubmitting
@@ -598,6 +629,13 @@ function getFormState(
     name: account?.name ?? "",
     timezone: account?.timezone ?? "Africa/Nairobi",
   };
+}
+
+function getAccountPatch(
+  form: AccountFormState,
+  initialForm: AccountFormState,
+): UpdateAccountInput {
+  return getChangedFields(form, initialForm) as UpdateAccountInput;
 }
 
 function getErrorMessage(error: unknown): string {

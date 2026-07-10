@@ -1,10 +1,12 @@
 import { Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
+import type { Certificate } from 'pkijs';
 import { PDFDocument } from 'pdf-lib';
 import { In, Repository } from 'typeorm';
 import { StorageAttachment } from '../storage/entities/storage-attachment.entity';
 import { CompletedDocument } from '../submissions/entities/completed-document.entity';
+import { PdfTrustRootService } from '../pdf-signatures/pdf-trust-root.service';
 import {
   detectPdfSignatures,
   DetectedPdfSignature,
@@ -25,6 +27,7 @@ export class ToolsService {
     @InjectRepository(StorageAttachment)
     private readonly storageAttachments: Repository<StorageAttachment>,
     private readonly pdfSignatureVerifier: PdfSignatureVerifierService,
+    private readonly pdfTrustRootService: PdfTrustRootService,
   ) {}
 
   async merge(input: MergePdfsDto): Promise<MergePdfsResponseDto> {
@@ -41,8 +44,14 @@ export class ToolsService {
     };
   }
 
-  async verify(input: Buffer | VerifyPdfDto): Promise<VerifyPdfResponseDto> {
-    const file = this.loadVerifyInput(input);
+  async verify(input: VerifyPdfServiceInput): Promise<VerifyPdfResponseDto> {
+    const normalizedInput = normalizeVerifyServiceInput(input);
+    const file = this.loadVerifyInput(normalizedInput.file);
+    const trustedCertificates = normalizedInput.accountId
+      ? await this.pdfTrustRootService.getTrustedCertificates(
+          normalizedInput.accountId,
+        )
+      : [];
 
     try {
       await PDFDocument.load(file, { ignoreEncryption: true });
@@ -55,7 +64,12 @@ export class ToolsService {
 
     const signatures = await Promise.all(
       detectPdfSignatures(file).map((signature) =>
-        this.toSignatureVerificationResponse(signature, isChecksumFound, file),
+        this.toSignatureVerificationResponse({
+          file,
+          isChecksumFound,
+          signature,
+          trustedCertificates,
+        }),
       ),
     );
 
@@ -127,15 +141,18 @@ export class ToolsService {
     }
   }
 
-  private async toSignatureVerificationResponse(
-    signature: DetectedPdfSignature,
-    isChecksumFound: boolean,
-    file: Buffer,
-  ) {
+  private async toSignatureVerificationResponse(input: {
+    file: Buffer;
+    isChecksumFound: boolean;
+    signature: DetectedPdfSignature;
+    trustedCertificates: Certificate[];
+  }) {
+    const { file, isChecksumFound, signature, trustedCertificates } = input;
     const cmsVerification = await this.pdfSignatureVerifier.verify({
       cmsContents: signature.contents,
       pdfBuffer: file,
       signedBytes: signature.byteRange.signedBytes,
+      trustedCertificates,
     });
     const messages = [
       isChecksumFound
@@ -163,19 +180,56 @@ export class ToolsService {
         certificateToResponse,
       ),
       certificate_chain_status: cmsVerification.certificateChainStatus,
+      certificate_policy_errors: cmsVerification.certificatePolicyErrors,
       cms_message_digest_valid: cmsVerification.cmsMessageDigestValid,
       cms_signature_valid: cmsVerification.cmsSignatureValid,
       ltv_status: cmsVerification.ltvStatus,
       pades_compliant_sub_filter: signature.signatureType === padesSubFilter,
       revocation_status: cmsVerification.revocationStatus,
       verification_result: messages,
-      signer_name: signature.signerName,
-      signing_reason: signature.signingReason,
-      signing_time: signature.signingTime,
+      signer_name:
+        signature.signerName ??
+        getTimestampAuthorityName(signature, cmsVerification.certificateChain),
+      signing_reason: signature.isTimestampSignature
+        ? 'Document timestamp'
+        : signature.signingReason,
+      signing_time: normalizeSignatureTime(signature.signingTime),
       signature_type: signature.signatureType,
       timestamp_signature: signature.isTimestampSignature,
+      trust_anchor: cmsVerification.trustAnchor,
+      trust_anchor_fingerprint: cmsVerification.trustAnchorFingerprint,
     };
   }
+}
+
+type VerifyPdfServiceInput =
+  | Buffer
+  | VerifyPdfDto
+  | {
+      accountId?: string | null;
+      file: Buffer | VerifyPdfDto;
+    };
+
+function normalizeVerifyServiceInput(input: VerifyPdfServiceInput): {
+  accountId: string | null;
+  file: Buffer | VerifyPdfDto;
+} {
+  if (
+    !Buffer.isBuffer(input) &&
+    'accountId' in input &&
+    'file' in input &&
+    (Buffer.isBuffer(input.file) || typeof input.file === 'object')
+  ) {
+    return {
+      accountId: input.accountId ?? null,
+      file: input.file,
+    };
+  }
+
+  return {
+    accountId: null,
+    file: input as Buffer | VerifyPdfDto,
+  };
 }
 
 type PdfSignatureCertificate = {
@@ -198,4 +252,95 @@ function certificateToResponse(
     valid_from: certificate.validFrom,
     valid_to: certificate.validTo,
   };
+}
+
+function getTimestampAuthorityName(
+  signature: DetectedPdfSignature,
+  certificateChain: PdfSignatureCertificate[],
+): string | null {
+  if (!signature.isTimestampSignature) {
+    return null;
+  }
+
+  return (
+    extractCertificateCommonName(certificateChain.at(0)?.subject) ??
+    extractCertificateCommonName(certificateChain.at(0)?.issuer) ??
+    'timestamp authority'
+  );
+}
+
+function extractCertificateCommonName(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const commonName = /(?:^|,\s*)CN=([^,]+)/.exec(value)?.[1]?.trim();
+
+  return commonName || value;
+}
+
+function normalizeSignatureTime(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = parseSignatureDate(value);
+
+  return parsed?.toISOString() ?? value;
+}
+
+function parseSignatureDate(value: string): Date | null {
+  const normalized = value.startsWith('D:') ? value.slice(2) : value;
+  const generalizedTimeMatch =
+    /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(normalized);
+
+  if (generalizedTimeMatch) {
+    const [, year, month, day, hour, minute, second] = generalizedTimeMatch;
+
+    return validDate(
+      new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}Z`),
+    );
+  }
+
+  const pdfDateMatch =
+    /^(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?(Z|[+-]\d{2}'?\d{2}'?)?$/.exec(
+      normalized,
+    );
+
+  if (!pdfDateMatch) {
+    return null;
+  }
+
+  const [
+    ,
+    year,
+    month,
+    day,
+    hour = '00',
+    minute = '00',
+    second = '00',
+    timezone = '',
+  ] = pdfDateMatch;
+
+  return validDate(
+    new Date(
+      `${year}-${month}-${day}T${hour}:${minute}:${second}${formatPdfTimezone(
+        timezone,
+      )}`,
+    ),
+  );
+}
+
+function formatPdfTimezone(timezone: string): string {
+  if (!timezone || timezone === 'Z') {
+    return 'Z';
+  }
+
+  const normalized = timezone.replaceAll("'", '');
+
+  return `${normalized.slice(0, 3)}:${normalized.slice(3, 5)}`;
+}
+
+function validDate(date: Date): Date | null {
+  return Number.isNaN(date.getTime()) ? null : date;
 }

@@ -121,7 +121,8 @@ function buildPersistedEvent(
     actor,
     browser: stringOrNull(event.data?.browser),
     data: event.data ?? {},
-    device: stringOrNull(event.data?.device_type) ?? detectDevice(event.data?.ua),
+    device:
+      stringOrNull(event.data?.device_type) ?? detectDevice(event.data?.ua),
     event_timestamp: event.eventTimestamp,
     event_type: event.eventType,
     icon: eventIconByType[event.eventType] ?? 'circle_dot',

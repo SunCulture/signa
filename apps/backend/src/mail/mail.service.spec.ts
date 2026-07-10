@@ -58,8 +58,13 @@ describe('MailService', () => {
       getBaseContext: jest.fn().mockReturnValue({ productName: 'Signa' }),
     };
     i18n = {
-      snapshotLocale: jest.fn((locale?: string | null) => locale ?? 'en'),
-      translate: jest.fn((_key, input) => input.defaultValue ?? _key),
+      snapshotLocale: jest.fn((locale?: string | null) =>
+        locale === 'sw' || locale === 'fr' ? locale : 'en',
+      ),
+      translate: jest.fn(
+        (_key: string, input?: { defaultValue?: string }) =>
+          input?.defaultValue ?? _key,
+      ),
     };
     templates = {
       assertTemplateExists: jest.fn(),

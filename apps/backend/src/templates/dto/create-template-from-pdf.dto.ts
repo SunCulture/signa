@@ -21,7 +21,7 @@ export class CreateTemplatePdfDocumentDto {
 
   @ApiPropertyOptional({
     description:
-      'Explicit DocuSeal-style field definitions with normalized coordinate areas. If omitted, Signa attempts AcroForm/text-tag extraction.',
+      'Explicit DocuSeal-style field definitions with normalized coordinate areas. If omitted, Signa attempts AcroForm, XFA, and text-tag extraction.',
     example: [
       {
         name: 'Signature',

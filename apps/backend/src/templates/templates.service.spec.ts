@@ -17,6 +17,7 @@ import { TemplateFolder } from './entities/template-folder.entity';
 import { Template } from './entities/template.entity';
 import { TemplateVersion } from './entities/template-version.entity';
 import { PdfAcroFormService } from './pdf-acro-form/pdf-acro-form.service';
+import { PdfXfaFormService } from './pdf-xfa-form/pdf-xfa-form.service';
 import { TemplatesService } from './templates.service';
 
 type MockRepository<T extends object> = Partial<
@@ -91,6 +92,7 @@ describe('TemplatesService', () => {
     >
   >;
   let pdfAcroForm: jest.Mocked<Pick<PdfAcroFormService, 'extractFields'>>;
+  let pdfXfaForm: jest.Mocked<Pick<PdfXfaFormService, 'extractFields'>>;
   let documentConversion: jest.Mocked<
     Pick<
       DocumentConversionService,
@@ -120,6 +122,9 @@ describe('TemplatesService', () => {
     pdfAcroForm = {
       extractFields: jest.fn().mockResolvedValue([]),
     };
+    pdfXfaForm = {
+      extractFields: jest.fn().mockResolvedValue([]),
+    };
     documentConversion = {
       convertDocxToPdf: jest.fn(),
       hashSource: jest.fn().mockReturnValue('docx-sha1'),
@@ -137,7 +142,7 @@ describe('TemplatesService', () => {
       (input: Partial<TemplateEvent>) => input as TemplateEvent,
     );
     templateEvents.save?.mockImplementation((input: TemplateEvent) =>
-      Promise.resolve({ id: 'template-event-1', ...input }),
+      Promise.resolve({ ...input, id: input.id ?? 'template-event-1' }),
     );
     templateVersions.create?.mockImplementation(
       (input: Partial<TemplateVersion>) => input as TemplateVersion,
@@ -181,6 +186,10 @@ describe('TemplatesService', () => {
         {
           provide: PdfAcroFormService,
           useValue: pdfAcroForm,
+        },
+        {
+          provide: PdfXfaFormService,
+          useValue: pdfXfaForm,
         },
         {
           provide: DocumentConversionService,

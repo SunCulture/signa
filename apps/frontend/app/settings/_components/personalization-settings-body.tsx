@@ -30,6 +30,7 @@ import {
   EmailMarkdownEditor,
   type EmailTemplateVariable,
 } from "@/app/templates/[id]/edit/email-markdown-editor"
+import { isEqual } from "@/lib/object-diff"
 import { SettingsSidebar } from "./settings-sidebar"
 
 const invitationVariables = [
@@ -78,6 +79,14 @@ function PersonalizationPanel() {
   }, [])
 
   async function savePreferences(patch: Partial<AccountPreferences>) {
+    const hasChanges = Object.entries(patch).some(([key, value]) => {
+      return !isEqual(value, preferences?.[key as keyof AccountPreferences])
+    })
+
+    if (!hasChanges) {
+      return
+    }
+
     try {
       setPreferences(await updateAccountPreferences(patch))
       toast.success("Personalization settings saved")
@@ -132,6 +141,10 @@ function PersonalizationPanel() {
         Submission Form
       </h2>
       <SubmissionFormAccordion
+        key={`submission-form-${stableValue({
+          button: preferences.form_completed_button,
+          message: preferences.form_completed_message,
+        })}`}
         preferences={preferences}
         onSave={savePreferences}
       />
@@ -140,7 +153,9 @@ function PersonalizationPanel() {
         <Switch
           checked={preferences.form_with_confetti}
           onCheckedChange={(form_with_confetti) =>
-            void savePreferences({ form_with_confetti })
+            preferences.form_with_confetti === form_with_confetti
+              ? undefined
+              : void savePreferences({ form_with_confetti })
           }
         />
       </label>
@@ -158,6 +173,7 @@ function EmailTemplateAccordion({
   return (
     <Accordion className="mt-4 space-y-4" collapsible type="single">
       <EmailTemplateItem
+        key={`invitation-${stableValue(preferences.submitter_invitation_email)}`}
         label="Signature Request Email"
         onSave={(template) => onSave({ submitter_invitation_email: template })}
         template={preferences.submitter_invitation_email}
@@ -165,6 +181,7 @@ function EmailTemplateAccordion({
         variables={invitationVariables}
       />
       <EmailTemplateItem
+        key={`completed-${stableValue(preferences.submitter_completed_email)}`}
         label="Completed Notification Email"
         onSave={(template) =>
           onSave({
@@ -177,6 +194,7 @@ function EmailTemplateAccordion({
         variables={completedVariables}
       />
       <EmailTemplateItem
+        key={`copy-${stableValue(preferences.submitter_documents_copy_email)}`}
         label="Documents copy Email"
         onSave={(template) =>
           onSave({
@@ -206,6 +224,7 @@ function EmailTemplateItem({
   variables: EmailTemplateVariable[]
 }) {
   const [draft, setDraft] = useState(template)
+  const hasChanges = !isEqual(draft, template)
 
   return (
     <AccordionItem
@@ -230,6 +249,7 @@ function EmailTemplateItem({
         />
         <Button
           className="h-12 w-full rounded-full"
+          disabled={!hasChanges}
           onClick={() => void onSave(draft)}
           type="button"
         >
@@ -308,6 +328,8 @@ function SubmissionFormAccordion({
 }) {
   const [message, setMessage] = useState(preferences.form_completed_message)
   const [button, setButton] = useState(preferences.form_completed_button)
+  const hasMessageChanges = !isEqual(message, preferences.form_completed_message)
+  const hasButtonChanges = !isEqual(button, preferences.form_completed_button)
 
   return (
     <Accordion className="space-y-4" collapsible type="single">
@@ -324,6 +346,7 @@ function SubmissionFormAccordion({
         />
         <Button
           className="h-12 w-full rounded-full"
+          disabled={!hasMessageChanges}
           onClick={() => void onSave({ form_completed_message: message })}
           type="button"
         >
@@ -343,6 +366,7 @@ function SubmissionFormAccordion({
         />
         <Button
           className="h-12 w-full rounded-full"
+          disabled={!hasButtonChanges}
           onClick={() => void onSave({ form_completed_button: button })}
           type="button"
         >
@@ -422,4 +446,8 @@ function LabeledTextarea({
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Request failed"
+}
+
+function stableValue(value: unknown): string {
+  return JSON.stringify(value)
 }

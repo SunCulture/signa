@@ -84,9 +84,11 @@ describe('StartFormService', () => {
     templates.findOne.mockResolvedValue(buildTemplate());
     dataSource.transaction.mockImplementation((callback) =>
       Promise.resolve(
-        (callback as (manager: StartFormTestManager) => Promise<unknown>)(
-          buildManager(),
-        ),
+        (
+          callback as unknown as (
+            manager: StartFormTestManager,
+          ) => Promise<unknown>
+        )(buildManager()),
       ),
     );
 
@@ -128,7 +130,7 @@ function buildTemplate(): Template {
     slug: 'template-slug',
     submitters: [{ name: 'First Party', uuid: 'role-1' }],
     variablesSchema: null,
-  } as Template;
+  } as unknown as Template;
 }
 
 type StartFormTestManager = ReturnType<typeof buildManager>;

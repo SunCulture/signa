@@ -5,8 +5,29 @@ import { Injectable, Logger } from '@nestjs/common';
 export type PdfiumFlattenResult = {
   buffer: Buffer;
   flattenedPages: number;
+  metadata: PdfiumPdfMetadata;
   pageCount: number;
 };
+
+export type PdfiumFormType =
+  | 'acro_form'
+  | 'none'
+  | 'unknown'
+  | 'xfa_foreground'
+  | 'xfa_full';
+
+export type PdfiumPdfMetadata = {
+  formType: PdfiumFormType;
+  hasXfa: boolean;
+  processingMode: PdfiumProcessingMode;
+  xfaLoadStatus: PdfiumXfaLoadStatus;
+  xfaLoaded: boolean;
+  xfaPacketCount: number;
+  xfaPacketNames: string[];
+};
+
+export type PdfiumProcessingMode = 'acro_form' | 'standard_pdf' | 'xfa';
+export type PdfiumXfaLoadStatus = 'loaded' | 'not_applicable' | 'unsupported';
 
 export type PdfiumRenderedPage = {
   data: Buffer;
@@ -31,6 +52,10 @@ type PdfiumFormContext = {
   formHandlePointer: number;
 };
 
+const formTypeNone = 0;
+const formTypeAcroForm = 1;
+const formTypeXfaFull = 2;
+const formTypeXfaForeground = 3;
 const flattenNormalDisplay = 0;
 const flattenFailure = 0;
 const flattenSuccess = 1;
@@ -50,6 +75,15 @@ export class PdfiumProcessingService {
     let formContext: PdfiumFormContext | null = null;
 
     try {
+      const metadata = this.detectPdfFormMetadata(
+        pdfium,
+        document.documentPointer,
+      );
+      const preparedMetadata = this.prepareDocumentForMode(
+        pdfium,
+        document.documentPointer,
+        metadata,
+      );
       formContext = this.openFormContext(pdfium, document.documentPointer);
       const pageCount = pdfium.FPDF_GetPageCount(document.documentPointer);
       const flattenedPages = this.flattenPages(
@@ -62,6 +96,7 @@ export class PdfiumProcessingService {
       return {
         buffer: this.saveDocument(pdfium, document.documentPointer),
         flattenedPages,
+        metadata: preparedMetadata,
         pageCount,
       };
     } finally {
@@ -79,6 +114,12 @@ export class PdfiumProcessingService {
     let formContext: PdfiumFormContext | null = null;
 
     try {
+      const metadata = this.detectPdfFormMetadata(
+        pdfium,
+        document.documentPointer,
+      );
+
+      this.prepareDocumentForMode(pdfium, document.documentPointer, metadata);
       formContext = this.openFormContext(pdfium, document.documentPointer);
       const pageCount = pdfium.FPDF_GetPageCount(document.documentPointer);
       const renderCount = Math.min(pageCount, options.maxPages);
@@ -99,6 +140,26 @@ export class PdfiumProcessingService {
       return renderedPages;
     } finally {
       this.closeFormContext(pdfium, formContext);
+      this.closeDocument(pdfium, document);
+    }
+  }
+
+  async inspectPdf(buffer: Buffer): Promise<PdfiumPdfMetadata> {
+    const pdfium = await this.getPdfium();
+    const document = this.loadDocument(pdfium, buffer);
+
+    try {
+      const metadata = this.detectPdfFormMetadata(
+        pdfium,
+        document.documentPointer,
+      );
+
+      return this.probeDetectedPdfSupport(
+        pdfium,
+        document.documentPointer,
+        metadata,
+      );
+    } finally {
       this.closeDocument(pdfium, document);
     }
   }
@@ -141,6 +202,187 @@ export class PdfiumProcessingService {
       inputPointer,
       inputSize: buffer.byteLength,
     };
+  }
+
+  private detectPdfFormMetadata(
+    pdfium: PdfiumModuleWithMemory,
+    documentPointer: number,
+  ): PdfiumPdfMetadata {
+    const formType = this.toFormType(pdfium.FPDF_GetFormType(documentPointer));
+    const xfaPacketCount = Math.max(
+      0,
+      pdfium.FPDF_GetXFAPacketCount(documentPointer),
+    );
+    const hasXfa =
+      xfaPacketCount > 0 ||
+      formType === 'xfa_full' ||
+      formType === 'xfa_foreground';
+
+    return {
+      formType,
+      hasXfa,
+      processingMode: this.getProcessingMode(formType, hasXfa),
+      xfaLoadStatus: 'not_applicable',
+      xfaLoaded: false,
+      xfaPacketCount,
+      xfaPacketNames: hasXfa
+        ? this.readXfaPacketNames(pdfium, documentPointer, xfaPacketCount)
+        : [],
+    };
+  }
+
+  private prepareDocumentForMode(
+    pdfium: PdfiumModuleWithMemory,
+    documentPointer: number,
+    metadata: PdfiumPdfMetadata,
+  ): PdfiumPdfMetadata {
+    if (metadata.processingMode !== 'xfa') {
+      return metadata;
+    }
+
+    const xfaLoaded = pdfium.FPDF_LoadXFA(documentPointer);
+
+    return {
+      ...metadata,
+      formType: this.toFormType(pdfium.FPDF_GetFormType(documentPointer)),
+      xfaLoadStatus: xfaLoaded ? 'loaded' : 'unsupported',
+      xfaLoaded,
+    };
+  }
+
+  private probeDetectedPdfSupport(
+    pdfium: PdfiumModuleWithMemory,
+    documentPointer: number,
+    metadata: PdfiumPdfMetadata,
+  ): PdfiumPdfMetadata {
+    if (metadata.processingMode !== 'xfa') {
+      return metadata;
+    }
+
+    const xfaLoaded = pdfium.FPDF_LoadXFA(documentPointer);
+
+    return {
+      ...metadata,
+      formType: this.toFormType(pdfium.FPDF_GetFormType(documentPointer)),
+      xfaLoadStatus: xfaLoaded ? 'loaded' : 'unsupported',
+      xfaLoaded,
+    };
+  }
+
+  private getProcessingMode(
+    formType: PdfiumFormType,
+    hasXfa: boolean,
+  ): PdfiumProcessingMode {
+    if (hasXfa) {
+      return 'xfa';
+    }
+
+    if (formType === 'acro_form') {
+      return 'acro_form';
+    }
+
+    return 'standard_pdf';
+  }
+
+  private readXfaPacketNames(
+    pdfium: PdfiumModuleWithMemory,
+    documentPointer: number,
+    packetCount: number,
+  ): string[] {
+    const names: string[] = [];
+
+    for (let index = 0; index < packetCount; index += 1) {
+      const name = this.readXfaPacketName(pdfium, documentPointer, index);
+
+      if (name) {
+        names.push(name);
+      }
+    }
+
+    return names;
+  }
+
+  private readXfaPacketName(
+    pdfium: PdfiumModuleWithMemory,
+    documentPointer: number,
+    packetIndex: number,
+  ): string {
+    const byteLength = pdfium.FPDF_GetXFAPacketName(
+      documentPointer,
+      packetIndex,
+      0,
+      0,
+    );
+
+    if (byteLength <= 2) {
+      return '';
+    }
+
+    const outputPointer = pdfium.pdfium.wasmExports.malloc(byteLength);
+
+    try {
+      const bytesRead = pdfium.FPDF_GetXFAPacketName(
+        documentPointer,
+        packetIndex,
+        outputPointer,
+        byteLength,
+      );
+
+      if (bytesRead <= 2) {
+        return '';
+      }
+
+      return this.decodePdfiumString(
+        pdfium.pdfium.HEAPU8.subarray(outputPointer, outputPointer + bytesRead),
+      );
+    } finally {
+      pdfium.pdfium.wasmExports.free(outputPointer);
+    }
+  }
+
+  private decodePdfiumString(bytes: Uint8Array): string {
+    const buffer = Buffer.from(bytes);
+    const withoutTrailingNull = buffer.subarray(
+      0,
+      buffer[buffer.byteLength - 1] === 0
+        ? buffer.byteLength - 1
+        : buffer.byteLength,
+    );
+
+    if (
+      withoutTrailingNull.byteLength % 2 !== 0 ||
+      !withoutTrailingNull.includes(0)
+    ) {
+      return withoutTrailingNull.toString('utf8');
+    }
+
+    const littleEndianBytes = Buffer.alloc(withoutTrailingNull.byteLength);
+
+    for (
+      let index = 0;
+      index + 1 < withoutTrailingNull.byteLength;
+      index += 2
+    ) {
+      littleEndianBytes[index] = withoutTrailingNull[index + 1] ?? 0;
+      littleEndianBytes[index + 1] = withoutTrailingNull[index] ?? 0;
+    }
+
+    return littleEndianBytes.toString('utf16le');
+  }
+
+  private toFormType(formType: number): PdfiumFormType {
+    switch (formType) {
+      case formTypeNone:
+        return 'none';
+      case formTypeAcroForm:
+        return 'acro_form';
+      case formTypeXfaFull:
+        return 'xfa_full';
+      case formTypeXfaForeground:
+        return 'xfa_foreground';
+      default:
+        return 'unknown';
+    }
   }
 
   private openFormContext(

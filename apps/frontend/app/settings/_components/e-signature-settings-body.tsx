@@ -11,6 +11,7 @@ import {
   IdCardIcon,
   PlusIcon,
   ShieldCheckIcon,
+  Trash2Icon,
   UploadCloudIcon,
   UserRoundIcon,
 } from "lucide-react";
@@ -31,15 +32,20 @@ import {
   type AccountPreferences,
   type DocumentFilenameFormat,
   type SigningCertificate,
+  type SigningTrustRoot,
   deleteSigningCertificate,
+  deleteSigningTrustRoot,
   getAccountPreferences,
   listSigningCertificates,
+  listSigningTrustRoots,
   makeDefaultSigningCertificate,
   updateAccountPreferences,
   updateSigningTimestampServer,
   uploadSigningCertificate,
+  uploadSigningTrustRoot,
 } from "@/lib/api/auth";
 import { verifyPdfFile, type VerifyPdfResponse } from "@/lib/api/tools";
+import { isEqual } from "@/lib/object-diff";
 import { SettingsSidebar } from "./settings-sidebar";
 
 const filenameFormats: Array<{
@@ -76,6 +82,7 @@ function ESignaturePanel() {
     null,
   );
   const [certificates, setCertificates] = useState<SigningCertificate[]>([]);
+  const [trustRoots, setTrustRoots] = useState<SigningTrustRoot[]>([]);
   const [timestampServerUrl, setTimestampServerUrl] = useState("");
   const [verification, setVerification] = useState<VerifyPdfResponse | null>(
     null,
@@ -84,10 +91,15 @@ function ESignaturePanel() {
   const [isVerifying, setIsVerifying] = useState(false);
 
   useEffect(() => {
-    Promise.all([getAccountPreferences(), listSigningCertificates()])
-      .then(([loadedPreferences, loadedCertificates]) => {
+    Promise.all([
+      getAccountPreferences(),
+      listSigningCertificates(),
+      listSigningTrustRoots(),
+    ])
+      .then(([loadedPreferences, loadedCertificates, loadedTrustRoots]) => {
         setPreferences(loadedPreferences);
         setCertificates(loadedCertificates.data);
+        setTrustRoots(loadedTrustRoots.data);
         setTimestampServerUrl(loadedCertificates.timestamp_server_url ?? "");
       })
       .catch((error: unknown) =>
@@ -117,6 +129,14 @@ function ESignaturePanel() {
   }
 
   async function savePreference(patch: Partial<AccountPreferences>) {
+    const hasChanges = Object.entries(patch).some(([key, value]) => {
+      return !isEqual(value, preferences?.[key as keyof AccountPreferences]);
+    });
+
+    if (!hasChanges) {
+      return;
+    }
+
     try {
       setPreferences(await updateAccountPreferences(patch));
       toast.success("E-signature preferences saved");
@@ -160,10 +180,45 @@ function ESignaturePanel() {
     toast.success("Signing certificate removed");
   }
 
+  async function uploadTrustRoot(file: File, name: string) {
+    try {
+      await uploadSigningTrustRoot(file, name);
+      const nextTrustRoots = await listSigningTrustRoots();
+
+      setTrustRoots(nextTrustRoots.data);
+      toast.success("Trust root uploaded");
+    } catch (error) {
+      toast.error("Trust root upload failed", {
+        description: getErrorMessage(error),
+      });
+    }
+  }
+
+  async function removeTrustRoot(id: string) {
+    try {
+      await deleteSigningTrustRoot(id);
+      const nextTrustRoots = await listSigningTrustRoots();
+
+      setTrustRoots(nextTrustRoots.data);
+      toast.success("Trust root removed");
+    } catch (error) {
+      toast.error("Trust root removal failed", {
+        description: getErrorMessage(error),
+      });
+    }
+  }
+
   async function saveTimestampServerUrl(value: string) {
+    const nextValue = value.trim();
+    const currentValue = timestampServerUrl.trim();
+
+    if (nextValue === currentValue) {
+      return;
+    }
+
     try {
       const nextCertificates = await updateSigningTimestampServer(
-        value.trim() || null,
+        nextValue || null,
       );
 
       setCertificates(nextCertificates.data);
@@ -194,6 +249,11 @@ function ESignaturePanel() {
         onUpload={uploadCertificate}
         timestampServerUrl={timestampServerUrl}
       />
+      <TrustRootsSection
+        onRemove={removeTrustRoot}
+        onUpload={uploadTrustRoot}
+        trustRoots={trustRoots}
+      />
 
       {preferences ? (
         <ESignaturePreferences
@@ -202,6 +262,125 @@ function ESignaturePanel() {
         />
       ) : null}
     </section>
+  );
+}
+
+function TrustRootsSection({
+  onRemove,
+  onUpload,
+  trustRoots,
+}: {
+  onRemove: (id: string) => Promise<void>;
+  onUpload: (file: File, name: string) => Promise<void>;
+  trustRoots: SigningTrustRoot[];
+}) {
+  return (
+    <div className="mt-10">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-bold tracking-normal">
+            Trusted Certificate Authorities
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+            Upload public root CA certificates for external customer or partner
+            PDFs that should verify as trusted in this workspace.
+          </p>
+        </div>
+        <TrustRootUploadButton onUpload={onUpload} />
+      </div>
+      <TrustRootTable onRemove={onRemove} trustRoots={trustRoots} />
+    </div>
+  );
+}
+
+function TrustRootUploadButton({
+  onUpload,
+}: {
+  onUpload: (file: File, name: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <>
+      <Button
+        className="h-12 rounded-full px-6"
+        onClick={() => inputRef.current?.click()}
+        type="button"
+        variant="secondary"
+      >
+        <ShieldCheckIcon data-icon="inline-start" />
+        UPLOAD ROOT
+      </Button>
+      <input
+        accept=".pem,.crt,.cer,.der,application/x-x509-ca-cert"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+
+          if (file) {
+            onUpload(file, file.name.replace(/\.[^.]+$/, ""));
+            event.currentTarget.value = "";
+          }
+        }}
+        ref={inputRef}
+        type="file"
+      />
+    </>
+  );
+}
+
+function TrustRootTable({
+  onRemove,
+  trustRoots,
+}: {
+  onRemove: (id: string) => Promise<void>;
+  trustRoots: SigningTrustRoot[];
+}) {
+  if (!trustRoots.length) {
+    return (
+      <div className="mt-4 rounded-2xl border border-dashed p-5 text-sm text-muted-foreground">
+        No external trust roots have been uploaded.
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-t-2xl">
+      <table className="w-full text-left">
+        <thead className="bg-[var(--auth-muted)] text-xs uppercase">
+          <tr>
+            <th className="px-5 py-4">Name</th>
+            <th className="px-5 py-4">Subject</th>
+            <th className="px-5 py-4">Valid to</th>
+            <th className="px-5 py-4 text-right" />
+          </tr>
+        </thead>
+        <tbody>
+          {trustRoots.map((root) => (
+            <tr className="border-b" key={root.id}>
+              <td className="px-5 py-4 font-semibold">{root.name}</td>
+              <td className="max-w-80 px-5 py-4">
+                <p className="truncate">{root.subject}</p>
+                <p className="mt-1 truncate text-xs text-muted-foreground">
+                  {root.fingerprint_sha256}
+                </p>
+              </td>
+              <td className="px-5 py-4">{formatDate(root.valid_to)}</td>
+              <td className="px-5 py-4 text-right">
+                <button
+                  className="inline-flex items-center gap-1 text-xs font-bold text-destructive underline underline-offset-4"
+                  onClick={() => void onRemove(root.id)}
+                  type="button"
+                >
+                  <Trash2Icon className="size-3.5" />
+                  Remove
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -251,6 +430,8 @@ function TimestampServerForm({
 }) {
   const [nextTimestampServerUrl, setNextTimestampServerUrl] =
     useState(timestampServerUrl);
+  const hasChanges =
+    nextTimestampServerUrl.trim() !== timestampServerUrl.trim();
 
   return (
     <div className="mt-8 max-w-xl space-y-3">
@@ -265,6 +446,7 @@ function TimestampServerForm({
         />
         <Button
           className="h-12 rounded-full px-6"
+          disabled={!hasChanges}
           onClick={() => void onSave(nextTimestampServerUrl)}
           type="button"
         >
@@ -499,26 +681,34 @@ function SignatureMetadata({
 }: {
   signature: VerifyPdfResponse["signatures"][number];
 }) {
+  const isTimestampSignature = signature.timestamp_signature;
+  const signerLabel = isTimestampSignature
+    ? `Timestamped by ${getTimestampAuthorityLabel(signature)}`
+    : `Signed with ${signature.signer_name ?? "Unknown signer"}`;
+
   return (
     <>
-      <MetadataLine
-        icon={UserRoundIcon}
-        label={`Signed with ${signature.signer_name ?? "Unknown signer"}`}
-      />
+      <MetadataLine icon={UserRoundIcon} label={signerLabel} />
       <MetadataLine
         icon={CalendarDaysIcon}
         label={formatSigningTime(signature.signing_time)}
       />
       <MetadataLine
         icon={IdCardIcon}
-        label={signature.signing_reason ?? "Signa"}
+        label={
+          isTimestampSignature
+            ? "Document timestamp"
+            : (signature.signing_reason ?? "Signed document")
+        }
       />
       <MetadataLine
         icon={ShieldCheckIcon}
         label={
-          signature.pades_compliant_sub_filter
-            ? "PAdES signature"
-            : (signature.signature_type ?? "PDF signature")
+          isTimestampSignature
+            ? "RFC3161 timestamp"
+            : signature.pades_compliant_sub_filter
+              ? "PAdES signature"
+              : (signature.signature_type ?? "PDF signature")
         }
       />
       <MetadataLine
@@ -531,6 +721,26 @@ function SignatureMetadata({
       />
     </>
   );
+}
+
+function getTimestampAuthorityLabel(
+  signature: VerifyPdfResponse["signatures"][number],
+): string {
+  return (
+    getCertificateSubjectCommonName(signature.certificate_chain.at(0)?.subject) ??
+    signature.signer_name ??
+    "timestamp authority"
+  );
+}
+
+function getCertificateSubjectCommonName(subject: string | null | undefined) {
+  if (!subject) {
+    return null;
+  }
+
+  const commonName = /(?:^|,\s*)CN=([^,]+)/.exec(subject)?.[1]?.trim();
+
+  return commonName || subject;
 }
 
 function MetadataLine({
@@ -558,6 +768,20 @@ function getCertificateChainLabel(verification: VerifyPdfResponse): string {
     : "External PDF signature";
 }
 
+function formatDate(value: string | null): string {
+  if (!value) {
+    return "-";
+  }
+
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return parsed.toLocaleDateString();
+}
+
 function formatSigningTime(value: string | null): string {
   if (!value) {
     return "Signing time unavailable";
@@ -577,6 +801,20 @@ function formatSigningTime(value: string | null): string {
 
 function parsePdfSigningDate(value: string): Date | null {
   const normalized = value.startsWith("D:") ? value.slice(2) : value;
+  const generalizedTimeMatch =
+    /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(normalized);
+
+  if (generalizedTimeMatch) {
+    const [, year, month, day, hour, minute, second] = generalizedTimeMatch;
+    const parsedGeneralizedTime = new Date(
+      `${year}-${month}-${day}T${hour}:${minute}:${second}Z`,
+    );
+
+    return Number.isNaN(parsedGeneralizedTime.getTime())
+      ? null
+      : parsedGeneralizedTime;
+  }
+
   const match =
     /^(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?(Z|[+-]\d{2}'?\d{2}'?)?$/.exec(
       normalized,

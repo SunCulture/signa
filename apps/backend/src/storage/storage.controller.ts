@@ -39,7 +39,7 @@ export class StorageController {
     @Res() response: Response,
   ): Promise<void> {
     const blob = await this.storageService.getBlobForSignedToken(token);
-    const filePath = this.storageService.getBlobPath(blob);
+    const buffer = await this.storageService.readBlob(blob);
     const filename = basename(this.storageService.getSafeDownloadName(blob));
 
     response.type(blob.contentType ?? 'application/octet-stream');
@@ -47,6 +47,6 @@ export class StorageController {
       'Content-Disposition',
       `inline; filename="${filename.replaceAll('"', '\\"')}"`,
     );
-    response.sendFile(filePath);
+    response.send(buffer);
   }
 }

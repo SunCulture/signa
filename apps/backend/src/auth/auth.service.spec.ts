@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { EmailVerificationCodeService } from '../mail/email-verification-code.service';
 import { MailService } from '../mail/mail.service';
 import { AuthService } from './auth.service';
@@ -15,14 +15,16 @@ jest.mock('otplib', () => ({
   verifySync: jest.fn(() => ({ valid: true })),
 }));
 
-type MockRepository<T extends object> = Pick<
-  Repository<T>,
-  'create' | 'findOne' | 'save' | 'update'
->;
+type MockRepository<T extends object> = {
+  create: jest.Mock<T, [Partial<T>]>;
+  findOne: jest.Mock<Promise<T | null>>;
+  save: jest.Mock<Promise<T>, [T]>;
+  update: jest.Mock;
+};
 
 function createRepository<T extends object>(): jest.Mocked<MockRepository<T>> {
   return {
-    create: jest.fn((value: T) => value),
+    create: jest.fn((value: Partial<T>) => value as T),
     findOne: jest.fn(),
     save: jest.fn((value: T) => Promise.resolve(value)),
     update: jest.fn(),

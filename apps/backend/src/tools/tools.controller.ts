@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Post,
+  Req,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -17,6 +18,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ApiOrJwtGuard } from '../auth/guards/api-or-jwt/api-or-jwt.guard';
+import type { AuthenticatedRequest } from '../auth/authenticated-request';
 import { UserHydrationGuard } from '../auth/guards/user-hydration/user-hydration.guard';
 import type { UploadedBufferFile } from '../storage/storage.types';
 import {
@@ -82,8 +84,12 @@ export class ToolsController {
   @ApiOkResponse({ type: VerifyPdfResponseDto })
   verify(
     @Body() body: VerifyPdfDto,
+    @Req() request: AuthenticatedRequest,
     @UploadedFile() file?: UploadedBufferFile,
   ): Promise<VerifyPdfResponseDto> {
-    return this.toolsService.verify(file?.buffer ?? body);
+    return this.toolsService.verify({
+      accountId: request.session?.accountId ?? request.tenant?.accountId,
+      file: file?.buffer ?? body,
+    });
   }
 }

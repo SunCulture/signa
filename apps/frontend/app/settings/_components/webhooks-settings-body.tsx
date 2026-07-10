@@ -43,6 +43,7 @@ import {
 import { queryKeys } from "@/lib/api/query-keys"
 import { useRealtimeEvents } from "@/lib/realtime/use-realtime-events"
 import { useTestMode } from "@/lib/hooks/use-test-mode"
+import { isEqual } from "@/lib/object-diff"
 import { SettingsSidebar } from "./settings-sidebar"
 
 const newWebhookId = "__new_webhook__"
@@ -187,14 +188,25 @@ function WebhookForm({
     selectedWebhook?.events ?? [...defaultWebhookEvents]
   )
   const [isSaving, setIsSaving] = useState(false)
+  const hasChanges = selectedWebhook
+    ? url !== selectedWebhook.url || !isEqual(events, selectedWebhook.events)
+    : url.trim().length > 0
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+
+    if (!hasChanges) {
+      return
+    }
+
     setIsSaving(true)
 
     try {
       const webhook = selectedWebhook
-        ? await updateWebhook(selectedWebhook.id, { events, url })
+        ? await updateWebhook(selectedWebhook.id, {
+            ...(url !== selectedWebhook.url ? { url } : {}),
+            ...(!isEqual(events, selectedWebhook.events) ? { events } : {}),
+          })
         : await createWebhook({ events, url })
       onSaved(webhook)
       toast.success("Webhook saved")
@@ -232,7 +244,7 @@ function WebhookForm({
         />
         <Button
           className="h-12 rounded-full px-10 md:min-w-32"
-          disabled={isSaving}
+          disabled={isSaving || !hasChanges}
         >
           {isSaving ? "SAVING..." : "SAVE"}
         </Button>

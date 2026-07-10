@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/select"
 import {
   type AuthUser,
+  type CreateUserInput,
   archiveUser,
   createUser,
   getAuthSession,
@@ -50,6 +51,7 @@ import {
   type TeamRole,
   updateTeamMember,
 } from "@/lib/api/teams"
+import { getChangedFields } from "@/lib/object-diff"
 import { SettingsSidebar } from "./settings-sidebar"
 import { UsersImportDialog } from "./users-import-dialog"
 
@@ -91,6 +93,7 @@ function UsersPanel() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<AuthUser | null>(null)
   const [form, setForm] = useState<UserFormState>(emptyUserForm)
+  const [initialForm, setInitialForm] = useState<UserFormState>(emptyUserForm)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [teamMembersByTeamId, setTeamMembersByTeamId] = useState<
     Record<string, TeamMember[]>
@@ -127,10 +130,13 @@ function UsersPanel() {
 
   function openCreateDialog() {
     setEditingUser(null)
-    setForm({
+    const nextForm = {
       ...emptyUserForm,
       teamId: teams[0]?.id ?? "",
-    })
+    }
+
+    setForm(nextForm)
+    setInitialForm(nextForm)
     setIsDialogOpen(true)
   }
 
@@ -138,7 +144,7 @@ function UsersPanel() {
     const primaryMember = getPrimaryTeamMember(teamMembersByTeamId, teams, user.id)
 
     setEditingUser(user)
-    setForm({
+    const nextForm = {
       email: user.email,
       firstName: user.first_name ?? "",
       lastName: user.last_name ?? "",
@@ -146,27 +152,35 @@ function UsersPanel() {
       role: user.role,
       teamId: primaryMember?.team_id ?? teams[0]?.id ?? "",
       teamRole: primaryMember?.role ?? "member",
-    })
+    }
+
+    setForm(nextForm)
+    setInitialForm(nextForm)
     setIsDialogOpen(true)
   }
 
   async function submitUser(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    const userPatch = getUserPatch(form, initialForm, Boolean(editingUser))
+    const hasTeamChanges =
+      form.teamId !== initialForm.teamId || form.teamRole !== initialForm.teamRole
+
+    if (editingUser && Object.keys(userPatch).length === 0 && !hasTeamChanges) {
+      return
+    }
+
     setIsSubmitting(true)
 
     try {
-      const payload = {
-        email: form.email,
-        first_name: form.firstName.trim() || undefined,
-        last_name: form.lastName.trim() || undefined,
-        password: form.password.trim() || undefined,
-        role: form.role,
-      }
       const savedUser = editingUser
-        ? await updateUser(editingUser.id, payload)
-        : await createUser(payload)
+        ? Object.keys(userPatch).length
+          ? await updateUser(editingUser.id, userPatch)
+          : editingUser
+        : await createUser(getCreateUserInput(form))
 
-      await syncUserTeam(savedUser)
+      if (!editingUser || hasTeamChanges) {
+        await syncUserTeam(savedUser)
+      }
       setUsers((current) => upsertUser(current, savedUser))
       setIsDialogOpen(false)
       await loadUsers()
@@ -180,6 +194,12 @@ function UsersPanel() {
       setIsSubmitting(false)
     }
   }
+
+  const userPatch = getUserPatch(form, initialForm, Boolean(editingUser))
+  const hasUserChanges =
+    Object.keys(userPatch).length > 0 ||
+    form.teamId !== initialForm.teamId ||
+    form.teamRole !== initialForm.teamRole
 
   async function syncUserTeam(user: AuthUser) {
     if (!form.teamId) {
@@ -294,7 +314,7 @@ function UsersPanel() {
                 />
                 <Button
                   className="h-14 rounded-full bg-[var(--auth-primary)] text-base font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || (Boolean(editingUser) && !hasUserChanges)}
                   type="submit"
                 >
                   {isSubmitting ? "SUBMITTING..." : "SUBMIT"}
@@ -399,6 +419,47 @@ function UsersPanel() {
       </div>
     </section>
   )
+}
+
+function getUserPatch(
+  form: UserFormState,
+  initialForm: UserFormState,
+  isEditing: boolean,
+): Partial<CreateUserInput> {
+  const changes = getChangedFields(form, initialForm)
+  const patch: Partial<CreateUserInput> = {}
+
+  if (!isEditing || changes.email !== undefined) {
+    patch.email = form.email
+  }
+
+  if (!isEditing || changes.firstName !== undefined) {
+    patch.first_name = form.firstName.trim() || undefined
+  }
+
+  if (!isEditing || changes.lastName !== undefined) {
+    patch.last_name = form.lastName.trim() || undefined
+  }
+
+  if (!isEditing || changes.password !== undefined) {
+    patch.password = form.password.trim() || undefined
+  }
+
+  if (!isEditing || changes.role !== undefined) {
+    patch.role = form.role
+  }
+
+  return patch
+}
+
+function getCreateUserInput(form: UserFormState): CreateUserInput {
+  return {
+    email: form.email,
+    first_name: form.firstName.trim() || undefined,
+    last_name: form.lastName.trim() || undefined,
+    password: form.password.trim() || undefined,
+    role: form.role,
+  }
 }
 
 function UserForm({

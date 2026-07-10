@@ -17,9 +17,11 @@ import { Repository } from 'typeorm';
 import { EncryptedConfig } from '../accounts/entities/encrypted-config.entity';
 import { PdfDssVriEmbedder } from './pdf-dss-vri-embedder';
 import { PdfDocumentTimestampEmbedder } from './pdf-document-timestamp-embedder';
+import { PdfAResult, PdfAService } from './pdf-a.service';
 import {
   defaultSigningCertificateKey,
   generateSignaDefaultCertificate,
+  hasInternalRevocation,
   parseStoredSigningCertificate,
   p12BufferFromStoredCertificate,
   signaDefaultCertificateName,
@@ -42,6 +44,7 @@ export type PdfSignatureSubFilterMode =
 export type PdfSignatureResult = {
   buffer: Buffer;
   certificateName: string | null;
+  pdfA: PdfAResult['metadata'];
   signed: boolean;
   signatureSubFilter: string;
   timestamp: PdfTimestampEvidence;
@@ -61,6 +64,7 @@ export class PdfSignatureService {
     private readonly timestampEmbedder: PdfDocumentTimestampEmbedder,
     private readonly revocationCollector: PdfRevocationCollectorService,
     private readonly dssVriEmbedder: PdfDssVriEmbedder,
+    private readonly pdfAService: PdfAService,
   ) {}
 
   async ensureDefaultCertificate(accountId: string): Promise<EncryptedConfig> {
@@ -72,6 +76,14 @@ export class PdfSignatureService {
     });
 
     if (existing) {
+      const existingCertificate = parseStoredSigningCertificate(existing.value);
+
+      if (!existingCertificate || !hasInternalRevocation(existingCertificate)) {
+        existing.value = JSON.stringify(generateSignaDefaultCertificate());
+
+        return this.encryptedConfigs.save(existing);
+      }
+
       return existing;
     }
 
@@ -175,7 +187,8 @@ export class PdfSignatureService {
     const signatureSubFilter = this.getSignatureSubFilter();
 
     try {
-      const pdf = await PDFDocument.load(input.buffer, {
+      const pdfA = await this.pdfAService.convertBeforeSigning(input.buffer);
+      const pdf = await PDFDocument.load(pdfA.buffer, {
         ignoreEncryption: true,
         updateMetadata: false,
       });
@@ -210,14 +223,10 @@ export class PdfSignatureService {
         signer,
         input.signingTime,
       );
-      const timestampedPdf =
-        await this.timestampEmbedder.embedDocumentTimestamp({
-          pdfBuffer: signedBuffer,
-          timestampServerUrl,
-        });
       const ltv = await this.revocationCollector.collectForSignedPdf({
         accountId: input.accountId,
-        pdfBuffer: timestampedPdf.buffer,
+        internalRevocation: certificate.internal_revocation ?? null,
+        pdfBuffer: signedBuffer,
       });
 
       if (ltv.metadata.ltvRequired && ltv.metadata.evidenceStatus !== 'good') {
@@ -231,13 +240,38 @@ export class PdfSignatureService {
 
       const ltvPdf = this.dssVriEmbedder.embed({
         evidences: ltv.evidences,
-        pdfBuffer: timestampedPdf.buffer,
+        pdfBuffer: signedBuffer,
       });
+      const timestampedPdf =
+        await this.timestampEmbedder.embedDocumentTimestamp({
+          pdfBuffer: ltvPdf,
+          timestampServerUrl,
+        });
+
+      const finalEvidenceStatus =
+        ltv.metadata.evidenceStatus === 'good' &&
+        this.hasEmbeddedDssEvidence(signedBuffer, ltvPdf)
+          ? 'good'
+          : ltv.metadata.evidenceStatus;
+
+      const finalLtv = {
+        ...ltv.metadata,
+        evidenceStatus: finalEvidenceStatus,
+      };
+
+      if (finalLtv.ltvRequired && finalLtv.evidenceStatus !== 'good') {
+        throw new UnprocessableEntityException({
+          error: 'PDF LTV evidence could not be embedded into the signed PDF',
+          ltv_status: 'missing',
+          revocation_status: finalLtv.evidenceStatus,
+        });
+      }
 
       return {
-        buffer: ltvPdf,
+        buffer: timestampedPdf.buffer,
         certificateName: name,
-        ltv: ltv.metadata,
+        ltv: finalLtv,
+        pdfA: pdfA.metadata,
         signatureSubFilter,
         signed: true,
         timestamp: timestampedPdf.timestamp,
@@ -276,5 +310,15 @@ export class PdfSignatureService {
     return mode === 'adobe'
       ? SUBFILTER_ADOBE_PKCS7_DETACHED
       : SUBFILTER_ETSI_CADES_DETACHED;
+  }
+
+  private hasEmbeddedDssEvidence(
+    signedBuffer: Buffer,
+    ltvBuffer: Buffer,
+  ): boolean {
+    return (
+      ltvBuffer.byteLength > signedBuffer.byteLength &&
+      ltvBuffer.toString('latin1').includes('/DSS')
+    );
   }
 }

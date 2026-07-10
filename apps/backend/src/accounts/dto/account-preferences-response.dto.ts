@@ -102,7 +102,8 @@ export class AccountPreferencesResponseDto {
   auto_sign_owner_enabled!: boolean;
 
   @ApiProperty({
-    description: 'Template role name completed by the account owner auto-sign flow.',
+    description:
+      'Template role name completed by the account owner auto-sign flow.',
     example: 'First Party',
   })
   auto_sign_owner_role!: string;

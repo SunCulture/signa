@@ -1,9 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import { MailService } from '../mail/mail.service';
 import { PdfSignatureService } from '../pdf-signatures/pdf-signature.service';
+import { PdfTrustRootService } from '../pdf-signatures/pdf-trust-root.service';
 import { StorageService } from '../storage/storage.service';
 import { User } from '../users/entities/user.entity';
 import { AccountsService } from './accounts.service';
@@ -12,10 +13,12 @@ import { AccountLinkedAccount } from './entities/account-linked-account.entity';
 import { Account } from './entities/account.entity';
 import { EncryptedConfig } from './entities/encrypted-config.entity';
 
-type MockRepository<T extends object> = Pick<
-  Repository<T>,
-  'create' | 'findOne' | 'findOneByOrFail' | 'save'
->;
+type MockRepository<T extends object> = {
+  create: jest.Mock<T, [Partial<T>]>;
+  findOne: jest.Mock<Promise<T | null>>;
+  findOneByOrFail: jest.Mock<Promise<T>>;
+  save: jest.Mock<Promise<T>, [T]>;
+};
 
 function createRepository<T extends object>(): jest.Mocked<MockRepository<T>> {
   return {
@@ -65,6 +68,10 @@ describe('AccountsService', () => {
           useValue: encryptedConfigs,
         },
         {
+          provide: DataSource,
+          useValue: {},
+        },
+        {
           provide: StorageService,
           useValue: {},
         },
@@ -86,6 +93,14 @@ describe('AccountsService', () => {
             ensureDefaultCertificate: jest.fn(),
             getTimestampServerUrl: jest.fn().mockResolvedValue(null),
             upsertTimestampServerUrl: jest.fn(),
+          },
+        },
+        {
+          provide: PdfTrustRootService,
+          useValue: {
+            list: jest.fn().mockResolvedValue([]),
+            remove: jest.fn(),
+            upload: jest.fn(),
           },
         },
       ],

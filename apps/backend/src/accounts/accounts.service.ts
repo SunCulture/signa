@@ -17,6 +17,7 @@ import {
   signingCertificatePrefix,
 } from '../pdf-signatures/pdf-signature-certificate';
 import { PdfSignatureService } from '../pdf-signatures/pdf-signature.service';
+import { PdfTrustRootService } from '../pdf-signatures/pdf-trust-root.service';
 import { StorageAttachment } from '../storage/entities/storage-attachment.entity';
 import { StorageService } from '../storage/storage.service';
 import { UploadedBufferFile } from '../storage/storage.types';
@@ -32,6 +33,8 @@ import {
   AccountLogoResponseDto,
   SigningCertificateListResponseDto,
   SigningCertificateResponseDto,
+  SigningTrustRootListResponseDto,
+  SigningTrustRootResponseDto,
 } from './dto/account-branding.dto';
 import { AccountPreferencesResponseDto } from './dto/account-preferences-response.dto';
 import { AccountResponseDto } from './dto/account-response.dto';
@@ -70,6 +73,7 @@ export class AccountsService {
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
     private readonly pdfSignatureService: PdfSignatureService,
+    private readonly pdfTrustRootService: PdfTrustRootService,
   ) {}
 
   findActiveAccount(accountId: string): Promise<Account | null> {
@@ -654,6 +658,35 @@ export class AccountsService {
 
     await this.encryptedConfigs.remove(certificate);
     return response;
+  }
+
+  async listSigningTrustRoots(
+    accountId: string,
+  ): Promise<SigningTrustRootListResponseDto> {
+    await this.findActiveAccountOrFail(accountId);
+
+    return {
+      data: await this.pdfTrustRootService.list(accountId),
+    };
+  }
+
+  async uploadSigningTrustRoot(
+    accountId: string,
+    name: string | undefined,
+    file: UploadedBufferFile,
+  ): Promise<SigningTrustRootResponseDto> {
+    await this.findActiveAccountOrFail(accountId);
+
+    return this.pdfTrustRootService.upload({ accountId, file, name });
+  }
+
+  async deleteSigningTrustRoot(
+    accountId: string,
+    id: string,
+  ): Promise<SigningTrustRootResponseDto> {
+    await this.findActiveAccountOrFail(accountId);
+
+    return this.pdfTrustRootService.remove({ accountId, id });
   }
 
   async listEmailIntegrations(

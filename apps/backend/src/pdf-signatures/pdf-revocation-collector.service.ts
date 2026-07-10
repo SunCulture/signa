@@ -20,6 +20,8 @@ import { PdfDssEvidence, ParsedPdfDssEvidence } from './pdf-dss-vri-embedder';
 import { detectPdfSignatures } from './pdf-signature-detection';
 import { PdfRevocationEvidenceStatus } from './entities/pdf-revocation-evidence.entity';
 import { PdfRevocationEvidenceService } from './pdf-revocation-evidence.service';
+import { StoredSigningCertificateRevocation } from './pdf-signature-certificate';
+import { buildSignaInternalCrl } from './signa-internal-crl';
 
 export type PdfLtvCollectionResult = {
   evidences: PdfDssEvidence[];
@@ -40,6 +42,7 @@ export class PdfRevocationCollectorService {
 
   async collectForSignedPdf(input: {
     accountId: string;
+    internalRevocation: StoredSigningCertificateRevocation | null;
     pdfBuffer: Buffer;
   }): Promise<PdfLtvCollectionResult> {
     const signatures = detectPdfSignatures(input.pdfBuffer).filter(
@@ -58,6 +61,7 @@ export class PdfRevocationCollectorService {
 
       const evidence = await this.collectForCmsSignature({
         accountId: input.accountId,
+        internalRevocation: input.internalRevocation,
         parsed,
       });
 
@@ -114,6 +118,7 @@ export class PdfRevocationCollectorService {
 
   private async collectForCmsSignature(input: {
     accountId: string;
+    internalRevocation: StoredSigningCertificateRevocation | null;
     parsed: ParsedPdfCmsSignature;
   }): Promise<{
     dssEvidence: PdfDssEvidence;
@@ -153,6 +158,17 @@ export class PdfRevocationCollectorService {
       };
     }
 
+    if (input.internalRevocation) {
+      return this.collectSignaInternalCrl({
+        accountId: input.accountId,
+        certificateDer,
+        internalRevocation: input.internalRevocation,
+        issuer,
+        signer,
+        vriKey: input.parsed.vriKey,
+      });
+    }
+
     const ocsp = await this.collectOcsp({
       accountId: input.accountId,
       issuer,
@@ -186,6 +202,94 @@ export class PdfRevocationCollectorService {
       },
       status: crl.status === 'unavailable' ? ocsp.status : crl.status,
     };
+  }
+
+  private async collectSignaInternalCrl(input: {
+    accountId: string;
+    certificateDer: Buffer[];
+    internalRevocation: StoredSigningCertificateRevocation;
+    issuer: Certificate;
+    signer: Certificate;
+    vriKey: string;
+  }): Promise<{
+    dssEvidence: PdfDssEvidence;
+    status: PdfRevocationEvidenceStatus | 'missing';
+  }> {
+    const signerDer = certificateToDer(input.signer);
+    const cachedCrl = await this.evidenceCache.findFresh({
+      accountId: input.accountId,
+      certificateDer: signerDer,
+      evidenceType: 'crl',
+    });
+
+    if (cachedCrl?.dataBase64) {
+      return {
+        dssEvidence: {
+          certificateDer: input.certificateDer,
+          crlResponses: [Buffer.from(cachedCrl.dataBase64, 'base64')],
+          ocspResponses: [],
+          vriKey: input.vriKey,
+        },
+        status: cachedCrl.status,
+      };
+    }
+
+    const thisUpdate = new Date();
+    const nextUpdate = new Date(thisUpdate);
+
+    nextUpdate.setDate(thisUpdate.getDate() + 7);
+
+    try {
+      const data = buildSignaInternalCrl({
+        issuer: input.issuer,
+        issuerPrivateKeyPem:
+          input.internalRevocation.crl_issuer_private_key_pem,
+        nextUpdate,
+        thisUpdate,
+      });
+      const status = await this.validateCrlEvidence(
+        data,
+        input.signer,
+        input.issuer,
+      );
+
+      await this.evidenceCache.store({
+        accountId: input.accountId,
+        certificateDer: signerDer,
+        data,
+        evidenceType: 'crl',
+        issuerHash: certificateHash(input.issuer),
+        nextUpdate,
+        serialNumber: certificateSerial(input.signer),
+        status,
+        thisUpdate,
+        url: 'signa:internal-crl',
+      });
+
+      return {
+        dssEvidence: {
+          certificateDer: input.certificateDer,
+          crlResponses: [data],
+          ocspResponses: [],
+          vriKey: input.vriKey,
+        },
+        status,
+      };
+    } catch (error) {
+      this.logger.warn(
+        `Internal Signa CRL generation failed: ${errorMessage(error)}`,
+      );
+
+      return {
+        dssEvidence: {
+          certificateDer: input.certificateDer,
+          crlResponses: [],
+          ocspResponses: [],
+          vriKey: input.vriKey,
+        },
+        status: 'unavailable',
+      };
+    }
   }
 
   private async collectOcsp(input: {

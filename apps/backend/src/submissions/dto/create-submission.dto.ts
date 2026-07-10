@@ -401,6 +401,24 @@ export class CreateSubmissionAliasDto {
   @IsBoolean()
   send_sms?: boolean;
 
+  @ApiPropertyOptional({
+    description:
+      'Template-submission override for owner auto-sign. When true, Signa completes the configured owner role before invitations are sent.',
+    example: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  auto_sign_owner?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Template-submission owner role override for auto-sign. Defaults to template/account configuration or First Party.',
+    example: 'First Party',
+  })
+  @IsOptional()
+  @IsString()
+  auto_sign_owner_role?: string;
+
   @ApiPropertyOptional({ enum: ['preserved', 'random'], default: 'preserved' })
   @IsOptional()
   @IsIn(['preserved', 'random'])

@@ -92,7 +92,6 @@ describe('EmailVerificationCodeService', () => {
   it('generates authenticator app secrets and otpauth URIs', () => {
     const secret = service.generateAuthenticatorSecret();
     const uri = service.generateAuthenticatorUri({
-      accountName: 'Ada Labs',
       email: 'ada@example.com',
       secret,
     });

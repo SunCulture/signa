@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { AccountsModule } from '../accounts/accounts.module';
 import { UserHydrationGuard } from '../auth/guards/user-hydration/user-hydration.guard';
+import { PdfProcessingModule } from '../pdf-processing/pdf-processing.module';
 import { StorageModule } from '../storage/storage.module';
 import { UsersModule } from '../users/users.module';
 import { DocumentConversionService } from './document-conversion.service';
@@ -20,11 +21,13 @@ import { TemplatesController } from './templates.controller';
 import { TemplatesService } from './templates.service';
 import { PdfAcroFormService } from './pdf-acro-form/pdf-acro-form.service';
 import { PdfTextTagService } from './pdf-text-tag.service';
+import { PdfXfaFormService } from './pdf-xfa-form/pdf-xfa-form.service';
 
 @Module({
   imports: [
     AuthModule,
     AccountsModule,
+    PdfProcessingModule,
     StorageModule,
     UsersModule,
     TypeOrmModule.forFeature([
@@ -43,6 +46,7 @@ import { PdfTextTagService } from './pdf-text-tag.service';
     TemplatesService,
     UserHydrationGuard,
     PdfAcroFormService,
+    PdfXfaFormService,
     DocumentConversionService,
     DocxFieldTagService,
     DocxVariableService,

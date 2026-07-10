@@ -12,6 +12,15 @@ describe('PdfiumProcessingService', () => {
     const source = await createPdfWithTextField();
     const result = await service.flattenPdf(source);
 
+    expect(result.metadata).toMatchObject({
+      formType: 'acro_form',
+      hasXfa: false,
+      processingMode: 'acro_form',
+      xfaLoadStatus: 'not_applicable',
+      xfaLoaded: false,
+      xfaPacketCount: 0,
+      xfaPacketNames: [],
+    });
     expect(result.pageCount).toBe(1);
     expect(result.flattenedPages).toBe(1);
     expect(result.buffer.subarray(0, 8).toString('latin1')).toBe('%PDF-1.7');
@@ -22,6 +31,21 @@ describe('PdfiumProcessingService', () => {
     const annotations = page.node.Annots();
 
     expect(annotations?.size() ?? 0).toBe(0);
+  });
+
+  it('detects ordinary PDF form metadata before preparing form rendering', async () => {
+    const source = await createPdfWithTextField();
+    const result = await service.inspectPdf(source);
+
+    expect(result).toEqual({
+      formType: 'acro_form',
+      hasXfa: false,
+      processingMode: 'acro_form',
+      xfaLoadStatus: 'not_applicable',
+      xfaLoaded: false,
+      xfaPacketCount: 0,
+      xfaPacketNames: [],
+    });
   });
 });
 

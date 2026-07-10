@@ -3,12 +3,10 @@
 import type React from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { signaRoleLabels, signaRoles, type SignaRole } from "@repo/shared"
 import {
   ArchiveIcon,
-  EditIcon,
-  EyeIcon,
   KeyRoundIcon,
   LinkIcon,
   type LucideIcon,
@@ -33,9 +31,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
-  type AuthUser,
-  listUsers,
   updateUser,
+  type UpdateUserInput,
   type UserStatus,
 } from "@/lib/api/auth"
 import { ApiError } from "@/lib/api/http"
@@ -52,6 +49,7 @@ import {
   updateTeam,
   updateTeamMember,
 } from "@/lib/api/teams"
+import { getChangedFields } from "@/lib/object-diff"
 import { SettingsSidebar } from "./settings-sidebar"
 
 type TeamFormState = {
@@ -85,45 +83,31 @@ function TeamsPanel() {
   const searchParams = useSearchParams()
   const status = getStatus(searchParams.get("status"))
   const viewedTeamId = searchParams.get("team")
-  const [users, setUsers] = useState<AuthUser[]>([])
   const [teams, setTeams] = useState<Team[]>([])
   const [members, setMembers] = useState<TeamMember[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingTeam, setEditingTeam] = useState<Team | null>(null)
   const [teamForm, setTeamForm] = useState<TeamFormState>(emptyTeamForm)
+  const [initialTeamForm, setInitialTeamForm] =
+    useState<TeamFormState>(emptyTeamForm)
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null)
   const [userForm, setUserForm] = useState<TeamUserFormState | null>(null)
+  const [initialUserForm, setInitialUserForm] =
+    useState<TeamUserFormState | null>(null)
 
   const viewedTeam = useMemo(
     () => teams.find((team) => team.id === viewedTeamId) ?? null,
     [teams, viewedTeamId]
   )
 
-  useEffect(() => {
-    void loadTeams()
-  }, [status])
-
-  useEffect(() => {
-    if (!viewedTeam) {
-      setMembers([])
-      return
-    }
-
-    void loadViewedTeamMembers(viewedTeam.id)
-  }, [viewedTeam])
-
-  async function loadTeams() {
+  const loadTeams = useCallback(async () => {
     setIsLoading(true)
 
     try {
-      const [loadedTeams, loadedUsers] = await Promise.all([
-        listTeams(status),
-        listUsers("active"),
-      ])
+      const loadedTeams = await listTeams(status)
 
       setTeams(loadedTeams)
-      setUsers(loadedUsers)
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         router.push("/auth/login")
@@ -136,9 +120,9 @@ function TeamsPanel() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [router, status])
 
-  async function loadViewedTeamMembers(teamId: string) {
+  const loadViewedTeamMembers = useCallback(async (teamId: string) => {
     try {
       setMembers(await listTeamMembers(teamId))
     } catch (error) {
@@ -146,17 +130,83 @@ function TeamsPanel() {
         description: getErrorMessage(error),
       })
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    let isCurrent = true
+
+    async function loadInitialTeams() {
+      try {
+        const loadedTeams = await listTeams(status)
+
+        if (isCurrent) {
+          setTeams(loadedTeams)
+        }
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          router.push("/auth/login")
+          return
+        }
+
+        toast.error("Teams could not be loaded", {
+          description: getErrorMessage(error),
+        })
+      } finally {
+        if (isCurrent) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    void loadInitialTeams()
+
+    return () => {
+      isCurrent = false
+    }
+  }, [router, status])
+
+  useEffect(() => {
+    if (!viewedTeam) {
+      return
+    }
+
+    const teamId = viewedTeam.id
+    let isCurrent = true
+
+    async function loadInitialTeamMembers() {
+      try {
+        const loadedMembers = await listTeamMembers(teamId)
+
+        if (isCurrent) {
+          setMembers(loadedMembers)
+        }
+      } catch (error) {
+        toast.error("Team users could not be loaded", {
+          description: getErrorMessage(error),
+        })
+      }
+    }
+
+    void loadInitialTeamMembers()
+
+    return () => {
+      isCurrent = false
+    }
+  }, [viewedTeam])
 
   function openCreateDialog() {
     setEditingTeam(null)
     setTeamForm(emptyTeamForm)
+    setInitialTeamForm(emptyTeamForm)
     setIsDialogOpen(true)
   }
 
   function openEditTeamDialog(team: Team) {
+    const nextForm = { description: team.description ?? "", name: team.name }
+
     setEditingTeam(team)
-    setTeamForm({ description: team.description ?? "", name: team.name })
+    setTeamForm(nextForm)
+    setInitialTeamForm(nextForm)
     setIsDialogOpen(true)
   }
 
@@ -164,13 +214,16 @@ function TeamsPanel() {
     event.preventDefault()
 
     try {
-      const input = {
-        description: teamForm.description || undefined,
-        name: teamForm.name,
-      }
       const savedTeam = editingTeam
-        ? await updateTeam(editingTeam.id, input)
-        : await createTeam(input)
+        ? await updateExistingTeam(editingTeam.id, teamForm, initialTeamForm)
+        : await createTeam({
+            description: teamForm.description || undefined,
+            name: teamForm.name,
+          })
+
+      if (!savedTeam) {
+        return
+      }
 
       setTeams((current) => upsertTeam(current, savedTeam))
       setIsDialogOpen(false)
@@ -199,15 +252,18 @@ function TeamsPanel() {
   }
 
   function openEditUserDialog(member: TeamMember) {
-    setEditingMember(member)
-    setUserForm({
+    const nextForm = {
       email: member.user.email,
       firstName: member.user.first_name ?? "",
       lastName: member.user.last_name ?? "",
       role: member.user.account_role as SignaRole,
       teamId: member.team_id,
       teamRole: member.role,
-    })
+    }
+
+    setEditingMember(member)
+    setUserForm(nextForm)
+    setInitialUserForm(nextForm)
   }
 
   async function submitTeamUser(event: React.FormEvent<HTMLFormElement>) {
@@ -218,27 +274,39 @@ function TeamsPanel() {
     }
 
     try {
-      await updateUser(editingMember.user_id, {
-        email: userForm.email,
-        first_name: userForm.firstName || undefined,
-        last_name: userForm.lastName || undefined,
-        role: userForm.role,
-      })
+      const userPatch = initialUserForm
+        ? getTeamUserPatch(userForm, initialUserForm)
+        : {}
+      const hasTeamChange = initialUserForm
+        ? userForm.teamId !== initialUserForm.teamId ||
+          userForm.teamRole !== initialUserForm.teamRole
+        : false
 
-      if (userForm.teamId === editingMember.team_id) {
-        await updateTeamMember(viewedTeam.id, editingMember.id, {
-          role: userForm.teamRole,
-        })
-      } else {
-        await removeTeamMember(viewedTeam.id, editingMember.id)
-        await addTeamMember(userForm.teamId, {
-          role: userForm.teamRole,
-          user_id: editingMember.user_id,
-        })
+      if (Object.keys(userPatch).length === 0 && !hasTeamChange) {
+        return
+      }
+
+      if (Object.keys(userPatch).length > 0) {
+        await updateUser(editingMember.user_id, userPatch)
+      }
+
+      if (hasTeamChange) {
+        if (userForm.teamId === editingMember.team_id) {
+          await updateTeamMember(viewedTeam.id, editingMember.id, {
+            role: userForm.teamRole,
+          })
+        } else {
+          await removeTeamMember(viewedTeam.id, editingMember.id)
+          await addTeamMember(userForm.teamId, {
+            role: userForm.teamRole,
+            user_id: editingMember.user_id,
+          })
+        }
       }
 
       setEditingMember(null)
       setUserForm(null)
+      setInitialUserForm(null)
       await Promise.all([loadTeams(), loadViewedTeamMembers(viewedTeam.id)])
       toast.success("User updated")
     } catch (error) {
@@ -247,6 +315,16 @@ function TeamsPanel() {
       })
     }
   }
+
+  const hasTeamChanges =
+    !editingTeam ||
+    Object.keys(getTeamPatch(teamForm, initialTeamForm)).length > 0
+  const hasTeamUserChanges =
+    userForm && initialUserForm
+      ? Object.keys(getTeamUserPatch(userForm, initialUserForm)).length > 0 ||
+        userForm.teamId !== initialUserForm.teamId ||
+        userForm.teamRole !== initialUserForm.teamRole
+      : false
 
   return (
     <section className="min-w-0 flex-1">
@@ -297,6 +375,7 @@ function TeamsPanel() {
             />
             <Button
               className="h-12 rounded-full bg-[var(--auth-primary)] font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
+              disabled={!hasTeamChanges}
               type="submit"
             >
               SUBMIT
@@ -311,6 +390,7 @@ function TeamsPanel() {
           if (!open) {
             setEditingMember(null)
             setUserForm(null)
+            setInitialUserForm(null)
           }
         }}
       >
@@ -394,6 +474,7 @@ function TeamsPanel() {
               </SelectField>
               <Button
                 className="h-12 rounded-full bg-[var(--auth-primary)] font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
+                disabled={!hasTeamUserChanges}
                 type="submit"
               >
                 SUBMIT
@@ -404,6 +485,20 @@ function TeamsPanel() {
       </Dialog>
     </section>
   )
+}
+
+async function updateExistingTeam(
+  teamId: string,
+  form: TeamFormState,
+  initialForm: TeamFormState
+): Promise<Team | null> {
+  const patch = getTeamPatch(form, initialForm)
+
+  if (Object.keys(patch).length === 0) {
+    return null
+  }
+
+  return updateTeam(teamId, patch)
 }
 
 function TeamHeader({
@@ -667,6 +762,39 @@ function upsertTeam(teams: Team[], team: Team): Team[] {
   return teams.some((item) => item.id === team.id)
     ? teams.map((item) => (item.id === team.id ? team : item))
     : [team, ...teams]
+}
+
+function getTeamPatch(
+  form: TeamFormState,
+  initialForm: TeamFormState
+): Partial<TeamFormState> {
+  return getChangedFields(form, initialForm)
+}
+
+function getTeamUserPatch(
+  form: TeamUserFormState,
+  initialForm: TeamUserFormState
+): UpdateUserInput {
+  const changes = getChangedFields(form, initialForm)
+  const patch: UpdateUserInput = {}
+
+  if (changes.email !== undefined) {
+    patch.email = form.email
+  }
+
+  if (changes.firstName !== undefined) {
+    patch.first_name = form.firstName.trim() || undefined
+  }
+
+  if (changes.lastName !== undefined) {
+    patch.last_name = form.lastName.trim() || undefined
+  }
+
+  if (changes.role !== undefined) {
+    patch.role = form.role
+  }
+
+  return patch
 }
 
 function getErrorMessage(error: unknown): string {

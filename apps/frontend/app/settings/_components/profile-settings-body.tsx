@@ -35,11 +35,13 @@ import {
   getProfileAsset,
   type AuthUser,
   type ProfileAsset,
+  type UpdateProfileInput,
   updatePassword,
   updateProfile,
   uploadProfileAsset,
 } from "@/lib/api/auth";
 import { cn } from "@/lib/utils";
+import { getChangedFields } from "@/lib/object-diff";
 import { MfaSection } from "./profile-mfa-section";
 import { SettingsSidebar } from "./settings-sidebar";
 
@@ -83,6 +85,9 @@ function ProfilePanel() {
   const [form, setForm] = useState<ProfileFormState>(() =>
     getFormState(getInitialUser()),
   );
+  const [initialForm, setInitialForm] = useState<ProfileFormState>(() =>
+    getFormState(getInitialUser()),
+  );
   const [assets, setAssets] = useState<
     Record<ProfileAssetKey, ProfileAsset | null>
   >({
@@ -102,7 +107,10 @@ function ProfilePanel() {
       getMfaStatus(),
     ])
       .then(([user, signature, initials, mfa]) => {
-        setForm(getFormState(user));
+        const nextForm = getFormState(user);
+
+        setForm(nextForm);
+        setInitialForm(nextForm);
         setAssets({ initials, signature });
         setIsMfaEnabled(mfa.otp_required_for_login);
       })
@@ -122,17 +130,21 @@ function ProfilePanel() {
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const patch = getProfilePatch(form, initialForm);
+
+    if (Object.keys(patch).length === 0) {
+      return;
+    }
+
     setIsSubmitting(true);
     setError(null);
 
     try {
-      const user = await updateProfile({
-        email: form.email,
-        first_name: form.firstName,
-        last_name: form.lastName,
-      });
+      const user = await updateProfile(patch);
+      const nextForm = getFormState(user);
 
-      setForm(getFormState(user));
+      setForm(nextForm);
+      setInitialForm(nextForm);
       toast.success("Profile updated", {
         description: "Your profile details have been saved.",
         classNames: { icon: "text-green-500" },
@@ -160,6 +172,9 @@ function ProfilePanel() {
     setAssets((current) => ({ ...current, [key]: null }));
     toast.success(`${assetLabel(key)} removed`);
   }
+
+  const profilePatch = getProfilePatch(form, initialForm);
+  const hasProfileChanges = Object.keys(profilePatch).length > 0;
 
   return (
     <section className="mx-auto w-full max-w-xl flex-1">
@@ -199,7 +214,10 @@ function ProfilePanel() {
             type="email"
             value={form.email}
           />
-          <PrimaryButton disabled={isSubmitting} type="submit">
+          <PrimaryButton
+            disabled={isSubmitting || !hasProfileChanges}
+            type="submit"
+          >
             {isSubmitting ? "UPDATING" : "UPDATE"}
           </PrimaryButton>
           {error ? <FieldError>{error}</FieldError> : null}
@@ -313,6 +331,7 @@ function AssetSection({
             <Trash2Icon className="size-4" />
             {isRemoving ? "REMOVING" : "REMOVE"}
           </button>
+          {/* eslint-disable-next-line @next/next/no-img-element -- Uploaded profile assets use signed dynamic URLs that are better rendered directly. */}
           <img
             alt={label}
             className="max-h-32 w-full object-contain"
@@ -450,9 +469,15 @@ function PasswordSection() {
     passwordConfirmation: "",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const hasPasswordChanges = Object.values(form).some((value) => value);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (!hasPasswordChanges) {
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       await updatePassword({
@@ -503,7 +528,7 @@ function PasswordSection() {
           }
           value={form.currentPassword}
         />
-        <PrimaryButton disabled={isSubmitting} type="submit">
+        <PrimaryButton disabled={isSubmitting || !hasPasswordChanges} type="submit">
           {isSubmitting ? "UPDATING" : "UPDATE"}
         </PrimaryButton>
       </form>
@@ -690,6 +715,28 @@ function getFormState(user: AuthUser): ProfileFormState {
     firstName: user.first_name ?? "",
     lastName: user.last_name ?? "",
   };
+}
+
+function getProfilePatch(
+  form: ProfileFormState,
+  initialForm: ProfileFormState,
+): UpdateProfileInput {
+  const changes = getChangedFields(form, initialForm);
+  const patch: UpdateProfileInput = {};
+
+  if (changes.email !== undefined) {
+    patch.email = changes.email;
+  }
+
+  if (changes.firstName !== undefined) {
+    patch.first_name = changes.firstName;
+  }
+
+  if (changes.lastName !== undefined) {
+    patch.last_name = changes.lastName;
+  }
+
+  return patch;
 }
 
 function getErrorMessage(error: unknown): string {

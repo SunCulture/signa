@@ -263,7 +263,9 @@ export class OwnerAutoSignService {
   private async findProfileAsset(
     userId: string,
     key: ProfileAssetKey,
-  ): Promise<Awaited<ReturnType<StorageService['findRecordAttachments']>>[number] | null> {
+  ): Promise<
+    Awaited<ReturnType<StorageService['findRecordAttachments']>>[number] | null
+  > {
     const config = await this.userConfigs.findOneBy({ userId, key });
 
     if (!config?.value) {
@@ -312,9 +314,11 @@ function getSubmitterFields(
   submission: Submission,
   submitter: Submitter,
 ): TemplateField[] {
-  return (submission.templateFields ?? submission.template?.fields ?? []).filter(
-    (field) => field.submitter_uuid === submitter.uuid,
-  );
+  return (
+    submission.templateFields ??
+    submission.template?.fields ??
+    []
+  ).filter((field) => field.submitter_uuid === submitter.uuid);
 }
 
 function getMissingRequiredFieldNames(
@@ -332,9 +336,11 @@ function getSubmitterRole(
   submitter: Submitter,
 ): string {
   return (
-    (submission.templateSubmitters ?? submission.template?.submitters ?? []).find(
-      (item) => item.uuid === submitter.uuid,
-    )?.name ??
+    (
+      submission.templateSubmitters ??
+      submission.template?.submitters ??
+      []
+    ).find((item) => item.uuid === submitter.uuid)?.name ??
     submitter.name ??
     submitter.email ??
     'Submitter'
@@ -342,7 +348,9 @@ function getSubmitterRole(
 }
 
 function getUserDisplayName(user: User): string {
-  return [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email;
+  return (
+    [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email
+  );
 }
 
 function isBlankValue(value: unknown): boolean {
@@ -355,7 +363,10 @@ function isBlankValue(value: unknown): boolean {
 }
 
 function isRoleMatch(value: unknown, role: string): boolean {
-  return typeof value === 'string' && value.trim().toLowerCase() === role.toLowerCase();
+  return (
+    typeof value === 'string' &&
+    value.trim().toLowerCase() === role.toLowerCase()
+  );
 }
 
 function normalizeRole(value: unknown): string | null {

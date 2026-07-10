@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import {
   BasicOCSPResponse,
   Certificate,
@@ -23,12 +24,20 @@ export type PdfCmsCertificate = {
 
 export type PdfCmsVerificationResult = {
   certificateChain: PdfCmsCertificate[];
-  certificateChainStatus: 'external' | 'missing' | 'trusted';
+  certificateChainStatus:
+    | 'expired'
+    | 'external'
+    | 'invalid'
+    | 'missing'
+    | 'trusted';
+  certificatePolicyErrors: string[];
   cmsMessageDigestValid: boolean | null;
   cmsSignatureValid: boolean | null;
   messages: string[];
   revocationStatus: 'good' | 'missing' | 'revoked' | 'unavailable' | 'unknown';
   ltvStatus: 'invalid' | 'missing' | 'valid';
+  trustAnchor: string | null;
+  trustAnchorFingerprint: string | null;
 };
 
 const signaRootCommonName = 'Signa Root CA';
@@ -44,6 +53,7 @@ export class PdfSignatureVerifierService {
     cmsContents: Buffer | null;
     pdfBuffer: Buffer;
     signedBytes: Buffer | null;
+    trustedCertificates?: Certificate[];
   }): Promise<PdfCmsVerificationResult> {
     if (!input.cmsContents || !input.signedBytes) {
       return missingCmsResult();
@@ -57,8 +67,18 @@ export class PdfSignatureVerifierService {
       ]);
     }
 
-    const trustedRoots = findSignaTrustRoots(parsed.certificates);
-    const chainStatus = getCertificateChainStatus(parsed.certificates);
+    const signaTrustRoots = findSignaTrustRoots(parsed.certificates);
+    const trustedRoots = [
+      ...signaTrustRoots,
+      ...(input.trustedCertificates ?? []),
+    ];
+    const policy = getCertificatePolicy(parsed.certificates);
+    const chainStatus = getCertificateChainStatus({
+      certificates: parsed.certificates,
+      policyErrors: policy.errors,
+      trustedRoots,
+    });
+    const trustAnchor = findTrustAnchor(parsed.certificates, trustedRoots);
     const embeddedRevocationStatus = getEmbeddedRevocationStatus(
       parsed.signedData,
     );
@@ -92,11 +112,13 @@ export class PdfSignatureVerifierService {
       const signatureValid = verification.signatureVerified === true;
       const chainTrusted =
         chainStatus === 'trusted' &&
+        policy.errors.length === 0 &&
         verification.signerCertificateVerified !== false;
 
       return {
         certificateChain: parsed.certificates.map(certificateToResponse),
         certificateChainStatus: chainTrusted ? 'trusted' : chainStatus,
+        certificatePolicyErrors: policy.errors,
         cmsMessageDigestValid: signatureValid,
         cmsSignatureValid: signatureValid,
         messages: [
@@ -111,6 +133,10 @@ export class PdfSignatureVerifierService {
         ],
         ltvStatus,
         revocationStatus,
+        trustAnchor: chainTrusted ? (trustAnchor?.subject ?? null) : null,
+        trustAnchorFingerprint: chainTrusted
+          ? (trustAnchor?.fingerprintSha256 ?? null)
+          : null,
       };
     } catch (error) {
       const messages = [
@@ -123,11 +149,14 @@ export class PdfSignatureVerifierService {
       return {
         certificateChain: parsed.certificates.map(certificateToResponse),
         certificateChainStatus: chainStatus,
+        certificatePolicyErrors: policy.errors,
         cmsMessageDigestValid: isMessageDigestFailure(error) ? false : null,
         cmsSignatureValid: false,
         ltvStatus,
         messages,
         revocationStatus,
+        trustAnchor: null,
+        trustAnchorFingerprint: null,
       };
     }
   }
@@ -163,14 +192,26 @@ function findSignaTrustRoots(certificates: Certificate[]): Certificate[] {
   );
 }
 
-function getCertificateChainStatus(
-  certificates: Certificate[],
-): PdfCmsVerificationResult['certificateChainStatus'] {
+function getCertificateChainStatus(input: {
+  certificates: Certificate[];
+  policyErrors: string[];
+  trustedRoots: Certificate[];
+}): PdfCmsVerificationResult['certificateChainStatus'] {
+  const { certificates, policyErrors, trustedRoots } = input;
+
   if (!certificates.length) {
     return 'missing';
   }
 
-  return findSignaTrustRoots(certificates).length ? 'trusted' : 'external';
+  if (policyErrors.some((error) => error.includes('expired'))) {
+    return 'expired';
+  }
+
+  if (policyErrors.length) {
+    return 'invalid';
+  }
+
+  return findTrustAnchor(certificates, trustedRoots) ? 'trusted' : 'external';
 }
 
 function certificateToResponse(certificate: Certificate): PdfCmsCertificate {
@@ -194,6 +235,67 @@ function formatCertificateName(
       return `${name}=${text}`;
     })
     .join(', ');
+}
+
+function findTrustAnchor(
+  certificates: Certificate[],
+  trustedRoots: Certificate[],
+): { fingerprintSha256: string; subject: string } | null {
+  const rootFingerprints = new Map(
+    trustedRoots.map((certificate) => [
+      certificateFingerprint(certificate),
+      formatCertificateName(certificate.subject.typesAndValues),
+    ]),
+  );
+
+  for (const certificate of certificates) {
+    const fingerprint = certificateFingerprint(certificate);
+    const subject = rootFingerprints.get(fingerprint);
+
+    if (subject) {
+      return { fingerprintSha256: fingerprint, subject };
+    }
+  }
+
+  return null;
+}
+
+function certificateFingerprint(certificate: Certificate): string {
+  const buffer = Buffer.from(certificate.toSchema(true).toBER(false));
+
+  return createHash('sha256').update(buffer).digest('hex');
+}
+
+function getCertificatePolicy(certificates: Certificate[]): {
+  errors: string[];
+} {
+  const now = new Date();
+  const errors: string[] = [];
+
+  certificates.forEach((certificate, index) => {
+    const label =
+      formatCertificateName(certificate.subject.typesAndValues) ||
+      `certificate_${index}`;
+
+    if (certificate.notBefore.value > now || certificate.notAfter.value < now) {
+      errors.push(`certificate_expired: ${label}`);
+    }
+
+    if (index > 0 && !hasCaBasicConstraints(certificate)) {
+      errors.push(`certificate_not_ca: ${label}`);
+    }
+  });
+
+  return { errors };
+}
+
+function hasCaBasicConstraints(certificate: Certificate): boolean {
+  const extensions = certificate.extensions ?? [];
+  const basicConstraints = extensions.find(
+    (extension) => extension.extnID === '2.5.29.19',
+  )?.parsedValue as { cA?: boolean } | undefined;
+
+  return basicConstraints?.cA === true;
 }
 
 function formatRdnValue(value: unknown): string {
@@ -238,6 +340,7 @@ function missingCmsResult(
   return {
     certificateChain: [],
     certificateChainStatus: 'missing',
+    certificatePolicyErrors: [],
     cmsMessageDigestValid: null,
     cmsSignatureValid: null,
     ltvStatus: 'missing',
@@ -248,6 +351,8 @@ function missingCmsResult(
       'ltv_missing: no matching DSS/VRI entry was found for this signature',
     ],
     revocationStatus: 'missing',
+    trustAnchor: null,
+    trustAnchorFingerprint: null,
   };
 }
 
@@ -276,11 +381,19 @@ function chainMessage(
   status: PdfCmsVerificationResult['certificateChainStatus'],
 ): string {
   if (status === 'trusted') {
-    return 'certificate_chain_trusted: CMS chain includes the Signa Root CA certificate';
+    return 'certificate_chain_trusted: CMS chain resolves to a trusted account or Signa root certificate';
   }
 
   if (status === 'external') {
-    return 'certificate_chain_external: CMS chain is present but does not chain to the Signa Root CA';
+    return 'certificate_chain_external: CMS chain is present but does not chain to a trusted Signa or account root';
+  }
+
+  if (status === 'expired') {
+    return 'certificate_chain_expired: CMS chain contains a certificate outside its validity window';
+  }
+
+  if (status === 'invalid') {
+    return 'certificate_chain_invalid: CMS chain failed local trust policy checks';
   }
 
   return 'certificate_chain_missing: CMS certificate chain was not found';

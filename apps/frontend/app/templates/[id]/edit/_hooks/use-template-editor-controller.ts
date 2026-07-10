@@ -71,6 +71,17 @@ export function useTemplateEditorController() {
   const undoHistoryRef = useRef<TemplateEditorHistoryEntry[]>([]);
   const redoHistoryRef = useRef<TemplateEditorHistoryEntry[]>([]);
   const [historyRevision, setHistoryRevision] = useState(0);
+  const [historyAvailability, setHistoryAvailability] = useState({
+    canRedo: false,
+    canUndo: false,
+  });
+
+  function refreshHistoryAvailability() {
+    setHistoryAvailability({
+      canRedo: redoHistoryRef.current.length > 0,
+      canUndo: undoHistoryRef.current.length > 0,
+    });
+  }
 
   useEffect(() => {
     Promise.all([
@@ -85,6 +96,7 @@ export function useTemplateEditorController() {
         const history = loadTemplateEditorHistory(loadedTemplate.id);
         undoHistoryRef.current = history.undo;
         redoHistoryRef.current = history.redo;
+        refreshHistoryAvailability();
         setHistoryRevision((revision) => revision + 1);
         setSelectedDocumentUuid(
           (currentUuid) =>
@@ -219,6 +231,7 @@ export function useTemplateEditorController() {
       redo: redoHistoryRef.current,
       undo: undoHistoryRef.current,
     });
+    refreshHistoryAvailability();
     setHistoryRevision((revision) => revision + 1);
   }
 
@@ -238,6 +251,7 @@ export function useTemplateEditorController() {
       redo: redoHistoryRef.current,
       undo: undoHistoryRef.current,
     });
+    refreshHistoryAvailability();
 
     setTemplate((previousTemplate) =>
       previousTemplate?.id === currentTemplate.id
@@ -254,6 +268,7 @@ export function useTemplateEditorController() {
       entry.selectedFieldUuid ? [entry.selectedFieldUuid] : [],
     );
     setIsSavingFields(true);
+    refreshHistoryAvailability();
     setHistoryRevision((revision) => revision + 1);
 
     try {
@@ -303,6 +318,7 @@ export function useTemplateEditorController() {
       redo: redoHistoryRef.current,
       undo: undoHistoryRef.current,
     });
+    refreshHistoryAvailability();
     await applyEditorHistory(entry, "undo");
   }
 
@@ -318,6 +334,7 @@ export function useTemplateEditorController() {
       redo: redoHistoryRef.current,
       undo: undoHistoryRef.current,
     });
+    refreshHistoryAvailability();
     await applyEditorHistory(entry, "redo");
   }
 
@@ -417,6 +434,7 @@ export function useTemplateEditorController() {
     }
   }
 
+  /* eslint-disable react-hooks/refs -- Action factories receive callbacks that mutate history refs only from event handlers, never during render. */
   const templateActions = createTemplateEditorTemplateActions({
     currentFields,
     currentTemplate,
@@ -467,6 +485,7 @@ export function useTemplateEditorController() {
     router,
     setIsOpeningSelfSign,
   });
+  /* eslint-enable react-hooks/refs */
 
   async function saveFieldAsCustomField(field: TemplateEditorField) {
     const customField = buildTemplateCustomField(field);
@@ -559,8 +578,8 @@ export function useTemplateEditorController() {
     currentFields,
     currentSubmitters,
     customFields,
-    canRedo: redoHistoryRef.current.length > 0,
-    canUndo: undoHistoryRef.current.length > 0,
+    canRedo: historyAvailability.canRedo,
+    canUndo: historyAvailability.canUndo,
     createField: fieldActions.createField,
     currentTemplate,
     deleteField: fieldActions.deleteField,

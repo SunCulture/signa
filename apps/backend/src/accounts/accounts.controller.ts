@@ -32,6 +32,8 @@ import {
   AccountLogoResponseDto,
   SigningCertificateListResponseDto,
   SigningCertificateResponseDto,
+  SigningTrustRootListResponseDto,
+  SigningTrustRootResponseDto,
 } from './dto/account-branding.dto';
 import {
   AccountEmailIntegrationConnectResponseDto,
@@ -223,6 +225,54 @@ export class AccountsController {
       account.id,
       timestampServerUrl,
     );
+  }
+
+  @Get('signing-trust-roots')
+  @ApiOperation({
+    description:
+      'Lists uploaded account trust anchors used when verifying PDFs signed by external customer or partner certificates.',
+    summary: 'List PDF signing trust roots',
+  })
+  @ApiOkResponse({ type: SigningTrustRootListResponseDto })
+  signingTrustRoots(
+    @CurrentAccount() account: Account,
+  ): Promise<SigningTrustRootListResponseDto> {
+    return this.accountsService.listSigningTrustRoots(account.id);
+  }
+
+  @Post('signing-trust-roots')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    description:
+      'Uploads a PEM/CRT/CER/DER CA certificate that should be trusted when verifying third-party signed PDFs for this account.',
+    summary: 'Upload PDF verification trust root',
+  })
+  @ApiOkResponse({ type: SigningTrustRootResponseDto })
+  uploadSigningTrustRoot(
+    @CurrentAccount() account: Account,
+    @Body('name') name: string | undefined,
+    @UploadedFile() file: UploadedBufferFile,
+  ): Promise<SigningTrustRootResponseDto> {
+    return this.accountsService.uploadSigningTrustRoot(account.id, name, file);
+  }
+
+  @Delete('signing-trust-roots/:id')
+  @ApiParam({
+    description: 'Trust root identifier.',
+    name: 'id',
+  })
+  @ApiOperation({
+    description:
+      'Deletes a previously uploaded account trust root. Existing signed PDFs are unchanged; future verification no longer trusts this root.',
+    summary: 'Delete PDF verification trust root',
+  })
+  @ApiOkResponse({ type: SigningTrustRootResponseDto })
+  deleteSigningTrustRoot(
+    @CurrentAccount() account: Account,
+    @Param('id') id: string,
+  ): Promise<SigningTrustRootResponseDto> {
+    return this.accountsService.deleteSigningTrustRoot(account.id, id);
   }
 
   @Get('integrations')

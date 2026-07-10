@@ -292,7 +292,12 @@ export function SignaturePanel({
     selectedField.name ||
     selectedField.title ||
     getDefaultFieldTitle(selectedField);
+  const isLastEditableField = !getNextEditableField(
+    editableFields,
+    selectedField,
+  );
   const isReadyToComplete =
+    isLastEditableField &&
     hasRequiredFieldValue(form, selectedField) &&
     getIncompleteFieldsExceptCurrent(fields, form, selectedField).length === 0;
   const isInvalid = invalidFieldKey === getFieldKey(selectedField);
@@ -443,14 +448,15 @@ export function SignaturePanel({
         ...extraValues,
         [getFieldKey(selectedField)]: value,
       };
-      const isLastRequiredField =
+      const shouldCompleteAfterSave =
+        !getNextEditableField(editableFields, selectedField) &&
         getIncompleteFieldsExceptCurrent(
           fields,
           { ...form, values: nextValues },
           selectedField,
         ).length === 0;
 
-      if (isLastRequiredField) {
+      if (shouldCompleteAfterSave) {
         await onComplete(selectedField, value, extraValues);
       } else {
         await onSaveField(selectedField, value, extraValues);
@@ -881,6 +887,21 @@ function getSigningStepIndex(
   );
 
   return Math.max(0, index);
+}
+
+function getNextEditableField(
+  fields: SigningField[],
+  activeField: SigningField,
+): SigningField | null {
+  const currentIndex = fields.findIndex(
+    (field) => getFieldKey(field) === getFieldKey(activeField),
+  );
+
+  if (currentIndex < 0) {
+    return fields[0] ?? null;
+  }
+
+  return fields[currentIndex + 1] ?? null;
 }
 
 function SigningStepDots({
@@ -2171,12 +2192,6 @@ function collectSimpleFieldValue(field: SigningField, value: string): unknown {
   }
 
   return value;
-}
-
-function hasFieldValue(form: SigningForm, field: SigningField): boolean {
-  const value = form.values[getFieldKey(field)];
-
-  return hasRequiredValue(field, value);
 }
 
 function hasRequiredFieldValue(
