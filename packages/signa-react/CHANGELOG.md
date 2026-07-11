@@ -1,5 +1,11 @@
 # @signajs/react
 
+## 0.1.2
+
+### Patch Changes
+
+- Format the form and builder prop documentation as tables.
+
 ## 0.1.1
 
 ### Patch Changes

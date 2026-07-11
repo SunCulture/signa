@@ -59,15 +59,17 @@ import { DocusealForm } from "@signajs/react";
 
 `SignaForm` mirrors `@docuseal/react` and supports the same public prop contract:
 
-- `src`: public signing URL, usually `https://signa.example.com/s/{submitterSlug}` or `https://signa.example.com/d/{templateSlug}`.
-- `token`: signed embed token where supported by the host.
-- `host`: Signa host that serves `/js/form.js`.
-- `email`, `name`, `role`, `submitter`, `externalId`: submitter identity and routing values.
-- `preview`, `dryRun`, `expand`, `minimize`, `orderAsOnPage`: display and flow options.
-- `withTitle`, `withDecline`, `withFieldNames`, `withDownloadButton`, `withSendCopyButton`, `withCompleteButton`: signing UI toggles.
-- `allowToResubmit`, `allowTypedSignature`, `rememberSignature`, `reuseSignature`: signer behavior toggles.
-- `values`, `metadata`, `fields`, `readonlyFields`, `i18n`: prefilled values and runtime configuration.
-- `onInit`, `onLoad`, `onComplete`, `onDecline`: lifecycle callbacks.
+| Prop | Description |
+| --- | --- |
+| `src` | Public signing URL, usually `https://signa.example.com/s/{submitterSlug}` or `https://signa.example.com/d/{templateSlug}`. |
+| `token` | Signed embed token where supported by the host. |
+| `host` | Signa host that serves `/js/form.js`. |
+| `email`, `name`, `role`, `submitter`, `externalId` | Submitter identity and routing values. |
+| `preview`, `dryRun`, `expand`, `minimize`, `orderAsOnPage` | Display and flow options. |
+| `withTitle`, `withDecline`, `withFieldNames`, `withDownloadButton`, `withSendCopyButton`, `withCompleteButton` | Signing UI toggles. |
+| `allowToResubmit`, `allowTypedSignature`, `rememberSignature`, `reuseSignature` | Signer behavior toggles. |
+| `values`, `metadata`, `fields`, `readonlyFields`, `i18n` | Prefilled values and runtime configuration. |
+| `onInit`, `onLoad`, `onComplete`, `onDecline` | Lifecycle callbacks. |
 
 ## Template Builder
 
@@ -91,13 +93,15 @@ export function EmbeddedBuilder() {
 
 `SignaBuilder` follows the same prop shape as `@docuseal/react`:
 
-- `token`: builder token for the hosted Signa builder flow.
-- `host`: Signa host that serves `/js/builder.js`.
-- `withRecipientsButton`, `withSendButton`, `withTitle`, `withDocumentsList`, `withFieldsList`: builder UI toggles.
-- `withFieldsDetection`, `withFieldPlaceholder`, `withPrefillable`, `withCustomFieldsTab`: field-management options.
-- `roles`, `fieldTypes`, `drawFieldType`, `fields`, `submitters`, `requiredFields`, `dateFormats`: builder defaults and constraints.
-- `customButton`, `emailMessage`, `backgroundColor`, `saveButtonText`, `sendButtonText`, `customCss`: presentation and copy controls.
-- `onLoad`, `onUpload`, `onSend`, `onSave`, `onChange`: builder lifecycle callbacks.
+| Prop | Description |
+| --- | --- |
+| `token` | Builder token for the hosted Signa builder flow. |
+| `host` | Signa host that serves `/js/builder.js`. |
+| `withRecipientsButton`, `withSendButton`, `withTitle`, `withDocumentsList`, `withFieldsList` | Builder UI toggles. |
+| `withFieldsDetection`, `withFieldPlaceholder`, `withPrefillable`, `withCustomFieldsTab` | Field-management options. |
+| `roles`, `fieldTypes`, `drawFieldType`, `fields`, `submitters`, `requiredFields`, `dateFormats` | Builder defaults and constraints. |
+| `customButton`, `emailMessage`, `backgroundColor`, `saveButtonText`, `sendButtonText`, `customCss` | Presentation and copy controls. |
+| `onLoad`, `onUpload`, `onSend`, `onSave`, `onChange` | Builder lifecycle callbacks. |
 
 ## Runtime Scripts
 
