@@ -1,5 +1,11 @@
 # @signajs/react
 
+## 0.1.3
+
+### Patch Changes
+
+- Normalize hosted script origins and document self-hosted/CDN script delivery.
+
 ## 0.1.2
 
 ### Patch Changes

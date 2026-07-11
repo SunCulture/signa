@@ -211,7 +211,7 @@ export type SignaBuilderProps = {
 
 const SignaBuilder = ({
   token,
-  host = "cdn.signa.com",
+  host = "https://app.signajs.com",
   language = "en",
   preview = false,
   previewMode = false,
@@ -256,7 +256,7 @@ const SignaBuilder = ({
   style = {},
 }: SignaBuilderProps): React.ReactElement => {
   const scriptId = "signa-builder-script";
-  const scriptSrc = `https://${host}/js/builder.js`;
+  const scriptSrc = `${normalizeHost(host)}/js/builder.js`;
   const isServer = typeof window === "undefined";
   const builderRef = React.useRef<HTMLElement>(null);
 
@@ -390,3 +390,13 @@ export type DocusealBuilderProps = SignaBuilderProps;
 
 export const DocusealBuilder = SignaBuilder;
 export default SignaBuilder;
+
+function normalizeHost(host: string): string {
+  const trimmedHost = host.trim().replace(/\/+$/, "");
+
+  if (trimmedHost.startsWith("http://") || trimmedHost.startsWith("https://")) {
+    return trimmedHost;
+  }
+
+  return `https://${trimmedHost}`;
+}

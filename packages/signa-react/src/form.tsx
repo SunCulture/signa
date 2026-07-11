@@ -176,7 +176,7 @@ export type SignaFormProps = {
 const SignaForm = ({
   src = "",
   token = "",
-  host = "cdn.signa.com",
+  host = "https://app.signajs.com",
   role = "",
   submitter = "",
   preview = false,
@@ -225,7 +225,7 @@ const SignaForm = ({
   style = {},
 }: SignaFormProps): React.ReactElement => {
   const scriptId = "signa-form-script";
-  const scriptSrc = `https://${host}/js/form.js`;
+  const scriptSrc = `${normalizeHost(host)}/js/form.js`;
   const isServer = typeof window === "undefined";
   const formRef = React.useRef<HTMLElement>(null);
 
@@ -350,3 +350,13 @@ export type DocusealFormProps = SignaFormProps;
 
 export const DocusealForm = SignaForm;
 export default SignaForm;
+
+function normalizeHost(host: string): string {
+  const trimmedHost = host.trim().replace(/\/+$/, "");
+
+  if (trimmedHost.startsWith("http://") || trimmedHost.startsWith("https://")) {
+    return trimmedHost;
+  }
+
+  return `https://${trimmedHost}`;
+}

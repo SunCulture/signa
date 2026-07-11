@@ -105,22 +105,40 @@ export function EmbeddedBuilder() {
 
 ## Runtime Scripts
 
-By default the package loads:
+By default the package loads the hosted Signa scripts from:
 
-- `https://cdn.signa.com/js/form.js`
-- `https://cdn.signa.com/js/builder.js`
+- `https://app.signajs.com/js/form.js`
+- `https://app.signajs.com/js/builder.js`
 
-For self-hosted Signa, pass your host:
+For self-hosted deployments, pass your Signa frontend origin through `host`.
+The origin must serve the bundled browser custom element scripts from:
+
+- `/js/form.js`
+- `/js/builder.js`
+
+Example:
 
 ```tsx
 <SignaForm host="signa.company.com" src="https://signa.company.com/s/abc123" />
 ```
 
-When `host` includes a scheme, it is used directly:
+When `host` includes a scheme, it is used directly. This is useful for local development:
 
 ```tsx
 <SignaForm host="http://localhost:3000" src="http://localhost:3000/s/abc123" />
 ```
+
+If you want to put these scripts behind a CDN, publish the same files from your Signa deployment:
+
+- `apps/frontend/public/js/form.js`
+- `apps/frontend/public/js/builder.js`
+
+The CDN should preserve the same paths, for example:
+
+- `https://cdn.company.com/js/form.js`
+- `https://cdn.company.com/js/builder.js`
+
+Then pass `host="https://cdn.company.com"` to the React components. The signing and builder iframe URLs can still point at your app origin through `src` or `token`.
 
 ## Events
 
