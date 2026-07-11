@@ -159,6 +159,7 @@ export type SignaBuilderChangeData = SignaBuilderTemplateData;
 export type SignaBuilderProps = {
   token: string;
   host?: string;
+  scriptUrl?: string;
   withRecipientsButton?: boolean;
   withSendButton?: boolean;
   withTitle?: boolean;
@@ -211,7 +212,8 @@ export type SignaBuilderProps = {
 
 const SignaBuilder = ({
   token,
-  host = "https://app.signajs.com",
+  host = "",
+  scriptUrl = DEFAULT_BUILDER_SCRIPT_URL,
   language = "en",
   preview = false,
   previewMode = false,
@@ -256,7 +258,8 @@ const SignaBuilder = ({
   style = {},
 }: SignaBuilderProps): React.ReactElement => {
   const scriptId = "signa-builder-script";
-  const scriptSrc = `${normalizeHost(host)}/js/builder.js`;
+  const scriptSrc = buildScriptUrl(scriptUrl, host, "/js/builder.js");
+  const appHost = host ? normalizeHost(host) : "";
   const isServer = typeof window === "undefined";
   const builderRef = React.useRef<HTMLElement>(null);
 
@@ -334,6 +337,7 @@ const SignaBuilder = ({
     <>
       {React.createElement("signa-builder", {
         "data-token": token,
+        "data-host": appHost,
         "data-preview": booleanToAttr(preview || previewMode),
         "data-input-mode": booleanToAttr(inputMode),
         "data-language": language,
@@ -400,3 +404,22 @@ function normalizeHost(host: string): string {
 
   return `https://${trimmedHost}`;
 }
+
+function buildScriptUrl(
+  scriptUrl: string,
+  host: string,
+  defaultPath: string,
+): string {
+  if (scriptUrl) {
+    return scriptUrl;
+  }
+
+  if (host) {
+    return `${normalizeHost(host)}${defaultPath}`;
+  }
+
+  return DEFAULT_BUILDER_SCRIPT_URL;
+}
+
+const DEFAULT_BUILDER_SCRIPT_URL =
+  "https://cdn.jsdelivr.net/npm/@signajs/react@latest/dist/builder.js";

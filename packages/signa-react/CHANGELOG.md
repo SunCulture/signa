@@ -1,5 +1,11 @@
 # @signajs/react
 
+## 0.1.4
+
+### Patch Changes
+
+- Ship CDN-ready custom element scripts and support exact script URL overrides.
+
 ## 0.1.3
 
 ### Patch Changes

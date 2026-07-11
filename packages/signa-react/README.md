@@ -63,7 +63,8 @@ import { DocusealForm } from "@signajs/react";
 | --- | --- |
 | `src` | Public signing URL, usually `https://signa.example.com/s/{submitterSlug}` or `https://signa.example.com/d/{templateSlug}`. |
 | `token` | Signed embed token where supported by the host. |
-| `host` | Signa host that serves `/js/form.js`. |
+| `host` | Signa app origin used for self-hosted script loading and relative iframe URLs. When omitted, the package loads the custom element script from jsDelivr. |
+| `scriptUrl` | Exact custom element script URL. Use this to pin a CDN version or point at a private CDN. |
 | `email`, `name`, `role`, `submitter`, `externalId` | Submitter identity and routing values. |
 | `preview`, `dryRun`, `expand`, `minimize`, `orderAsOnPage` | Display and flow options. |
 | `withTitle`, `withDecline`, `withFieldNames`, `withDownloadButton`, `withSendCopyButton`, `withCompleteButton` | Signing UI toggles. |
@@ -96,7 +97,8 @@ export function EmbeddedBuilder() {
 | Prop | Description |
 | --- | --- |
 | `token` | Builder token for the hosted Signa builder flow. |
-| `host` | Signa host that serves `/js/builder.js`. |
+| `host` | Signa app origin used for self-hosted script loading and relative iframe URLs. When omitted, the package loads the custom element script from jsDelivr. |
+| `scriptUrl` | Exact custom element script URL. Use this to pin a CDN version or point at a private CDN. |
 | `withRecipientsButton`, `withSendButton`, `withTitle`, `withDocumentsList`, `withFieldsList` | Builder UI toggles. |
 | `withFieldsDetection`, `withFieldPlaceholder`, `withPrefillable`, `withCustomFieldsTab` | Field-management options. |
 | `roles`, `fieldTypes`, `drawFieldType`, `fields`, `submitters`, `requiredFields`, `dateFormats` | Builder defaults and constraints. |
@@ -105,10 +107,39 @@ export function EmbeddedBuilder() {
 
 ## Runtime Scripts
 
-By default the package loads the hosted Signa scripts from:
+By default the package loads the custom-element scripts from the npm package through jsDelivr:
 
-- `https://app.signajs.com/js/form.js`
-- `https://app.signajs.com/js/builder.js`
+- `https://cdn.jsdelivr.net/npm/@signajs/react@latest/dist/form.js`
+- `https://cdn.jsdelivr.net/npm/@signajs/react@latest/dist/builder.js`
+
+These files are included in the published npm tarball. You can confirm them locally with:
+
+```bash
+pnpm pack:signa-react
+```
+
+The tarball must include:
+
+```text
+dist/form.js
+dist/builder.js
+```
+
+For production, prefer pinning the CDN URL to an exact package version:
+
+```tsx
+<SignaForm
+  scriptUrl="https://cdn.jsdelivr.net/npm/@signajs/react@0.1.4/dist/form.js"
+  src="https://signa.company.com/s/abc123"
+/>
+```
+
+The same files are also available from unpkg after publish:
+
+```text
+https://unpkg.com/@signajs/react@0.1.4/dist/form.js
+https://unpkg.com/@signajs/react@0.1.4/dist/builder.js
+```
 
 For self-hosted deployments, pass your Signa frontend origin through `host`.
 The origin must serve the bundled browser custom element scripts from:
@@ -128,17 +159,36 @@ When `host` includes a scheme, it is used directly. This is useful for local dev
 <SignaForm host="http://localhost:3000" src="http://localhost:3000/s/abc123" />
 ```
 
-If you want to put these scripts behind a CDN, publish the same files from your Signa deployment:
+If you want to use your own CDN instead of npm CDN, upload these package build outputs:
 
-- `apps/frontend/public/js/form.js`
-- `apps/frontend/public/js/builder.js`
+- `packages/signa-react/dist/form.js`
+- `packages/signa-react/dist/builder.js`
 
 The CDN should preserve the same paths, for example:
 
 - `https://cdn.company.com/js/form.js`
 - `https://cdn.company.com/js/builder.js`
 
-Then pass `host="https://cdn.company.com"` to the React components. The signing and builder iframe URLs can still point at your app origin through `src` or `token`.
+Then pass the exact script URL:
+
+```tsx
+<SignaForm
+  scriptUrl="https://cdn.company.com/js/form.js"
+  src="https://signa.company.com/s/abc123"
+/>
+```
+
+For builder embeds that use relative template routes, pass `host` as the Signa app origin and `scriptUrl` as the CDN script:
+
+```tsx
+<SignaBuilder
+  host="https://signa.company.com"
+  scriptUrl="https://cdn.company.com/js/builder.js"
+  token="123"
+/>
+```
+
+That separation keeps the JavaScript file cacheable on the CDN while the iframe still opens the correct Signa app URL.
 
 ## Events
 

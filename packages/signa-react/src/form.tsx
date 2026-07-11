@@ -119,6 +119,7 @@ export type SignaFormProps = {
   src?: string;
   token?: string;
   host?: string;
+  scriptUrl?: string;
   role?: string;
   submitter?: string;
   expand?: boolean;
@@ -176,7 +177,8 @@ export type SignaFormProps = {
 const SignaForm = ({
   src = "",
   token = "",
-  host = "https://app.signajs.com",
+  host = "",
+  scriptUrl = DEFAULT_FORM_SCRIPT_URL,
   role = "",
   submitter = "",
   preview = false,
@@ -225,7 +227,8 @@ const SignaForm = ({
   style = {},
 }: SignaFormProps): React.ReactElement => {
   const scriptId = "signa-form-script";
-  const scriptSrc = `${normalizeHost(host)}/js/form.js`;
+  const scriptSrc = buildScriptUrl(scriptUrl, host, "/js/form.js");
+  const appHost = host ? normalizeHost(host) : "";
   const isServer = typeof window === "undefined";
   const formRef = React.useRef<HTMLElement>(null);
 
@@ -293,6 +296,7 @@ const SignaForm = ({
       {React.createElement("signa-form", {
         "data-src": src,
         "data-token": token,
+        "data-host": appHost,
         "data-email": email,
         "data-name": name,
         "data-role": role || submitter,
@@ -360,3 +364,22 @@ function normalizeHost(host: string): string {
 
   return `https://${trimmedHost}`;
 }
+
+function buildScriptUrl(
+  scriptUrl: string,
+  host: string,
+  defaultPath: string,
+): string {
+  if (scriptUrl) {
+    return scriptUrl;
+  }
+
+  if (host) {
+    return `${normalizeHost(host)}${defaultPath}`;
+  }
+
+  return DEFAULT_FORM_SCRIPT_URL;
+}
+
+const DEFAULT_FORM_SCRIPT_URL =
+  "https://cdn.jsdelivr.net/npm/@signajs/react@latest/dist/form.js";
