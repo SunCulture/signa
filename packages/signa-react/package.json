@@ -1,6 +1,6 @@
 {
   "name": "@signa/react",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "React components for embedding Signa signing forms and template builder workflows.",
   "license": "MIT",
   "type": "module",
