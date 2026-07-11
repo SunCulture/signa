@@ -284,11 +284,11 @@ function buildEmbeddingSnippet(framework: FrameworkId, embeddingUrl: string) {
 
 function buildReactSnippet(embeddingUrl: string) {
   return `import React from "react"
-import { DocusealForm } from '@docuseal/react'
+import { SignaForm } from '@signa/react'
 
 export function App() {
   return (
-    <DocusealForm
+    <SignaForm
       src="${embeddingUrl}"
     />
   );
@@ -297,18 +297,18 @@ export function App() {
 
 function buildVueSnippet(embeddingUrl: string) {
   return `<template>
-  <DocusealForm
+  <SignaForm
     :src="'${embeddingUrl}'"
   />
 </template>
 
 <script>
-import { DocusealForm } from '@docuseal/vue'
+import { SignaForm } from '@signa/vue'
 
 export default {
   name: 'App',
   components: {
-    DocusealForm
+    SignaForm
   }
 }
 </script>`;
@@ -316,17 +316,17 @@ export default {
 
 function buildAngularSnippet(embeddingUrl: string) {
   return `import { Component } from '@angular/core';
-import { DocusealFormComponent } from '@docuseal/angular';
+import { SignaFormComponent } from '@signa/angular';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [DocusealFormComponent],
+  imports: [SignaFormComponent],
   template: \`
     <div class="app">
-      <docuseal-form
+      <signa-form
         [src]="'${embeddingUrl}'">
-      </docuseal-form>
+      </signa-form>
     </div>
   \`
 })
@@ -334,9 +334,9 @@ export class AppComponent {}`;
 }
 
 function buildJavaScriptSnippet(embeddingUrl: string) {
-  return `<script src="https://cdn.docuseal.com/js/form.js"></script>
+  return `<script src="https://cdn.signa.com/js/form.js"></script>
 
-<docuseal-form data-src="${embeddingUrl}"></docuseal-form>`;
+<signa-form data-src="${embeddingUrl}"></signa-form>`;
 }
 
 async function copyToClipboard(value: string, message: string) {

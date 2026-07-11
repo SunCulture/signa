@@ -1,0 +1,38 @@
+{
+  "name": "@signa/react",
+  "version": "0.1.0",
+  "description": "React components for embedding Signa signing forms and template builder workflows.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "node esbuild.config.cjs && tsc --emitDeclarationOnly --outDir dist",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": ">=18.2.0 <20"
+  },
+  "devDependencies": {
+    "@repo/ts-config": "workspace:*",
+    "@types/react": "^19.2.7",
+    "csstype": "^3.2.3",
+    "esbuild": "^0.27.2",
+    "react": "^19.2.3",
+    "typescript": "^5.9.3"
+  }
+}

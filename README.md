@@ -11,6 +11,7 @@ This scaffold was created from the official framework CLIs:
 
 - `apps/frontend`: Next.js App Router frontend.
 - `apps/backend`: NestJS backend API.
+- `packages/signa-react`: npm-publishable React embedding package for Signa signing forms and builder workflows.
 - `packages/shared`: shared Zod schemas, contracts, and types.
 - `packages/ts-config`: shared TypeScript config.
 
@@ -30,6 +31,35 @@ Default local URLs:
 - Bull Board, when enabled: `http://localhost:3001/queues`
 
 Frontend and backend run as separate servers in development and production because the frontend uses Next.js server routes. Docker starts both processes in one app container for simple deployment.
+
+## React Embed Package
+
+`packages/signa-react` contains the npm-publishable React package for embedding Signa signing forms and builder workflows.
+
+Common package commands:
+
+```bash
+pnpm --filter @signa/react typecheck
+pnpm --filter @signa/react build
+pnpm --filter @signa/react pack --dry-run
+```
+
+Basic usage:
+
+```tsx
+import { SignaForm } from "@signa/react";
+
+export function App() {
+  return (
+    <SignaForm
+      host="https://signa.example.com"
+      src="https://signa.example.com/s/submitter-slug"
+    />
+  );
+}
+```
+
+Publishing notes are documented in `packages/signa-react/README.md`. The current package name is `@signa/react`, which requires access to the `signa` npm scope. Use `pnpm --filter @signa/react publish --access public` after typecheck, build, and `pack --dry-run` pass.
 
 ## Docker Deployment
 

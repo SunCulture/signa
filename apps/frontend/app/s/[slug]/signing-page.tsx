@@ -92,6 +92,8 @@ export function SigningPage({
         }
 
         setForm(loadedForm);
+        postSignaEmbedEvent("init", loadedForm);
+        postSignaEmbedEvent("load", loadedForm);
         setActivePanel(
           isClosedSigningForm(loadedForm)
             ? null
@@ -109,6 +111,21 @@ export function SigningPage({
       })
       .finally(() => setIsLoading(false));
   }, [focusFieldPrefix, router, slug, trackingParam]);
+
+  useEffect(() => {
+    if (!isEmbeddedSigningPage()) {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      postSignaEmbedResize();
+    });
+
+    observer.observe(document.body);
+    postSignaEmbedResize();
+
+    return () => observer.disconnect();
+  }, []);
 
   const orderedFields = useMemo(() => {
     if (!form) {
@@ -150,6 +167,7 @@ export function SigningPage({
 
     setForm(completedForm);
     setActivePanel(null);
+    postSignaEmbedEvent("completed", completedForm);
     showCompletionConfetti(completedForm.configs.with_confetti);
     toast.success("Document completed");
   }
@@ -166,6 +184,7 @@ export function SigningPage({
     setForm(declinedForm);
     setActivePanel(null);
     setIsDeclineOpen(false);
+    postSignaEmbedEvent("declined", declinedForm);
     toast.success("Document declined");
   }
 
@@ -1058,4 +1077,42 @@ function isSigningOptionRecord(
 
 function getSigningOptionString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function isEmbeddedSigningPage() {
+  return (
+    typeof window !== "undefined" &&
+    window.parent !== window &&
+    new URLSearchParams(window.location.search).get("embed") === "true"
+  );
+}
+
+function postSignaEmbedEvent(type: string, detail: unknown) {
+  if (!isEmbeddedSigningPage()) {
+    return;
+  }
+
+  window.parent.postMessage(
+    {
+      detail,
+      source: "signa",
+      type,
+    },
+    "*",
+  );
+}
+
+function postSignaEmbedResize() {
+  if (!isEmbeddedSigningPage()) {
+    return;
+  }
+
+  window.parent.postMessage(
+    {
+      height: document.documentElement.scrollHeight,
+      source: "signa",
+      type: "resize",
+    },
+    "*",
+  );
 }
