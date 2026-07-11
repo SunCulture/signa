@@ -20,7 +20,7 @@
     "changeset": "changeset",
     "version:packages": "changeset version",
     "release:packages": "pnpm build && changeset publish",
-    "pack:signa-react": "pnpm --filter @signa/react pack --dry-run",
+    "pack:signa-react": "pnpm --filter @signajs/react pack --dry-run",
     "typeorm": "pnpm --filter backend typeorm",
     "db:migration:create": "pnpm --filter backend db:migration:create src/database/migrations/ManualMigration",
     "db:migration:generate": "pnpm --filter backend db:migration:generate src/database/migrations/AutoMigration",

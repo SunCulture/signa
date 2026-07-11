@@ -284,7 +284,7 @@ function buildEmbeddingSnippet(framework: FrameworkId, embeddingUrl: string) {
 
 function buildReactSnippet(embeddingUrl: string) {
   return `import React from "react"
-import { SignaForm } from '@signa/react'
+import { SignaForm } from '@signajs/react'
 
 export function App() {
   return (

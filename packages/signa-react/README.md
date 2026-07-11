@@ -1,4 +1,4 @@
-# @signa/react
+# @signajs/react
 
 React components for embedding Signa signing forms and template builder workflows.
 
@@ -7,11 +7,11 @@ The API intentionally mirrors `@docuseal/react` so existing DocuSeal-style embed
 ## Install
 
 ```bash
-npm install @signa/react
+npm install @signajs/react
 ```
 
 ```bash
-pnpm add @signa/react
+pnpm add @signajs/react
 ```
 
 The package expects a running Signa instance because it embeds the hosted Signa browser custom elements from `/js/form.js` and `/js/builder.js`.
@@ -32,7 +32,7 @@ Then point the React package at the local frontend host:
 ## Signing Form
 
 ```tsx
-import { SignaForm } from "@signa/react";
+import { SignaForm } from "@signajs/react";
 
 export function ContractSigning() {
   return (
@@ -52,7 +52,7 @@ export function ContractSigning() {
 DocuSeal-compatible aliases are also exported:
 
 ```tsx
-import { DocusealForm } from "@signa/react";
+import { DocusealForm } from "@signajs/react";
 ```
 
 ### Signing Form Props
@@ -72,7 +72,7 @@ import { DocusealForm } from "@signa/react";
 ## Template Builder
 
 ```tsx
-import { SignaBuilder } from "@signa/react";
+import { SignaBuilder } from "@signajs/react";
 
 export function EmbeddedBuilder() {
   return (
@@ -132,8 +132,8 @@ Callbacks receive the event `detail` payload emitted by the hosted Signa custom 
 From the repository root:
 
 ```bash
-pnpm --filter @signa/react typecheck
-pnpm --filter @signa/react build
+pnpm --filter @signajs/react typecheck
+pnpm --filter @signajs/react build
 pnpm pack:signa-react
 ```
 
@@ -147,7 +147,7 @@ The package intentionally keeps `react` as a peer dependency so applications con
 
 ## Publishing to npm
 
-1. Confirm the package name and npm scope are available. The current package name is `@signa/react`; publishing this requires access to the `signa` npm organization or scope.
+1. Confirm the package name and npm scope are available. The current package name is `@signajs/react`; publishing this requires access to the `signajs` npm organization or scope.
 
 2. Authenticate with npm:
 
@@ -158,9 +158,9 @@ npm login
 3. Run the package checks:
 
 ```bash
-pnpm --filter @signa/react typecheck
-pnpm --filter @signa/react build
-pnpm --filter @signa/react pack --dry-run
+pnpm --filter @signajs/react typecheck
+pnpm --filter @signajs/react build
+pnpm --filter @signajs/react pack --dry-run
 ```
 
 4. Create a Changeset from the repo root. Use the semver level that matches the change:
@@ -175,8 +175,8 @@ Use `minor` for backward-compatible features and `major` for breaking API change
 
 ```bash
 pnpm version:packages
-pnpm --filter @signa/react typecheck
-pnpm --filter @signa/react build
+pnpm --filter @signajs/react typecheck
+pnpm --filter @signajs/react build
 pnpm pack:signa-react
 ```
 
@@ -191,7 +191,7 @@ pnpm release:packages
 7. Verify the published package:
 
 ```bash
-npm view @signa/react version
+npm view @signajs/react version
 ```
 
 8. Tag the release in git after the publish succeeds:
@@ -203,4 +203,4 @@ git push origin --tags
 
 For CI, use npm trusted publishing with provenance instead of long-lived npm tokens where possible.
 
-If the `@signa` scope is unavailable, rename `name` in `packages/signa-react/package.json` before publishing, for example to `signa-react`, then rerun the checks and publish without `--access public` unless the target package is scoped.
+If the `@signajs` scope is unavailable, rename `name` in `packages/signa-react/package.json` before publishing, for example to `signa-react`, then rerun the checks and publish without `--access public` unless the target package is scoped.

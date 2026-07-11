@@ -1,4 +1,4 @@
-# @signa/react
+# @signajs/react
 
 ## 0.1.1
 

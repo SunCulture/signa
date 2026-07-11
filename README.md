@@ -39,15 +39,15 @@ Frontend and backend run as separate servers in development and production becau
 Common package commands:
 
 ```bash
-pnpm --filter @signa/react typecheck
-pnpm --filter @signa/react build
+pnpm --filter @signajs/react typecheck
+pnpm --filter @signajs/react build
 pnpm pack:signa-react
 ```
 
 Basic usage:
 
 ```tsx
-import { SignaForm } from "@signa/react";
+import { SignaForm } from "@signajs/react";
 
 export function App() {
   return (
@@ -59,14 +59,14 @@ export function App() {
 }
 ```
 
-Publishing notes are documented in `packages/signa-react/README.md`. The current package name is `@signa/react`, which requires access to the `signa` npm scope. Package releases use Changesets so version bumps, changelog entries, and npm publishing are reviewed in git before release.
+Publishing notes are documented in `packages/signa-react/README.md`. The current package name is `@signajs/react`, which requires access to the `signajs` npm scope. Package releases use Changesets so version bumps, changelog entries, and npm publishing are reviewed in git before release.
 
 ## Versioning and Releases
 
 Signa has two release lanes:
 
 - **Application release:** the deployable Signa app is versioned from the private root `package.json`, git tags, and Docker image tags.
-- **Package release:** public npm packages, currently `@signa/react`, are versioned and published with Changesets.
+- **Package release:** public npm packages, currently `@signajs/react`, are versioned and published with Changesets.
 
 ### Application Versioning
 
@@ -101,7 +101,7 @@ Create a changeset for every user-visible package change:
 pnpm changeset
 ```
 
-Choose the semver level for `@signa/react`:
+Choose the semver level for `@signajs/react`:
 
 - `patch`: bug fixes and documentation-only runtime clarifications.
 - `minor`: backward-compatible props, events, or behavior.
@@ -111,8 +111,8 @@ When ready to prepare a release PR:
 
 ```bash
 pnpm version:packages
-pnpm --filter @signa/react typecheck
-pnpm --filter @signa/react build
+pnpm --filter @signajs/react typecheck
+pnpm --filter @signajs/react build
 pnpm pack:signa-react
 ```
 
