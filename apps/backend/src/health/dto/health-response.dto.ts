@@ -44,6 +44,18 @@ export class HealthResponseDto {
   @ApiProperty({ description: 'Application version.', example: '0.0.1' })
   version: string;
 
+  @ApiPropertyOptional({
+    description: 'Git commit SHA for the deployed build, when provided.',
+    example: '4305457a1f4b0c2d9e8f1234567890abcdef1234',
+  })
+  commitSha?: string;
+
+  @ApiPropertyOptional({
+    description: 'UTC build timestamp for the deployed artifact, when provided.',
+    example: '2026-07-11T10:00:00.000Z',
+  })
+  buildTime?: string;
+
   @ApiProperty({
     description: 'Runtime environment name.',
     example: 'development',

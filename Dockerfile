@@ -16,6 +16,7 @@ RUN apt-get update \
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/backend/package.json apps/backend/package.json
 COPY apps/frontend/package.json apps/frontend/package.json
+COPY packages/signa-react/package.json packages/signa-react/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/ts-config/package.json packages/ts-config/package.json
 
@@ -30,16 +31,26 @@ ARG NEXT_PUBLIC_SIGNING_BASE_URL=
 ARG NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=
 ARG NEXT_PUBLIC_GOOGLE_PICKER_API_KEY=
 ARG NEXT_PUBLIC_GOOGLE_PICKER_APP_ID=
+ARG APP_VERSION=0.1.0
+ARG APP_COMMIT_SHA=
+ARG APP_BUILD_TIME=
 
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 ENV NEXT_PUBLIC_SIGNING_BASE_URL=$NEXT_PUBLIC_SIGNING_BASE_URL
 ENV NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=$NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID
 ENV NEXT_PUBLIC_GOOGLE_PICKER_API_KEY=$NEXT_PUBLIC_GOOGLE_PICKER_API_KEY
 ENV NEXT_PUBLIC_GOOGLE_PICKER_APP_ID=$NEXT_PUBLIC_GOOGLE_PICKER_APP_ID
+ENV APP_VERSION=$APP_VERSION
+ENV APP_COMMIT_SHA=$APP_COMMIT_SHA
+ENV APP_BUILD_TIME=$APP_BUILD_TIME
 
 RUN pnpm build
 
 FROM base AS runner
+
+ARG APP_VERSION=0.1.0
+ARG APP_COMMIT_SHA=
+ARG APP_BUILD_TIME=
 
 ENV NODE_ENV=production
 ENV BACKEND_PORT=3001
@@ -47,6 +58,9 @@ ENV FRONTEND_PORT=3000
 ENV HOSTNAME=0.0.0.0
 ENV SQLITE_DATABASE_PATH=/data/signa.sqlite
 ENV STORAGE_PATH=/storage
+ENV APP_VERSION=$APP_VERSION
+ENV APP_COMMIT_SHA=$APP_COMMIT_SHA
+ENV APP_BUILD_TIME=$APP_BUILD_TIME
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates libreoffice poppler-utils fonts-dejavu fonts-liberation \

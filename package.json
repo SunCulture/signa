@@ -1,5 +1,6 @@
 {
   "name": "signa",
+  "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@11.5.1",
   "scripts": {
@@ -16,6 +17,10 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test:backend": "pnpm --filter backend test",
+    "changeset": "changeset",
+    "version:packages": "changeset version",
+    "release:packages": "pnpm build && changeset publish",
+    "pack:signa-react": "pnpm --filter @signa/react pack --dry-run",
     "typeorm": "pnpm --filter backend typeorm",
     "db:migration:create": "pnpm --filter backend db:migration:create src/database/migrations/ManualMigration",
     "db:migration:generate": "pnpm --filter backend db:migration:generate src/database/migrations/AutoMigration",
@@ -25,6 +30,8 @@
     "format": "prettier --write ."
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.7.0",
+    "@changesets/cli": "^2.31.0",
     "prettier": "^3.8.4",
     "turbo": "^2.9.18"
   }

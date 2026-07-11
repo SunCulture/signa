@@ -41,7 +41,7 @@ Common package commands:
 ```bash
 pnpm --filter @signa/react typecheck
 pnpm --filter @signa/react build
-pnpm --filter @signa/react pack --dry-run
+pnpm pack:signa-react
 ```
 
 Basic usage:
@@ -59,7 +59,70 @@ export function App() {
 }
 ```
 
-Publishing notes are documented in `packages/signa-react/README.md`. The current package name is `@signa/react`, which requires access to the `signa` npm scope. Use `pnpm --filter @signa/react publish --access public` after typecheck, build, and `pack --dry-run` pass.
+Publishing notes are documented in `packages/signa-react/README.md`. The current package name is `@signa/react`, which requires access to the `signa` npm scope. Package releases use Changesets so version bumps, changelog entries, and npm publishing are reviewed in git before release.
+
+## Versioning and Releases
+
+Signa has two release lanes:
+
+- **Application release:** the deployable Signa app is versioned from the private root `package.json`, git tags, and Docker image tags.
+- **Package release:** public npm packages, currently `@signa/react`, are versioned and published with Changesets.
+
+### Application Versioning
+
+Use the root `package.json` `version` as the app semver. A production release should be tagged and built with the matching app metadata:
+
+```bash
+git tag app-v0.1.0
+git push origin app-v0.1.0
+
+docker build \
+  --build-arg APP_VERSION=0.1.0 \
+  --build-arg APP_COMMIT_SHA=$(git rev-parse HEAD) \
+  --build-arg APP_BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+  -t signa:0.1.0 .
+```
+
+`APP_VERSION`, `APP_COMMIT_SHA`, and `APP_BUILD_TIME` are optional runtime metadata. When set, they appear in `/api/health`, `/api/health/live`, `/api/health/ready`, and the root API metadata endpoint. They are intentionally separate from npm package versions because the app is deployed as a Docker artifact, not published to npm.
+
+With Docker Compose, set the same values in `.env` before building:
+
+```env
+APP_VERSION=0.1.0
+APP_COMMIT_SHA=<git-sha>
+APP_BUILD_TIME=2026-07-11T10:00:00Z
+```
+
+### React Package Versioning
+
+Create a changeset for every user-visible package change:
+
+```bash
+pnpm changeset
+```
+
+Choose the semver level for `@signa/react`:
+
+- `patch`: bug fixes and documentation-only runtime clarifications.
+- `minor`: backward-compatible props, events, or behavior.
+- `major`: breaking prop, event, bundle, peer dependency, or runtime-script changes.
+
+When ready to prepare a release PR:
+
+```bash
+pnpm version:packages
+pnpm --filter @signa/react typecheck
+pnpm --filter @signa/react build
+pnpm pack:signa-react
+```
+
+After the version PR is merged and npm credentials are available:
+
+```bash
+pnpm release:packages
+```
+
+For CI, prefer npm trusted publishing with provenance enabled so published package tarballs are tied to the GitHub Actions release workflow. The publish workflow should run the same checks, then execute `pnpm release:packages` with npm provenance/trusted-publisher configuration.
 
 ## Docker Deployment
 
@@ -94,6 +157,14 @@ Set these before deploying beyond local testing:
 | `FRONTEND_ORIGIN` | Yes | Public frontend origin, for example `https://signa.example.com`. |
 | `API_PUBLIC_URL` | Yes | Public backend API URL, for example `https://api.signa.example.com/api` or `https://signa.example.com/api`. Used in links, storage URLs, mail, SMS, and callbacks. |
 | `NEXT_PUBLIC_API_BASE_URL` | Yes at build time | Browser-visible backend base URL, for example `https://api.signa.example.com`. Docker Compose passes this as a build argument. |
+
+Optional release metadata:
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `APP_VERSION` | No | App semver exposed through health/API metadata. Defaults to the package version fallback. |
+| `APP_COMMIT_SHA` | No | Git commit SHA for the deployed artifact. |
+| `APP_BUILD_TIME` | No | UTC ISO timestamp for the deployed artifact build. |
 
 For local Docker testing, the compose defaults are already set to:
 

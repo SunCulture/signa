@@ -27,6 +27,7 @@ export class HealthService {
       status: 'ok',
       service: await this.getServiceName(),
       version: await this.getVersion(),
+      ...this.getReleaseMetadata(),
       environment: this.getEnvironment(),
       timestamp: new Date().toISOString(),
       uptimeSeconds: Math.round(process.uptime()),
@@ -53,6 +54,7 @@ export class HealthService {
       status,
       service: await this.getServiceName(),
       version: await this.getVersion(),
+      ...this.getReleaseMetadata(),
       environment: this.getEnvironment(),
       timestamp: new Date().toISOString(),
       uptimeSeconds: Math.round(process.uptime()),
@@ -88,6 +90,7 @@ export class HealthService {
       status: coreHealthy ? (hasDegraded ? 'degraded' : 'ok') : 'error',
       service: await this.getServiceName(),
       version: await this.getVersion(),
+      ...this.getReleaseMetadata(),
       environment: this.getEnvironment(),
       timestamp: new Date().toISOString(),
       uptimeSeconds: Math.round(process.uptime()),
@@ -324,8 +327,27 @@ export class HealthService {
   }
 
   private async getVersion(): Promise<string> {
+    const configuredVersion = this.config.get<string>('APP_VERSION');
+
+    if (configuredVersion) {
+      return configuredVersion;
+    }
+
     const meta = await this.getPackageMeta();
     return meta.version ?? 'unknown';
+  }
+
+  private getReleaseMetadata(): {
+    buildTime?: string;
+    commitSha?: string;
+  } {
+    const commitSha = this.config.get<string>('APP_COMMIT_SHA');
+    const buildTime = this.config.get<string>('APP_BUILD_TIME');
+
+    return {
+      ...(commitSha ? { commitSha } : {}),
+      ...(buildTime ? { buildTime } : {}),
+    };
   }
 
   private async getServiceName(): Promise<string> {

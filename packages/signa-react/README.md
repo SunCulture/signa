@@ -134,7 +134,7 @@ From the repository root:
 ```bash
 pnpm --filter @signa/react typecheck
 pnpm --filter @signa/react build
-pnpm --filter @signa/react pack --dry-run
+pnpm pack:signa-react
 ```
 
 The build emits:
@@ -163,31 +163,44 @@ pnpm --filter @signa/react build
 pnpm --filter @signa/react pack --dry-run
 ```
 
-4. Bump the package version from the repo root. Use the semver level that matches the change:
+4. Create a Changeset from the repo root. Use the semver level that matches the change:
 
 ```bash
-pnpm --filter @signa/react version patch
+pnpm changeset
 ```
 
 Use `minor` for backward-compatible features and `major` for breaking API changes.
 
-5. Publish the package:
+5. Prepare the release version and changelog:
 
 ```bash
-pnpm --filter @signa/react publish --access public
+pnpm version:packages
+pnpm --filter @signa/react typecheck
+pnpm --filter @signa/react build
+pnpm pack:signa-react
 ```
 
-6. Verify the published package:
+Commit the generated version/changelog changes, then merge them through the normal review flow.
+
+6. Publish the package:
+
+```bash
+pnpm release:packages
+```
+
+7. Verify the published package:
 
 ```bash
 npm view @signa/react version
 ```
 
-7. Tag the release in git after the publish succeeds:
+8. Tag the release in git after the publish succeeds:
 
 ```bash
 git tag signa-react-v$(node -p "require('./packages/signa-react/package.json').version")
 git push origin --tags
 ```
+
+For CI, use npm trusted publishing with provenance instead of long-lived npm tokens where possible.
 
 If the `@signa` scope is unavailable, rename `name` in `packages/signa-react/package.json` before publishing, for example to `signa-react`, then rerun the checks and publish without `--access public` unless the target package is scoped.

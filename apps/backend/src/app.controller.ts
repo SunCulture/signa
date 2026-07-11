@@ -4,6 +4,7 @@ import type { ApiResponse } from '@repo/shared';
 import { AppService } from './app.service';
 
 type ApiInfo = {
+  commit_sha: null | string;
   message: string;
   name: 'signa';
   version: string;
@@ -26,7 +27,8 @@ export class AppController {
       data: {
         message: this.appService.getHello(),
         name: 'signa',
-        version: '0.1.0',
+        version: this.appService.getVersion(),
+        commit_sha: this.appService.getCommitSha(),
       },
       error: null,
     };

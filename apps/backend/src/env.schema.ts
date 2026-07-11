@@ -7,6 +7,9 @@ const validationSchema = Joi.object({
   PORT: Joi.number().port().default(3001),
   FRONTEND_ORIGIN: Joi.string().uri().default('http://localhost:3000'),
   API_PUBLIC_URL: Joi.string().uri().default('http://localhost:3001/api'),
+  APP_VERSION: Joi.string().empty('').default('0.1.0'),
+  APP_COMMIT_SHA: Joi.string().empty('').optional(),
+  APP_BUILD_TIME: Joi.string().isoDate().empty('').optional(),
   JWT_SECRET: Joi.when('NODE_ENV', {
     is: 'production',
     then: Joi.string().min(32).required(),
