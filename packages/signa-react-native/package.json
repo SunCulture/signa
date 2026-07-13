@@ -4,6 +4,9 @@
   "description": "React Native WebView components for embedding Signa signing flows.",
   "license": "MIT",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "dist/index.cjs",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
