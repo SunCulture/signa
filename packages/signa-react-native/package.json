@@ -1,0 +1,45 @@
+{
+  "name": "@signajs/react-native",
+  "version": "0.1.0",
+  "description": "React Native WebView components for embedding Signa signing flows.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "react-native": "src/index.ts",
+  "source": "src/index.ts",
+  "files": [
+    "dist",
+    "src",
+    "CHANGELOG.md",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "react-native": "./src/index.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "node esbuild.config.cjs && tsc --emitDeclarationOnly --outDir dist",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": ">=18.2.0 <20",
+    "react-native": ">=0.72.0",
+    "react-native-webview": ">=13.0.0"
+  },
+  "devDependencies": {
+    "@repo/ts-config": "workspace:*",
+    "@types/react": "^19.2.7",
+    "csstype": "^3.2.3",
+    "esbuild": "^0.27.2",
+    "react": "^19.2.3",
+    "typescript": "^5.9.3"
+  }
+}

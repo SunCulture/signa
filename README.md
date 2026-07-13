@@ -12,6 +12,7 @@ This scaffold was created from the official framework CLIs:
 - `apps/frontend`: Next.js App Router frontend.
 - `apps/backend`: NestJS backend API.
 - `packages/signa-react`: npm-publishable React embedding package for Signa signing forms and builder workflows.
+- `packages/signa-react-native`: npm-publishable React Native WebView package for mobile signing flows.
 - `packages/shared`: shared Zod schemas, contracts, and types.
 - `packages/ts-config`: shared TypeScript config.
 
@@ -35,6 +36,7 @@ Frontend and backend run as separate servers in development and production becau
 ## React Embed Package
 
 `packages/signa-react` contains the npm-publishable React package for embedding Signa signing forms and builder workflows.
+`packages/signa-react-native` contains the npm-publishable React Native package for mobile apps that embed hosted Signa signing flows through `react-native-webview`.
 
 Common package commands:
 
@@ -42,6 +44,9 @@ Common package commands:
 pnpm --filter @signajs/react typecheck
 pnpm --filter @signajs/react build
 pnpm pack:signa-react
+pnpm --filter @signajs/react-native typecheck
+pnpm --filter @signajs/react-native build
+pnpm pack:signa-react-native
 ```
 
 Basic usage:
@@ -60,13 +65,14 @@ export function App() {
 ```
 
 Publishing notes are documented in `packages/signa-react/README.md`. The current package name is `@signajs/react`, which requires access to the `signajs` npm scope. Package releases use Changesets so version bumps, changelog entries, and npm publishing are reviewed in git before release.
+React Native setup notes are documented in `packages/signa-react-native/README.md`. The native package name is `@signajs/react-native` and also requires access to the `signajs` npm scope.
 
 ## Versioning and Releases
 
 Signa has two release lanes:
 
 - **Application release:** the deployable Signa app is versioned from the private root `package.json`, git tags, and Docker image tags.
-- **Package release:** public npm packages, currently `@signajs/react`, are versioned and published with Changesets.
+- **Package release:** public npm packages, currently `@signajs/react` and `@signajs/react-native`, are versioned and published with Changesets.
 
 ### Application Versioning
 
@@ -101,7 +107,7 @@ Create a changeset for every user-visible package change:
 pnpm changeset
 ```
 
-Choose the semver level for `@signajs/react`:
+Choose the semver level for the changed package, such as `@signajs/react` or `@signajs/react-native`:
 
 - `patch`: bug fixes and documentation-only runtime clarifications.
 - `minor`: backward-compatible props, events, or behavior.
@@ -114,6 +120,9 @@ pnpm version:packages
 pnpm --filter @signajs/react typecheck
 pnpm --filter @signajs/react build
 pnpm pack:signa-react
+pnpm --filter @signajs/react-native typecheck
+pnpm --filter @signajs/react-native build
+pnpm pack:signa-react-native
 ```
 
 After the version PR is merged and npm credentials are available:

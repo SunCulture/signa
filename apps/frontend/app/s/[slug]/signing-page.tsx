@@ -108,12 +108,16 @@ export function SigningPage({
             : "Signing form could not be loaded.";
 
         setError(message);
+        postSignaEmbedEvent("error", {
+          code: "signing_form_load_failed",
+          message,
+        });
       })
       .finally(() => setIsLoading(false));
   }, [focusFieldPrefix, router, slug, trackingParam]);
 
   useEffect(() => {
-    if (!isEmbeddedSigningPage()) {
+    if (!isIframeEmbeddedSigningPage()) {
       return;
     }
 
@@ -1082,8 +1086,7 @@ function getSigningOptionString(value: unknown): string {
 function isEmbeddedSigningPage() {
   return (
     typeof window !== "undefined" &&
-    window.parent !== window &&
-    new URLSearchParams(window.location.search).get("embed") === "true"
+    (isIframeEmbeddedSigningPage() || isReactNativeSigningPage())
   );
 }
 
@@ -1100,10 +1103,17 @@ function postSignaEmbedEvent(type: string, detail: unknown) {
     },
     "*",
   );
+
+  window.ReactNativeWebView?.postMessage(
+    JSON.stringify({
+      payload: detail,
+      type: getReactNativeEventType(type),
+    }),
+  );
 }
 
 function postSignaEmbedResize() {
-  if (!isEmbeddedSigningPage()) {
+  if (!isIframeEmbeddedSigningPage()) {
     return;
   }
 
@@ -1115,4 +1125,32 @@ function postSignaEmbedResize() {
     },
     "*",
   );
+}
+
+function getReactNativeEventType(type: string) {
+  if (type === "load") {
+    return "signa:loaded";
+  }
+
+  return `signa:${type}`;
+}
+
+function isReactNativeSigningPage() {
+  return Boolean(window.ReactNativeWebView);
+}
+
+function isIframeEmbeddedSigningPage() {
+  return (
+    typeof window !== "undefined" &&
+    window.parent !== window &&
+    new URLSearchParams(window.location.search).get("embed") === "true"
+  );
+}
+
+declare global {
+  interface Window {
+    ReactNativeWebView?: {
+      postMessage: (message: string) => void;
+    };
+  }
 }
