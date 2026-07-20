@@ -17,6 +17,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/backend/package.json apps/backend/package.json
 COPY apps/frontend/package.json apps/frontend/package.json
 COPY packages/signa-react/package.json packages/signa-react/package.json
+COPY packages/signa-react-native/package.json packages/signa-react-native/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/ts-config/package.json packages/ts-config/package.json
 
@@ -58,6 +59,7 @@ ENV FRONTEND_PORT=3000
 ENV HOSTNAME=0.0.0.0
 ENV SQLITE_DATABASE_PATH=/data/signa.sqlite
 ENV STORAGE_PATH=/storage
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV APP_VERSION=$APP_VERSION
 ENV APP_COMMIT_SHA=$APP_COMMIT_SHA
 ENV APP_BUILD_TIME=$APP_BUILD_TIME
@@ -70,7 +72,8 @@ WORKDIR /app
 
 COPY --from=builder /app ./
 
-RUN chmod +x /app/docker/entrypoint.sh \
+RUN pnpm --filter backend exec playwright install --with-deps chromium \
+  && chmod +x /app/docker/entrypoint.sh \
   && mkdir -p /data /storage
 
 VOLUME ["/data", "/storage"]

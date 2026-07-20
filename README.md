@@ -135,11 +135,12 @@ For CI, prefer npm trusted publishing with provenance enabled so published packa
 
 ## Docker Deployment
 
-The default Docker setup mirrors DocuSeal's easy self-hosting shape: run one app container plus Redis, persist data to volumes, and use SQLite unless PostgreSQL credentials are provided.
+The default Docker setup runs one app container with Redis and connects to PostgreSQL configured through environment variables, such as an Amazon RDS endpoint.
 
 ```bash
-cp .env.example .env
-docker compose up --build
+cp docker/.env.ec2.example .env.ec2
+# Edit .env.ec2 before starting the deployment.
+docker compose --env-file .env.ec2 up --build
 ```
 
 Then open:
@@ -152,9 +153,10 @@ The compose stack includes:
 
 - `signa`: one image running the Next.js frontend on `3000` and NestJS backend on `3001`.
 - `redis`: queue/cache backing service for BullMQ and live background jobs.
-- `signa-data`: SQLite database volume at `/data`.
 - `signa-storage`: uploaded files and generated PDFs at `/storage`.
 - `signa-redis`: Redis persistence.
+
+For an EC2 deployment using native Redis on the host instead of the Compose Redis container, set `REDIS_URL` and `QUEUE_REDIS_URL` to `redis://host.docker.internal:6379` and start Signa with `docker compose up -d --build --no-deps signa`. The default values use the Compose Redis service.
 
 ### Required Production Env Vars
 

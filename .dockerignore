@@ -5,7 +5,7 @@
 **/dist
 **/node_modules
 **/.env
-**/.env.local
+**/.env.*
 apps/backend/storage
 apps/backend/data
 data
