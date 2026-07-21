@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 FROM node:24-bookworm-slim AS base
 
 ENV PNPM_HOME="/pnpm"
@@ -21,7 +23,9 @@ COPY packages/signa-react-native/package.json packages/signa-react-native/packag
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/ts-config/package.json packages/ts-config/package.json
 
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=signa-pnpm-store,target=/pnpm/store \
+  pnpm config set store-dir /pnpm/store \
+  && pnpm install --frozen-lockfile
 
 FROM deps AS builder
 
@@ -45,7 +49,22 @@ ENV APP_VERSION=$APP_VERSION
 ENV APP_COMMIT_SHA=$APP_COMMIT_SHA
 ENV APP_BUILD_TIME=$APP_BUILD_TIME
 
-RUN pnpm build
+RUN pnpm build \
+  && rm -rf apps/frontend/.next/cache
+
+FROM base AS production-deps
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
+COPY apps/backend/package.json apps/backend/package.json
+COPY apps/frontend/package.json apps/frontend/package.json
+COPY packages/signa-react/package.json packages/signa-react/package.json
+COPY packages/signa-react-native/package.json packages/signa-react-native/package.json
+COPY packages/shared/package.json packages/shared/package.json
+COPY packages/ts-config/package.json packages/ts-config/package.json
+
+RUN --mount=type=cache,id=signa-pnpm-store,target=/pnpm/store \
+  pnpm config set store-dir /pnpm/store \
+  && pnpm install --prod --frozen-lockfile
 
 FROM base AS runner
 
@@ -65,14 +84,33 @@ ENV APP_COMMIT_SHA=$APP_COMMIT_SHA
 ENV APP_BUILD_TIME=$APP_BUILD_TIME
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates libreoffice poppler-utils fonts-dejavu fonts-liberation \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libreoffice-writer \
+    poppler-utils \
+    fonts-dejavu \
+    fonts-liberation \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY --from=builder /app ./
+COPY --from=production-deps /app/node_modules ./node_modules
+COPY --from=production-deps /app/apps/backend/node_modules ./apps/backend/node_modules
+COPY --from=production-deps /app/apps/frontend/node_modules ./apps/frontend/node_modules
+COPY --from=production-deps /app/packages/shared ./packages/shared
 
-RUN pnpm --filter backend exec playwright install --with-deps chromium \
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/apps/backend/package.json ./apps/backend/package.json
+COPY --from=builder /app/apps/backend/dist ./apps/backend/dist
+COPY --from=builder /app/apps/frontend/package.json ./apps/frontend/package.json
+COPY --from=builder /app/apps/frontend/next.config.ts ./apps/frontend/next.config.ts
+COPY --from=builder /app/apps/frontend/.next ./apps/frontend/.next
+COPY --from=builder /app/apps/frontend/public ./apps/frontend/public
+COPY --from=builder /app/packages/shared/src ./packages/shared/src
+COPY --from=builder /app/docker/entrypoint.sh ./docker/entrypoint.sh
+COPY --from=builder /app/docker/runner.mjs ./docker/runner.mjs
+
+RUN /app/apps/backend/node_modules/.bin/playwright install --with-deps chromium \
   && chmod +x /app/docker/entrypoint.sh \
   && mkdir -p /data /storage
 

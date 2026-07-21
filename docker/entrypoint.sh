@@ -30,7 +30,7 @@ esac
 
 if [ "${DATABASE_MIGRATIONS_RUN:-false}" = "true" ]; then
   cd /app/apps/backend
-  ./node_modules/.bin/typeorm-ts-node-commonjs -d src/database/data-source.ts migration:run
+  ./node_modules/.bin/typeorm -d dist/database/data-source.js migration:run
 fi
 
 cd /app
