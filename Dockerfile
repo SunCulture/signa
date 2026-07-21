@@ -79,6 +79,7 @@ ENV HOSTNAME=0.0.0.0
 ENV SQLITE_DATABASE_PATH=/data/signa.sqlite
 ENV STORAGE_PATH=/storage
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/rds-global-bundle.pem
 ENV APP_VERSION=$APP_VERSION
 ENV APP_COMMIT_SHA=$APP_COMMIT_SHA
 ENV APP_BUILD_TIME=$APP_BUILD_TIME
@@ -93,6 +94,8 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+COPY docker/certs/rds-global-bundle.pem /etc/ssl/certs/rds-global-bundle.pem
 
 COPY --from=production-deps /app/node_modules ./node_modules
 COPY --from=production-deps /app/apps/backend/node_modules ./apps/backend/node_modules

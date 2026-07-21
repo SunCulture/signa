@@ -46,6 +46,15 @@ jobs:
             [dns]
               nameservers = ["1.1.1.1", "8.8.8.8"]
 
+      - name: Download Amazon RDS CA bundle
+        run: |
+          mkdir -p docker/certs
+          curl --fail --silent --show-error --location \
+            https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
+            --output docker/certs/rds-global-bundle.pem
+          test -s docker/certs/rds-global-bundle.pem
+          grep -q "BEGIN CERTIFICATE" docker/certs/rds-global-bundle.pem
+
       - name: Build and push esignin image
         id: build-image
         uses: docker/build-push-action@v7
