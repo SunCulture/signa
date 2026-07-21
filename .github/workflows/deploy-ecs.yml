@@ -13,7 +13,7 @@ concurrency:
 jobs:
   build-and-deploy:
     # Use a GitHub-hosted runner so image builds do not consume EC2 disk space.
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     permissions:
       contents: read
 
