@@ -1,4 +1,4 @@
-name: Build and Deploy Signa to ECS
+name: Build and Deploy esignin to ECS
 
 on:
   push:
@@ -13,16 +13,16 @@ concurrency:
 jobs:
   build-and-deploy:
     # Use a GitHub-hosted runner so image builds do not consume EC2 disk space.
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: read
 
     env:
       AWS_REGION: ${{ secrets.AWS_REGION }}
-      ECR_REPOSITORY: signa
-      ECS_CLUSTER: signa-production
-      ECS_SERVICE: signa-production-service
-      IMAGE_TAG: production
+      ECR_REPOSITORY: esignin
+      ECS_CLUSTER: esignin
+      ECS_SERVICE: esignin-service
+      IMAGE_TAG: dev
 
     steps:
       - name: Checkout code
@@ -46,7 +46,7 @@ jobs:
             [dns]
               nameservers = ["1.1.1.1", "8.8.8.8"]
 
-      - name: Build and push Signa image
+      - name: Build and push esignin image
         id: build-image
         uses: docker/build-push-action@v7
         with:
@@ -57,8 +57,8 @@ jobs:
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
           build-args: |
-            NEXT_PUBLIC_API_BASE_URL=${{ vars.NEXT_PUBLIC_API_BASE_URL || 'https://signa.sunculture.io' }}
-            NEXT_PUBLIC_SIGNING_BASE_URL=${{ vars.NEXT_PUBLIC_SIGNING_BASE_URL || 'https://signa.sunculture.io' }}
+            NEXT_PUBLIC_API_BASE_URL=${{ vars.NEXT_PUBLIC_API_BASE_URL || 'https://esignin.sunculture.io' }}
+            NEXT_PUBLIC_SIGNING_BASE_URL=${{ vars.NEXT_PUBLIC_SIGNING_BASE_URL || 'https://esignin.sunculture.io' }}
             NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=${{ vars.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID }}
             NEXT_PUBLIC_GOOGLE_PICKER_API_KEY=${{ vars.NEXT_PUBLIC_GOOGLE_PICKER_API_KEY }}
             NEXT_PUBLIC_GOOGLE_PICKER_APP_ID=${{ vars.NEXT_PUBLIC_GOOGLE_PICKER_APP_ID }}
