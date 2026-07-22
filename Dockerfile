@@ -31,8 +31,8 @@ FROM deps AS builder
 
 COPY . .
 
-ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:3001
-ARG NEXT_PUBLIC_SIGNING_BASE_URL=
+ARG NEXT_PUBLIC_API_BASE_URL=https://api.esignin.sunculture.io
+ARG NEXT_PUBLIC_SIGNING_BASE_URL=https://esignin.sunculture.io
 ARG NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=
 ARG NEXT_PUBLIC_GOOGLE_PICKER_API_KEY=
 ARG NEXT_PUBLIC_GOOGLE_PICKER_APP_ID=
@@ -49,7 +49,8 @@ ENV APP_VERSION=$APP_VERSION
 ENV APP_COMMIT_SHA=$APP_COMMIT_SHA
 ENV APP_BUILD_TIME=$APP_BUILD_TIME
 
-RUN pnpm build \
+RUN test -n "$NEXT_PUBLIC_API_BASE_URL" \
+  && pnpm build \
   && rm -rf apps/frontend/.next/cache
 
 FROM base AS production-deps
