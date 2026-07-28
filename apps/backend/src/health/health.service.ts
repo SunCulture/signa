@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { readFile, access } from 'node:fs/promises';
-import { constants as fsConstants } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { Socket } from 'node:net';
+import { join } from 'node:path';
 import { TLSSocket, connect as tlsConnect } from 'node:tls';
-import { isAbsolute, join, resolve } from 'node:path';
 import { DataSource } from 'typeorm';
+import { StorageService } from '../storage/storage.service';
 import {
   HealthDependencyDto,
   HealthResponseDto,
@@ -20,6 +20,7 @@ export class HealthService {
     private readonly dataSource: DataSource,
     private readonly config: ConfigService,
     private readonly observability: RuntimeObservabilityService,
+    private readonly storageService: StorageService,
   ) {}
 
   async live(): Promise<HealthResponseDto> {
@@ -176,19 +177,15 @@ export class HealthService {
   }
 
   private async checkStorage(): Promise<HealthDependencyDto> {
-    const storagePath = resolveStoragePath(
-      this.config.get<string>('STORAGE_PATH', join(process.cwd(), 'storage')),
-    );
     const startedAt = Date.now();
 
     try {
-      await access(storagePath, fsConstants.R_OK | fsConstants.W_OK);
+      const details = await this.storageService.checkAvailability();
+
       return {
         status: 'up',
         latencyMs: Date.now() - startedAt,
-        details: {
-          path: storagePath,
-        },
+        details,
       };
     } catch (error) {
       return {
@@ -197,10 +194,7 @@ export class HealthService {
         message:
           error instanceof Error
             ? error.message
-            : 'Storage path is not readable and writable.',
-        details: {
-          path: storagePath,
-        },
+            : 'Configured storage backend is unavailable.',
       };
     }
   }
@@ -385,20 +379,4 @@ export class HealthService {
   private isRedisRequired(): boolean {
     return this.config.get<boolean>('HEALTH_REDIS_REQUIRED', false);
   }
-}
-
-function resolveStoragePath(storagePath: string): string {
-  if (isAbsolute(storagePath)) {
-    return storagePath;
-  }
-
-  if (isBackendAppCwd() && storagePath.startsWith('apps/backend')) {
-    return resolve(process.cwd(), '..', '..', storagePath);
-  }
-
-  return resolve(storagePath);
-}
-
-function isBackendAppCwd(): boolean {
-  return process.cwd().replaceAll('\\', '/').endsWith('/apps/backend');
 }

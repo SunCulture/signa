@@ -30,7 +30,7 @@ export function createRealtimeEventSource(
     return null;
   }
 
-  const url = new URL(`${apiUrl}/realtime/stream`);
+  const url = new URL(`${apiUrl}/realtime/stream`, window.location.origin);
 
   url.searchParams.set("token", token);
 

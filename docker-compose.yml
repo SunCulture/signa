@@ -3,55 +3,78 @@ services:
     build:
       context: .
       args:
-        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:3001}
-        NEXT_PUBLIC_SIGNING_BASE_URL: ${NEXT_PUBLIC_SIGNING_BASE_URL:-http://localhost:3000}
+        NEXT_PUBLIC_API_BASE_URL: ""
+        NEXT_PUBLIC_SIGNING_BASE_URL: ${NEXT_PUBLIC_SIGNING_BASE_URL:-}
         NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID:-}
         NEXT_PUBLIC_GOOGLE_PICKER_API_KEY: ${NEXT_PUBLIC_GOOGLE_PICKER_API_KEY:-}
         NEXT_PUBLIC_GOOGLE_PICKER_APP_ID: ${NEXT_PUBLIC_GOOGLE_PICKER_APP_ID:-}
         APP_VERSION: ${APP_VERSION:-0.1.0}
         APP_COMMIT_SHA: ${APP_COMMIT_SHA:-}
         APP_BUILD_TIME: ${APP_BUILD_TIME:-}
-    depends_on:
-      redis:
-        condition: service_healthy
+    init: true
+    restart: unless-stopped
     environment:
       NODE_ENV: production
+      APP_URL: ${APP_URL:-http://localhost:3000}
       BACKEND_PORT: 3001
       FRONTEND_PORT: 3000
       HOSTNAME: 0.0.0.0
       APP_VERSION: ${APP_VERSION:-0.1.0}
       APP_COMMIT_SHA: ${APP_COMMIT_SHA:-}
       APP_BUILD_TIME: ${APP_BUILD_TIME:-}
-      DATABASE_TYPE: ${DATABASE_TYPE:-sqlite}
+
+      # Leave DATABASE_URL empty for SQLite at /data/signa.sqlite.
+      # Set one PostgreSQL URL to switch database engines.
       DATABASE_URL: ${DATABASE_URL:-}
-      DATABASE_HOST: ${DATABASE_HOST:-}
-      DATABASE_PORT: ${DATABASE_PORT:-5432}
-      DATABASE_USER: ${DATABASE_USER:-postgres}
-      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
-      DATABASE_NAME: ${DATABASE_NAME:-signa}
       DATABASE_SSL: ${DATABASE_SSL:-false}
-      DATABASE_MIGRATIONS_RUN: ${DATABASE_MIGRATIONS_RUN:-false}
+      DATABASE_MIGRATIONS_RUN: ${DATABASE_MIGRATIONS_RUN:-}
       SQLITE_DATABASE_PATH: /data/signa.sqlite
       SQLITE_SYNCHRONIZE: ${SQLITE_SYNCHRONIZE:-true}
-      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-production-secret}
-      API_PUBLIC_URL: ${API_PUBLIC_URL:-http://localhost:3001/api}
-      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
+
+      JWT_SECRET: ${JWT_SECRET:-}
+      REGISTRATION_MODE: ${REGISTRATION_MODE:-initial_only}
+      SHOW_LANDING_PAGE: ${SHOW_LANDING_PAGE:-false}
+
       STORAGE_SERVICE: ${STORAGE_SERVICE:-auto}
-      STORAGE_PATH: /storage
+      STORAGE_PATH: /data/storage
+      S3_ATTACHMENTS_BUCKET: ${S3_ATTACHMENTS_BUCKET:-}
       AWS_REGION: ${AWS_REGION:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      # Backward-compatible and advanced S3 options.
       AWS_S3_BUCKET: ${AWS_S3_BUCKET:-}
       AWS_S3_PREFIX: ${AWS_S3_PREFIX:-}
       AWS_S3_ENDPOINT: ${AWS_S3_ENDPOINT:-}
       AWS_S3_FORCE_PATH_STYLE: ${AWS_S3_FORCE_PATH_STYLE:-false}
       AWS_S3_SERVER_SIDE_ENCRYPTION: ${AWS_S3_SERVER_SIDE_ENCRYPTION:-}
-      REDIS_URL: redis://redis:6379
+
+      # Redis runs privately inside the container when REDIS_URL is empty.
+      REDIS_URL: ${REDIS_URL:-}
       QUEUE_ENABLED: ${QUEUE_ENABLED:-true}
-      QUEUE_REDIS_URL: redis://redis:6379
+      QUEUE_REDIS_URL: ${QUEUE_REDIS_URL:-}
       BULL_BOARD_ENABLED: ${BULL_BOARD_ENABLED:-false}
       BULL_BOARD_PASS: ${BULL_BOARD_PASS:-change-me-please}
+
+      # Preferred DocuSeal-compatible SMTP contract. SMTP_ADDRESS enables mail.
+      SMTP_ADDRESS: ${SMTP_ADDRESS:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_DOMAIN: ${SMTP_DOMAIN:-}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_AUTHENTICATION: ${SMTP_AUTHENTICATION:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_REPLY_TO: ${SMTP_REPLY_TO:-}
+      SMTP_ENABLE_STARTTLS: ${SMTP_ENABLE_STARTTLS:-}
+      SMTP_ENABLE_SSL: ${SMTP_ENABLE_SSL:-}
+      SMTP_ENABLE_TLS: ${SMTP_ENABLE_TLS:-}
+      SMTP_SSL_VERIFY: ${SMTP_SSL_VERIFY:-}
+      SMTP_OPEN_TIMEOUT: ${SMTP_OPEN_TIMEOUT:-}
+      SMTP_READ_TIMEOUT: ${SMTP_READ_TIMEOUT:-}
+
+      # Legacy Signa mail variables remain supported.
       MAIL_ENABLED: ${MAIL_ENABLED:-false}
       MAIL_HOST: ${MAIL_HOST:-localhost}
       MAIL_PORT: ${MAIL_PORT:-1025}
@@ -61,25 +84,12 @@ services:
       MAIL_PASS: ${MAIL_PASS:-}
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Signa}
       MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-no-reply@signa.com}
+      MAIL_REPLY_TO: ${MAIL_REPLY_TO:-}
+      MAIL_TLS_REJECT_UNAUTHORIZED: ${MAIL_TLS_REJECT_UNAUTHORIZED:-true}
     ports:
       - "3000:3000"
-      - "3001:3001"
     volumes:
       - signa-data:/data
-      - signa-storage:/storage
-
-  redis:
-    image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes"]
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    volumes:
-      - signa-redis:/data
 
 volumes:
   signa-data:
-  signa-storage:
-  signa-redis:

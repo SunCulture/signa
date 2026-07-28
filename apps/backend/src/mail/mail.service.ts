@@ -11,6 +11,10 @@ import { createHash } from 'node:crypto';
 import { Repository } from 'typeorm';
 import { EncryptedConfig } from '../accounts/entities/encrypted-config.entity';
 import { SignaI18nService } from '../internationalization/signa-i18n.service';
+import {
+  getDefaultMailSenderName,
+  getMailRuntimeConfig,
+} from '../runtime/mail-runtime-config';
 import { EmailEvent } from './entities/email-event.entity';
 import { EmailMessage } from './entities/email-message.entity';
 import { MailBrandingService } from './mail-branding.service';
@@ -59,18 +63,14 @@ export class MailService implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    const host = this.config.get<string>('MAIL_HOST', 'localhost');
-    const port = this.config.get<number>('MAIL_PORT', 1025);
-    const secure = this.config.get<boolean>('MAIL_SECURE', false);
-    const enabled = this.config.get<boolean>('MAIL_ENABLED', false);
-    const authEnabled = this.config.get<boolean>('MAIL_AUTH_ENABLED', false);
+    const mail = getMailRuntimeConfig(this.config);
     const provider =
-      host.includes('localhost') || host.includes('mailpit')
+      mail.host.includes('localhost') || mail.host.includes('mailpit')
         ? 'local-smtp'
         : 'external-smtp';
 
     this.logger.log(
-      `Mail transport ready: enabled=${enabled} provider=${provider} host=${host} port=${port} secure=${secure} authEnabled=${authEnabled}`,
+      `Mail transport ready: enabled=${mail.enabled} provider=${provider} host=${mail.host} port=${mail.port} secure=${mail.secure} startTls=${mail.requireTls} authEnabled=${Boolean(mail.auth)}`,
     );
   }
 
@@ -79,22 +79,22 @@ export class MailService implements OnModuleInit {
     message: string;
     details: Record<string, unknown>;
   } {
-    const enabled = this.config.get<boolean>('MAIL_ENABLED', false);
-    const host = this.config.get<string>('MAIL_HOST', 'localhost');
-    const port = this.config.get<number>('MAIL_PORT', 1025);
+    const mail = getMailRuntimeConfig(this.config);
 
     return {
-      status: host && Number.isFinite(port) ? 'up' : 'degraded',
-      message: enabled
+      status: mail.host && Number.isFinite(mail.port) ? 'up' : 'degraded',
+      message: mail.enabled
         ? 'Mail transport is configured.'
         : 'Mail transport is configured but disabled.',
       details: {
-        enabled,
-        host,
-        port,
-        secure: this.config.get<boolean>('MAIL_SECURE', false),
-        authEnabled: this.config.get<boolean>('MAIL_AUTH_ENABLED', false),
-        from: this.formatDefaultFrom(),
+        enabled: mail.enabled,
+        host: mail.host,
+        port: mail.port,
+        secure: mail.secure,
+        startTls: mail.requireTls,
+        verifyTls: mail.rejectUnauthorized,
+        authEnabled: Boolean(mail.auth),
+        from: mail.from,
       },
     };
   }
@@ -106,7 +106,7 @@ export class MailService implements OnModuleInit {
 
     this.templates.assertTemplateExists(mail.template);
 
-    if (!this.config.get<boolean>('MAIL_ENABLED', false)) {
+    if (!getMailRuntimeConfig(this.config).enabled) {
       this.logger.warn(
         `Mail disabled. Skipping template="${mail.template}" to=${formatRecipientLog(mail.to)}`,
       );
@@ -411,7 +411,7 @@ export class MailService implements OnModuleInit {
     const from = value.email
       ? {
           email: value.email,
-          name: this.config.get<string>('MAIL_FROM_NAME', 'Signa'),
+          name: getDefaultMailSenderName(this.config),
         }
       : undefined;
 
@@ -620,15 +620,7 @@ export class MailService implements OnModuleInit {
   }
 
   private formatDefaultFrom(): string {
-    return (
-      formatAddress({
-        name: this.config.get<string>('MAIL_FROM_NAME', 'Signa'),
-        email: this.config.get<string>(
-          'MAIL_FROM_ADDRESS',
-          'no-reply@signa.com',
-        ),
-      }) ?? 'no-reply@signa.com'
-    );
+    return getMailRuntimeConfig(this.config).from;
   }
 
   private async recordDelivery(

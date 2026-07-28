@@ -4,19 +4,23 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Repository } from 'typeorm';
+import { AccountsService } from '../accounts/accounts.service';
 import { StorageAttachment } from '../storage/entities/storage-attachment.entity';
 import { StorageBlob } from '../storage/entities/storage-blob.entity';
 import { StorageService } from '../storage/storage.service';
 import { User } from '../users/entities/user.entity';
 import { DocumentConversionService } from './document-conversion.service';
 import { DocxFieldTagService } from './docx-field-tag.service';
+import { DocxVariableService } from './docx-variable.service';
 import { DynamicDocumentVersion } from './entities/dynamic-document-version.entity';
 import { DynamicDocument } from './entities/dynamic-document.entity';
 import { TemplateEvent } from './entities/template-event.entity';
 import { TemplateFolder } from './entities/template-folder.entity';
+import { TemplateSharing } from './entities/template-sharing.entity';
 import { Template } from './entities/template.entity';
 import { TemplateVersion } from './entities/template-version.entity';
 import { PdfAcroFormService } from './pdf-acro-form/pdf-acro-form.service';
+import { PdfTextTagService } from './pdf-text-tag.service';
 import { PdfXfaFormService } from './pdf-xfa-form/pdf-xfa-form.service';
 import { TemplatesService } from './templates.service';
 
@@ -31,7 +35,6 @@ function createRepository<T extends object>(): MockRepository<T> {
     delete: jest.fn(),
     find: jest.fn(),
     findOne: jest.fn(),
-    findOneOrFail: jest.fn(),
     save: jest.fn(),
     remove: jest.fn(),
   };
@@ -76,6 +79,7 @@ describe('TemplatesService', () => {
   let templates: MockRepository<Template>;
   let folders: MockRepository<TemplateFolder>;
   let templateEvents: MockRepository<TemplateEvent>;
+  let templateSharings: MockRepository<TemplateSharing>;
   let templateVersions: MockRepository<TemplateVersion>;
   let dynamicDocuments: MockRepository<DynamicDocument>;
   let dynamicDocumentVersions: MockRepository<DynamicDocumentVersion>;
@@ -88,6 +92,7 @@ describe('TemplatesService', () => {
       | 'deleteRecordAttachments'
       | 'findPreviewAttachment'
       | 'findPreviewAttachments'
+      | 'findPreviewAttachmentsByRecordIds'
       | 'findRecordAttachments'
     >
   >;
@@ -107,6 +112,7 @@ describe('TemplatesService', () => {
     templates = createRepository<Template>();
     folders = createRepository<TemplateFolder>();
     templateEvents = createRepository<TemplateEvent>();
+    templateSharings = createRepository<TemplateSharing>();
     templateVersions = createRepository<TemplateVersion>();
     dynamicDocuments = createRepository<DynamicDocument>();
     dynamicDocumentVersions = createRepository<DynamicDocumentVersion>();
@@ -117,6 +123,7 @@ describe('TemplatesService', () => {
       deleteRecordAttachments: jest.fn(),
       findPreviewAttachment: jest.fn(),
       findPreviewAttachments: jest.fn().mockResolvedValue([]),
+      findPreviewAttachmentsByRecordIds: jest.fn().mockResolvedValue(new Map()),
       findRecordAttachments: jest.fn().mockResolvedValue([]),
     };
     pdfAcroForm = {
@@ -151,6 +158,7 @@ describe('TemplatesService', () => {
     templateVersions.save?.mockImplementation((input: TemplateVersion) =>
       Promise.resolve(input),
     );
+    templateSharings.findOne?.mockResolvedValue(null);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -170,6 +178,10 @@ describe('TemplatesService', () => {
         {
           provide: getRepositoryToken(TemplateVersion),
           useValue: templateVersions,
+        },
+        {
+          provide: getRepositoryToken(TemplateSharing),
+          useValue: templateSharings,
         },
         {
           provide: getRepositoryToken(DynamicDocument),
@@ -198,6 +210,33 @@ describe('TemplatesService', () => {
         {
           provide: DocxFieldTagService,
           useValue: docxFieldTags,
+        },
+        {
+          provide: DocxVariableService,
+          useValue: {
+            expandVariables: jest.fn((buffer: Buffer) => buffer),
+          },
+        },
+        {
+          provide: PdfTextTagService,
+          useValue: {
+            extractAndMaybeRemoveTags: jest.fn(({ pdf }: { pdf: Buffer }) =>
+              Promise.resolve({ fields: [], pdf }),
+            ),
+          },
+        },
+        {
+          provide: AccountsService,
+          useValue: {
+            findOrCreateTestingUser: jest.fn(),
+            getTestingAccountContext: jest.fn((accountId: string) =>
+              Promise.resolve({
+                isTestMode: false,
+                productionAccountId: accountId,
+                testingAccountId: null,
+              }),
+            ),
+          },
         },
         {
           provide: EventEmitter2,
@@ -235,8 +274,11 @@ describe('TemplatesService', () => {
       },
     });
 
-    expect(builder.where).toHaveBeenCalledWith(
-      'template.account_id = :accountId',
+    expect(builder.where).toHaveBeenCalledWith(expect.anything());
+    expect(builder.leftJoin).toHaveBeenCalledWith(
+      TemplateSharing,
+      'testing_sharing',
+      expect.stringContaining('testing_sharing.account_id = :accountId'),
       { accountId: 'account-1' },
     );
   });
@@ -287,7 +329,7 @@ describe('TemplatesService', () => {
         }),
       ),
     );
-    templates.findOneOrFail?.mockResolvedValue(
+    templates.findOne?.mockResolvedValue(
       createTemplate({
         fields: [],
         folder,
@@ -320,7 +362,7 @@ describe('TemplatesService', () => {
 
   it('updates role names like DocuSeal roles param', async () => {
     const template = createTemplate();
-    templates.findOneOrFail?.mockResolvedValue(template);
+    templates.findOne?.mockResolvedValue(template);
     templates.save?.mockImplementation((entity: Template) =>
       Promise.resolve({
         ...entity,
@@ -346,7 +388,7 @@ describe('TemplatesService', () => {
     const template = createTemplate({
       schema: [{ attachment_uuid: 'document-1', name: 'Original' }],
     });
-    templates.findOneOrFail?.mockResolvedValue(template);
+    templates.findOne?.mockResolvedValue(template);
     templates.save?.mockImplementation((entity: Template) =>
       Promise.resolve(entity),
     );
@@ -366,7 +408,7 @@ describe('TemplatesService', () => {
     const template = createTemplate({
       archivedAt: new Date('2026-06-19T09:00:00.000Z'),
     });
-    templates.findOneOrFail?.mockResolvedValue(template);
+    templates.findOne?.mockResolvedValue(template);
     templates.save?.mockImplementation((entity: Template) =>
       Promise.resolve(entity),
     );
@@ -374,14 +416,14 @@ describe('TemplatesService', () => {
     await service.updateTemplate(createUser(), '10', { archived: false });
 
     expect(template.archivedAt).toBeNull();
-    expect(templates.findOneOrFail).toHaveBeenCalledWith(
+    expect(templates.findOne).toHaveBeenCalledWith(
       expect.objectContaining({ withDeleted: true }),
     );
   });
 
   it('soft archives templates by default', async () => {
     const template = createTemplate();
-    templates.findOneOrFail?.mockResolvedValue(template);
+    templates.findOne?.mockResolvedValue(template);
     templates.save?.mockImplementation((entity: Template) =>
       Promise.resolve(entity),
     );
@@ -396,7 +438,7 @@ describe('TemplatesService', () => {
 
   it('permanently removes templates when requested', async () => {
     const template = createTemplate();
-    templates.findOneOrFail?.mockResolvedValue(template);
+    templates.findOne?.mockResolvedValue(template);
     templates.remove?.mockResolvedValue(template);
 
     await expect(
@@ -407,14 +449,21 @@ describe('TemplatesService', () => {
     });
 
     expect(templates.remove).toHaveBeenCalledWith(template);
-    expect(templates.findOneOrFail).toHaveBeenCalledWith(
+    expect(templates.findOne).toHaveBeenCalledWith(
       expect.objectContaining({ withDeleted: true }),
     );
   });
 
   it('creates a template from DocuSeal JSON PDF documents', async () => {
     const folder = { id: 'folder-1', name: 'Default' } as TemplateFolder;
-    const documentAttachment = createAttachment();
+    const documentAttachment = createAttachment({
+      id: 101 as unknown as string,
+    });
+    const previewAttachment = createAttachment({
+      id: 102 as unknown as string,
+      filename: '0.png',
+      recordId: '101',
+    });
     folders.findOne?.mockResolvedValue(folder);
     templates.findOne?.mockResolvedValue(null);
     templates.create?.mockImplementation((input: Partial<Template>) =>
@@ -437,7 +486,7 @@ describe('TemplatesService', () => {
         }),
       ),
     );
-    templates.findOneOrFail?.mockResolvedValue(
+    templates.findOne?.mockResolvedValue(
       createTemplate({
         schema: [{ attachment_uuid: 'attachment-uuid', name: 'document' }],
         folder,
@@ -445,6 +494,9 @@ describe('TemplatesService', () => {
     );
     storage.createPdfAttachment.mockResolvedValue(documentAttachment);
     storage.findRecordAttachments.mockResolvedValue([documentAttachment]);
+    storage.findPreviewAttachmentsByRecordIds.mockResolvedValue(
+      new Map([['101', [previewAttachment]]]),
+    );
 
     await expect(
       service.createTemplateFromPdf(createUser(), {
@@ -468,10 +520,11 @@ describe('TemplatesService', () => {
       name: 'NDA',
       documents: [
         {
-          id: 'attachment-1',
+          id: 101,
           uuid: 'attachment-uuid',
           url: '/files/blob-1',
           filename: 'document.pdf',
+          preview_images: [{ id: 102 }],
         },
       ],
     });
@@ -522,7 +575,7 @@ describe('TemplatesService', () => {
         }),
       ),
     );
-    templates.findOneOrFail?.mockResolvedValue(createTemplate({ folder }));
+    templates.findOne?.mockResolvedValue(createTemplate({ folder }));
     storage.createPdfAttachment.mockResolvedValue(documentAttachment);
     pdfAcroForm.extractFields.mockResolvedValue([
       {
@@ -582,7 +635,7 @@ describe('TemplatesService', () => {
       filename: 'Blank Page.pdf',
       uuid: 'blank-attachment-uuid',
     });
-    templates.findOneOrFail?.mockResolvedValue(template);
+    templates.findOne?.mockResolvedValue(template);
     templates.save?.mockImplementation((entity: Template) =>
       Promise.resolve(createTemplate({ ...entity })),
     );
@@ -664,7 +717,7 @@ describe('TemplatesService', () => {
         }),
       ),
     );
-    templates.findOneOrFail?.mockResolvedValue(
+    templates.findOne?.mockResolvedValue(
       createTemplate({
         folder,
         schema: [
@@ -765,7 +818,7 @@ describe('TemplatesService', () => {
         }),
       ),
     );
-    templates.findOneOrFail?.mockResolvedValue(
+    templates.findOne?.mockResolvedValue(
       createTemplate({
         folder,
         schema: [
@@ -838,7 +891,7 @@ describe('TemplatesService', () => {
       submitters: [{ name: 'Signer', uuid: 'submitter-1' }],
     });
     const docxBuffer = Buffer.from('PK fake-docx');
-    templates.findOneOrFail?.mockResolvedValue(template);
+    templates.findOne?.mockResolvedValue(template);
     templates.save?.mockImplementation((entity: Template) =>
       Promise.resolve(entity),
     );
@@ -972,7 +1025,7 @@ describe('TemplatesService', () => {
     });
 
     let savedCloneEntity: Template | null = null;
-    templates.findOneOrFail
+    templates.findOne
       ?.mockResolvedValueOnce(template)
       .mockImplementationOnce(() =>
         Promise.resolve(savedCloneEntity as Template),
@@ -1011,6 +1064,19 @@ describe('TemplatesService', () => {
           ? [originalPreview]
           : [clonedPreview],
       ),
+    );
+    storage.findPreviewAttachmentsByRecordIds.mockImplementation(
+      (attachmentIds) =>
+        Promise.resolve(
+          new Map(
+            attachmentIds.map((attachmentId) => [
+              attachmentId,
+              attachmentId === 'original-attachment'
+                ? [originalPreview]
+                : [clonedPreview],
+            ]),
+          ),
+        ),
     );
     storage.cloneAttachment.mockImplementation((input) => {
       if (input.recordType === 'Template') {
@@ -1115,6 +1181,7 @@ function createUser(): User {
 
 function createQueryBuilder(result: Template[]) {
   const builder = {
+    leftJoin: jest.fn().mockReturnThis(),
     leftJoinAndSelect: jest.fn().mockReturnThis(),
     withDeleted: jest.fn().mockReturnThis(),
     where: jest.fn().mockReturnThis(),

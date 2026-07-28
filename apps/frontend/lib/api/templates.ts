@@ -350,7 +350,9 @@ export function deleteTemplateFolder(
 }
 
 export function getTemplate(id: string): Promise<TemplateResponse> {
-  return authenticatedApiFetch<TemplateResponse>(`/templates/${id}`);
+  return authenticatedApiFetch<TemplateResponse>(`/templates/${id}`, {
+    cache: "no-store",
+  });
 }
 
 export function getAccountCustomFields(): Promise<AccountCustomFieldsResponse> {

@@ -2,12 +2,11 @@ import { join } from 'node:path';
 import type { ConfigService } from '@nestjs/config';
 import type { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import type { DataSourceOptions } from 'typeorm';
-import { getConfiguredDatabaseType } from './database-column-types';
 
 type DatabaseConfig = TypeOrmModuleOptions & DataSourceOptions;
 
 export function createTypeOrmOptions(config: ConfigService): DatabaseConfig {
-  const databaseType = getConfiguredDatabaseType();
+  const databaseType = getConfiguredDatabaseType(config);
 
   if (databaseType === 'sqlite') {
     return createSqliteOptions(config);
@@ -17,14 +16,20 @@ export function createTypeOrmOptions(config: ConfigService): DatabaseConfig {
 }
 
 function createPostgresOptions(config: ConfigService): DatabaseConfig {
+  const databaseUrl = getOptionalString(config, 'DATABASE_URL');
+  const connection = databaseUrl
+    ? { url: databaseUrl }
+    : {
+        host: getOptionalString(config, 'DATABASE_HOST') ?? 'localhost',
+        port: getNumber(config, 'DATABASE_PORT', 5432),
+        username: config.get<string>('DATABASE_USER', 'postgres'),
+        password: config.get<string>('DATABASE_PASSWORD', 'postgres'),
+        database: config.get<string>('DATABASE_NAME', 'signa_development'),
+      };
+
   return {
     type: 'postgres',
-    url: getOptionalString(config, 'DATABASE_URL'),
-    host: getOptionalString(config, 'DATABASE_HOST') ?? 'localhost',
-    port: getNumber(config, 'DATABASE_PORT', 5432),
-    username: config.get<string>('DATABASE_USER', 'postgres'),
-    password: config.get<string>('DATABASE_PASSWORD', 'postgres'),
-    database: config.get<string>('DATABASE_NAME', 'signa_development'),
+    ...connection,
     autoLoadEntities: true,
     entities: [join(__dirname, '../**/*.entity{.ts,.js}')],
     migrations: [join(__dirname, 'migrations/*{.ts,.js}')],
@@ -34,6 +39,26 @@ function createPostgresOptions(config: ConfigService): DatabaseConfig {
     logging: getBoolean(config, 'DATABASE_LOGGING', false),
     ssl: getBoolean(config, 'DATABASE_SSL', false),
   };
+}
+
+function getConfiguredDatabaseType(config: ConfigService) {
+  const explicitType = getOptionalString(
+    config,
+    'DATABASE_TYPE',
+  )?.toLowerCase();
+
+  if (explicitType === 'sqlite' || explicitType === 'better-sqlite3') {
+    return 'sqlite';
+  }
+
+  if (explicitType === 'postgres' || explicitType === 'postgresql') {
+    return 'postgres';
+  }
+
+  return getOptionalString(config, 'DATABASE_URL') ||
+    getOptionalString(config, 'DATABASE_HOST')
+    ? 'postgres'
+    : 'sqlite';
 }
 
 function createSqliteOptions(config: ConfigService): DatabaseConfig {
