@@ -1,9 +1,10 @@
-FROM node:24-bookworm-slim AS base
+FROM node:24-bookworm AS base
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 
-RUN corepack enable
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+  && corepack enable
 
 WORKDIR /app
 
@@ -17,6 +18,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/backend/package.json apps/backend/package.json
 COPY apps/frontend/package.json apps/frontend/package.json
 COPY packages/signa-react/package.json packages/signa-react/package.json
+COPY packages/signa-react-native/package.json packages/signa-react-native/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/ts-config/package.json packages/ts-config/package.json
 
@@ -26,7 +28,7 @@ FROM deps AS builder
 
 COPY . .
 
-ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:3001
+ARG NEXT_PUBLIC_API_BASE_URL=
 ARG NEXT_PUBLIC_SIGNING_BASE_URL=
 ARG NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=
 ARG NEXT_PUBLIC_GOOGLE_PICKER_API_KEY=
@@ -57,13 +59,13 @@ ENV BACKEND_PORT=3001
 ENV FRONTEND_PORT=3000
 ENV HOSTNAME=0.0.0.0
 ENV SQLITE_DATABASE_PATH=/data/signa.sqlite
-ENV STORAGE_PATH=/storage
+ENV STORAGE_PATH=/data/storage
 ENV APP_VERSION=$APP_VERSION
 ENV APP_COMMIT_SHA=$APP_COMMIT_SHA
 ENV APP_BUILD_TIME=$APP_BUILD_TIME
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates libreoffice poppler-utils fonts-dejavu fonts-liberation \
+  && apt-get install -y --no-install-recommends ca-certificates openssl redis-server libreoffice poppler-utils fonts-dejavu fonts-liberation \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -71,13 +73,13 @@ WORKDIR /app
 COPY --from=builder /app ./
 
 RUN chmod +x /app/docker/entrypoint.sh \
-  && mkdir -p /data /storage
+  && mkdir -p /data/storage /data/redis
 
-VOLUME ["/data", "/storage"]
+VOLUME ["/data"]
 
-EXPOSE 3000 3001
+EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:' + (process.env.BACKEND_PORT || process.env.PORT || 3001) + '/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:' + (process.env.FRONTEND_PORT || 3000) + '/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 ENTRYPOINT ["/app/docker/entrypoint.sh"]

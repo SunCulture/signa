@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
   ArrowRightIcon,
   BadgeCheckIcon,
@@ -18,6 +19,8 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+
+export const dynamic = "force-dynamic";
 
 const workflowSteps = [
   {
@@ -74,6 +77,10 @@ const proofPoints = [
 ];
 
 export default function Home() {
+  if (!shouldShowLandingPage()) {
+    redirect("/auth/login");
+  }
+
   return (
     <main className="min-h-svh overflow-hidden bg-[#fffaf7] text-[#16304f]">
       <HeroSection />
@@ -81,6 +88,13 @@ export default function Home() {
       <FeatureSection />
       <ApiSection />
     </main>
+  );
+}
+
+function shouldShowLandingPage(): boolean {
+  return (
+    process.env.SHOW_LANDING_PAGE === "true" ||
+    process.env.NEXT_PUBLIC_SHOW_LANDING_PAGE === "true"
   );
 }
 
@@ -105,6 +119,13 @@ function HeroSection() {
           <span className="text-2xl font-bold tracking-normal">Signa</span>
         </Link>
         <nav className="flex items-center gap-2">
+          <Button
+            asChild
+            className="hidden h-11 rounded-full px-5 font-bold text-[#16304f] hover:bg-[#eef5fa] md:inline-flex"
+            variant="ghost"
+          >
+            <Link href="/docs">Docs</Link>
+          </Button>
           <Button
             asChild
             className="hidden h-11 rounded-full border-[#16304f] px-5 font-bold text-[#16304f] hover:bg-[#16304f] hover:text-white sm:inline-flex"

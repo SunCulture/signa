@@ -3,16 +3,29 @@ import { HandlebarsAdapter } from '@nestjs-modules/mailer/adapters/handlebars.ad
 import { ConfigService } from '@nestjs/config';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { getMailRuntimeConfig } from './mail-runtime-config';
 
 export function createMailerOptions(config: ConfigService): MailerOptions {
+  const mail = getMailRuntimeConfig(config);
+
   return {
-    transport: createMailerTransport(config),
+    transport: {
+      host: mail.host,
+      port: mail.port,
+      secure: mail.secure,
+      requireTLS: mail.requireTls,
+      connectionTimeout: mail.connectionTimeout,
+      socketTimeout: mail.readTimeout,
+      ...(mail.name ? { name: mail.name } : {}),
+      ...(mail.auth ? { auth: mail.auth } : {}),
+      ...(mail.authMethod ? { authMethod: mail.authMethod } : {}),
+      tls: {
+        rejectUnauthorized: mail.rejectUnauthorized,
+      },
+    },
     defaults: {
-      from: formatEmailAddress({
-        name: config.get<string>('MAIL_FROM_NAME', 'Signa'),
-        address: config.get<string>('MAIL_FROM_ADDRESS', 'no-reply@signa.com'),
-      }),
-      replyTo: config.get<string>('MAIL_REPLY_TO') || undefined,
+      from: mail.from,
+      replyTo: mail.replyTo,
     },
     template: {
       dir: resolveMailTemplateDirectory(config),
@@ -24,34 +37,6 @@ export function createMailerOptions(config: ConfigService): MailerOptions {
       },
     },
   };
-}
-
-function createMailerTransport(config: ConfigService) {
-  const shouldUseAuth = config.get<boolean>('MAIL_AUTH_ENABLED', false);
-
-  return {
-    host: config.get<string>('MAIL_HOST', 'localhost'),
-    port: config.get<number>('MAIL_PORT', 1025),
-    secure: config.get<boolean>('MAIL_SECURE', false),
-    ...(shouldUseAuth
-      ? {
-          auth: {
-            user: config.getOrThrow<string>('MAIL_USER'),
-            pass: config.getOrThrow<string>('MAIL_PASS'),
-          },
-        }
-      : {}),
-    tls: {
-      rejectUnauthorized: config.get<boolean>(
-        'MAIL_TLS_REJECT_UNAUTHORIZED',
-        false,
-      ),
-    },
-  };
-}
-
-function formatEmailAddress(input: { name: string; address: string }) {
-  return `"${input.name}" <${input.address}>`;
 }
 
 function resolveMailTemplateDirectory(config: ConfigService) {

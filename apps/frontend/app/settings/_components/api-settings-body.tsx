@@ -1,7 +1,7 @@
-"use client"
+"use client";
 
-import { useEffect, useMemo, useState } from "react"
-import type { ReactNode } from "react"
+import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import {
   BookOpenIcon,
   BotIcon,
@@ -10,18 +10,18 @@ import {
   EyeOffIcon,
   KeyRoundIcon,
   RefreshCcwIcon,
-} from "lucide-react"
-import { toast } from "sonner"
+} from "lucide-react";
+import { toast } from "sonner";
 
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from "@/components/ui/accordion"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Switch } from "@/components/ui/switch"
+} from "@/components/ui/accordion";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   type ApiToken,
   type ApiTokenPermission,
@@ -30,10 +30,10 @@ import {
   revealApiToken,
   rotateApiToken,
   updateApiTokenPermissions,
-} from "@/lib/api/auth"
-import { apiUrl } from "@/lib/api/http"
-import { useTestMode } from "@/lib/hooks/use-test-mode"
-import { SettingsSidebar } from "./settings-sidebar"
+} from "@/lib/api/auth";
+import { resolveBrowserApiUrl } from "@/lib/api/http";
+import { useTestMode } from "@/lib/hooks/use-test-mode";
+import { SettingsSidebar } from "./settings-sidebar";
 
 const permissionLabels: Record<ApiTokenPermission, string> = {
   "templates:read": "Read templates",
@@ -47,7 +47,7 @@ const permissionLabels: Record<ApiTokenPermission, string> = {
   "tools:use": "Use PDF tools",
   "users:read": "Read users",
   "users:write": "Manage users",
-}
+};
 
 const examples = [
   {
@@ -75,111 +75,117 @@ const examples = [
     method: "GET",
     path: "/templates/1",
   },
-]
+];
 
 export function ApiSettingsBody() {
-  const [apiToken, setApiToken] = useState<ApiToken | null>(null)
-  const [visibleToken, setVisibleToken] = useState<string | null>(null)
-  const [password, setPassword] = useState("")
-  const [isBusy, setIsBusy] = useState(false)
-  const { isPending: isTestModePending, isTestMode, setTestMode } =
-    useTestMode()
-  const displayedToken = visibleToken ?? apiToken?.token ?? ""
+  const [apiToken, setApiToken] = useState<ApiToken | null>(null);
+  const [visibleToken, setVisibleToken] = useState<string | null>(null);
+  const [password, setPassword] = useState("");
+  const [isBusy, setIsBusy] = useState(false);
+  const {
+    isPending: isTestModePending,
+    isTestMode,
+    setTestMode,
+  } = useTestMode();
+  const displayedToken = visibleToken ?? apiToken?.token ?? "";
 
   useEffect(() => {
     getApiToken()
       .then((token) => {
-        setApiToken(token)
-        setVisibleToken(null)
+        setApiToken(token);
+        setVisibleToken(null);
       })
       .catch((error: unknown) =>
         toast.error("API token could not be loaded", {
           description: getErrorMessage(error),
-        })
-      )
-  }, [isTestMode])
+        }),
+      );
+  }, [isTestMode]);
 
   const enabledPermissions = useMemo(
     () => new Set(apiToken?.permissions ?? []),
-    [apiToken?.permissions]
-  )
+    [apiToken?.permissions],
+  );
 
   async function reveal() {
     if (!password) {
-      toast.error("Password is required")
-      return
+      toast.error("Password is required");
+      return;
     }
 
-    setIsBusy(true)
+    setIsBusy(true);
     try {
-      const response = await revealApiToken(password)
+      const response = await revealApiToken(password);
 
-      setApiToken(response)
-      setVisibleToken(response.revealed_token)
-      toast.success("API token revealed")
+      setApiToken(response);
+      setVisibleToken(response.revealed_token);
+      toast.success("API token revealed");
     } catch (error) {
       toast.error("API token could not be revealed", {
         description: getErrorMessage(error),
-      })
+      });
     } finally {
-      setIsBusy(false)
+      setIsBusy(false);
     }
   }
 
   async function rotate() {
     if (!password) {
-      toast.error("Password is required")
-      return
+      toast.error("Password is required");
+      return;
     }
 
-    setIsBusy(true)
+    setIsBusy(true);
     try {
       const response = await rotateApiToken({
         password,
         permissions: apiToken?.permissions,
-      })
+      });
 
-      setApiToken(response)
-      setVisibleToken(response.revealed_token)
-      toast.success("API token rotated")
+      setApiToken(response);
+      setVisibleToken(response.revealed_token);
+      toast.success("API token rotated");
     } catch (error) {
       toast.error("API token could not be rotated", {
         description: getErrorMessage(error),
-      })
+      });
     } finally {
-      setIsBusy(false)
+      setIsBusy(false);
     }
   }
 
-  async function togglePermission(permission: ApiTokenPermission, value: boolean) {
+  async function togglePermission(
+    permission: ApiTokenPermission,
+    value: boolean,
+  ) {
     if (!apiToken) {
-      return
+      return;
     }
 
     const permissions = value
       ? [...new Set([...apiToken.permissions, permission])]
-      : apiToken.permissions.filter((item) => item !== permission)
+      : apiToken.permissions.filter((item) => item !== permission);
 
-    setApiToken({ ...apiToken, permissions })
+    setApiToken({ ...apiToken, permissions });
 
     try {
-      setApiToken(await updateApiTokenPermissions(permissions))
-      toast.success("API permissions updated")
+      setApiToken(await updateApiTokenPermissions(permissions));
+      toast.success("API permissions updated");
     } catch (error) {
-      setApiToken(apiToken)
+      setApiToken(apiToken);
       toast.error("API permissions could not be updated", {
         description: getErrorMessage(error),
-      })
+      });
     }
   }
 
   async function copyToken() {
     if (!displayedToken) {
-      return
+      return;
     }
 
-    await navigator.clipboard.writeText(displayedToken)
-    toast.success("Copied to clipboard")
+    await navigator.clipboard.writeText(displayedToken);
+    toast.success("Copied to clipboard");
   }
 
   return (
@@ -291,7 +297,11 @@ export function ApiSettingsBody() {
         </div>
 
         <h2 className="mt-7 text-3xl font-bold tracking-normal">Examples</h2>
-        <Accordion className="mt-4 flex flex-col gap-4" collapsible type="single">
+        <Accordion
+          className="mt-4 flex flex-col gap-4"
+          collapsible
+          type="single"
+        >
           {examples.map((example) => (
             <AccordionItem
               className="overflow-hidden rounded-2xl border-0 bg-[var(--auth-muted)] px-1"
@@ -321,7 +331,7 @@ export function ApiSettingsBody() {
         </Accordion>
       </section>
     </div>
-  )
+  );
 }
 
 function InfoRow({
@@ -329,9 +339,9 @@ function InfoRow({
   icon,
   title,
 }: {
-  description: string
-  icon: ReactNode
-  title: string
+  description: string;
+  icon: ReactNode;
+  title: string;
 }) {
   return (
     <div className="flex items-center justify-between gap-5 rounded-2xl bg-[var(--auth-muted)] p-5">
@@ -343,26 +353,26 @@ function InfoRow({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function buildCurlExample(
   example: { method: string; path: string; body?: string },
-  token: string
+  token: string,
 ): string {
   const lines = [
-    `curl --location '${apiUrl}${example.path}'`,
+    `curl --location '${resolveBrowserApiUrl()}${example.path}'`,
     `  --header 'X-Auth-Token: ${token || "API_TOKEN"}'`,
-  ]
+  ];
 
   if (example.body) {
-    lines.push(`  --header 'Content-Type: application/json'`)
-    lines.push(`  --data-raw '${example.body}'`)
+    lines.push(`  --header 'Content-Type: application/json'`);
+    lines.push(`  --data-raw '${example.body}'`);
   }
 
-  return lines.join(" \\\n")
+  return lines.join(" \\\n");
 }
 
 function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Please try again."
+  return error instanceof Error ? error.message : "Please try again.";
 }

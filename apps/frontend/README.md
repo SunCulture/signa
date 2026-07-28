@@ -1,36 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Signa Frontend
 
-## Getting Started
+The Signa frontend is a Next.js App Router application containing the
+authenticated console, public signing flows, embedded runtime assets, landing
+page, and public documentation.
 
-First, run the development server:
+Use the [workspace README](../../README.md) for deployment and the
+[`@signajs/react`](../../packages/signa-react/README.md) and
+[`@signajs/react-native`](../../packages/signa-react-native/README.md) READMEs
+for embedding.
+
+## Development
+
+Run commands from the repository root:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
+pnpm dev:frontend
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`. During local development the API defaults to
+`http://localhost:3001/api`. In the production container, browser requests use
+same-origin `/api` and Next.js proxies them to the internal NestJS server.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Route Surfaces
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `/templates`, `/submissions`, and `/settings` are authenticated console
+  routes.
+- `/s/[slug]` and `/d/[slug]` are public signing and template form routes.
+- `/docs`, `/guides`, `/resources`, `/compliance`, and
+  `/qualified-electronic-signature` are public documentation routes.
+- `/docs/api`, `/docs/embedding`, and `/docs/webhooks` provide developer
+  onboarding.
+- `/api/docs` proxies the generated NestJS OpenAPI explorer.
 
-## Learn More
+Public documentation must remain outside the auth redirect guard so users can
+self-onboard before creating an account.
 
-To learn more about Next.js, take a look at the following resources:
+## Build-Time Configuration
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Next.js reads these values during `next build`; rebuild the image after
+changing them:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Variable                       | Default | Purpose                                                                  |
+| ------------------------------ | ------- | ------------------------------------------------------------------------ |
+| `SHOW_LANDING_PAGE`            | `false` | Redirect `/` to login on-prem; set `true` to expose the marketing page.  |
+| `NEXT_PUBLIC_API_BASE_URL`     | empty   | Empty uses same-origin `/api`; set only for a deliberately separate API. |
+| `NEXT_PUBLIC_SIGNING_BASE_URL` | local   | Public origin used when generating signing and QR links.                 |
 
-## Deploy on Vercel
+Google Picker and OAuth browser variables are documented in the root README
+and `.env.example`.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Verification
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+pnpm --filter frontend typecheck
+pnpm --filter frontend lint
+pnpm --filter frontend build
+```
+
+The production build is the authoritative check for App Router server/client
+boundaries, generated static documentation routes, and build-time environment
+configuration.

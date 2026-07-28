@@ -26,6 +26,12 @@ import {
   TimelineItem,
   TimelineSeparator,
 } from "@/components/reui/timeline";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -730,31 +736,39 @@ function TemplateActivityTimeline({
   const groupedEvents = groupTemplateEvents(events);
 
   return (
-    <section className="flex flex-col gap-5 rounded-3xl bg-white/55 px-6 py-6">
-      <div>
-        <h2 className="text-2xl font-semibold">Activity</h2>
-        <p className="mt-1 text-sm text-[var(--auth-muted-foreground)]">
-          Template changes and version history for traceability.
-        </p>
-      </div>
-      <div className="flex flex-col gap-7">
-        {groupedEvents.map((group) => (
-          <div className="flex flex-col gap-4" key={group.label}>
-            <h3 className="text-sm font-bold text-[var(--auth-primary)]">
-              {group.label}
-            </h3>
-            <Timeline defaultValue={group.events.length}>
-              {group.events.map((event, index) => (
-                <TemplateActivityItem
-                  event={event}
-                  index={index}
-                  key={event.id}
-                />
+    <section className="rounded-3xl bg-white/55 px-6 py-5">
+      <Accordion collapsible type="single">
+        <AccordionItem className="border-none" value="activity">
+          <AccordionTrigger className="rounded-2xl px-0 py-0 text-left hover:no-underline">
+            <div className="flex flex-col gap-1">
+              <h2 className="text-2xl font-semibold">Activity</h2>
+              <p className="text-sm font-normal text-[var(--auth-muted-foreground)]">
+                Template changes and version history for traceability.
+              </p>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="pb-0 pl-10 pt-6">
+            <div className="flex flex-col gap-7">
+              {groupedEvents.map((group) => (
+                <div className="flex flex-col gap-4" key={group.label}>
+                  <h3 className="text-sm font-bold text-[var(--auth-primary)]">
+                    {group.label}
+                  </h3>
+                  <Timeline defaultValue={group.events.length}>
+                    {group.events.map((event, index) => (
+                      <TemplateActivityItem
+                        event={event}
+                        index={index}
+                        key={event.id}
+                      />
+                    ))}
+                  </Timeline>
+                </div>
               ))}
-            </Timeline>
-          </div>
-        ))}
-      </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
     </section>
   );
 }
