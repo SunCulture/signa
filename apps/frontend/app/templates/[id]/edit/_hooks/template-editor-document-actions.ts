@@ -67,14 +67,21 @@ export function createTemplateEditorDocumentActions(context: Context) {
     });
 
     try {
-      await addTemplateDocument(currentTemplate.id, file);
+      const uploadResponse = await addTemplateDocument(
+        currentTemplate.id,
+        file,
+      );
       const refreshedTemplate = await getTemplate(currentTemplate.id);
+      const documents = preserveReadyDocumentPreviews(
+        refreshedTemplate.documents,
+        uploadResponse.documents,
+      );
       const addedDocument =
-        refreshedTemplate.documents.find(
+        documents.find(
           (document) => !existingUuids.has(document.uuid),
-        ) ?? refreshedTemplate.documents.at(-1);
+        ) ?? documents.at(-1);
 
-      setTemplate(refreshedTemplate);
+      setTemplate({ ...refreshedTemplate, documents });
       setSelectedDocumentUuid(addedDocument?.uuid ?? null);
       toast.success("Document added", {
         description: file.name,
@@ -104,17 +111,21 @@ export function createTemplateEditorDocumentActions(context: Context) {
     toast.loading("Adding blank page", { id: "template-document-upload" });
 
     try {
-      await addBlankTemplatePage(currentTemplate.id, {
+      const uploadResponse = await addBlankTemplatePage(currentTemplate.id, {
         name: `Blank Page ${currentTemplate.documents.length + 1}`,
         size: "letter",
       });
       const refreshedTemplate = await getTemplate(currentTemplate.id);
+      const documents = preserveReadyDocumentPreviews(
+        refreshedTemplate.documents,
+        uploadResponse.documents,
+      );
       const addedDocument =
-        refreshedTemplate.documents.find(
+        documents.find(
           (document) => !existingUuids.has(document.uuid),
-        ) ?? refreshedTemplate.documents.at(-1);
+        ) ?? documents.at(-1);
 
-      setTemplate(refreshedTemplate);
+      setTemplate({ ...refreshedTemplate, documents });
       setSelectedDocumentUuid(addedDocument?.uuid ?? null);
       toast.success("Blank page added", { id: "template-document-upload" });
     } catch (error) {
@@ -177,7 +188,13 @@ export function createTemplateEditorDocumentActions(context: Context) {
       });
 
       const refreshedTemplate = await getTemplate(currentTemplate.id);
-      setTemplate(refreshedTemplate);
+      setTemplate({
+        ...refreshedTemplate,
+        documents: preserveReadyDocumentPreviews(
+          refreshedTemplate.documents,
+          uploadResponse.documents,
+        ),
+      });
       setSelectedDocumentUuid(replacementDocument.uuid);
       toast.success("Document replaced", {
         description: file.name,
@@ -339,6 +356,35 @@ export function createTemplateEditorDocumentActions(context: Context) {
     reorderDocumentFields,
     updateDocumentConditions,
   };
+}
+
+function preserveReadyDocumentPreviews(
+  refreshedDocuments: TemplateDocument[],
+  mutationDocuments: TemplateDocument[],
+): TemplateDocument[] {
+  const mutationDocumentsByUuid = new Map(
+    mutationDocuments.map((document) => [document.uuid, document]),
+  );
+
+  const reconciledDocuments = refreshedDocuments.map((document) => {
+    const mutationDocument = mutationDocumentsByUuid.get(document.uuid);
+
+    return mutationDocument &&
+      mutationDocument.preview_images.length > document.preview_images.length
+      ? mutationDocument
+      : document;
+  });
+  const refreshedUuids = new Set(
+    refreshedDocuments.map((document) => document.uuid),
+  );
+
+  for (const document of mutationDocuments) {
+    if (!refreshedUuids.has(document.uuid)) {
+      reconciledDocuments.push(document);
+    }
+  }
+
+  return reconciledDocuments;
 }
 
 function sortDocumentFieldsByPosition(

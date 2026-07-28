@@ -39,14 +39,24 @@ export class StorageController {
     @Res() response: Response,
   ): Promise<void> {
     const blob = await this.storageService.getBlobForSignedToken(token);
-    const buffer = await this.storageService.readBlob(blob);
+    const stream = await this.storageService.readBlobStream(blob);
     const filename = basename(this.storageService.getSafeDownloadName(blob));
 
     response.type(blob.contentType ?? 'application/octet-stream');
+    response.setHeader('Cache-Control', 'public, max-age=300');
+    response.setHeader('Content-Length', blob.byteSize);
     response.setHeader(
       'Content-Disposition',
       `inline; filename="${filename.replaceAll('"', '\\"')}"`,
     );
-    response.send(buffer);
+    stream.on('error', () => {
+      if (response.headersSent) {
+        response.destroy();
+        return;
+      }
+
+      response.status(500).end();
+    });
+    stream.pipe(response);
   }
 }

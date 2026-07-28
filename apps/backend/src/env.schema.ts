@@ -4,6 +4,7 @@ const validationSchema = Joi.object({
   NODE_ENV: Joi.string()
     .valid('development', 'test', 'production')
     .default('development'),
+  APP_URL: Joi.string().uri().default('http://localhost:3000'),
   PORT: Joi.number().port().default(3001),
   FRONTEND_ORIGIN: Joi.string().uri().default('http://localhost:3000'),
   API_PUBLIC_URL: Joi.string().uri().default('http://localhost:3001/api'),
@@ -16,22 +17,35 @@ const validationSchema = Joi.object({
     otherwise: Joi.string().min(16).default('signa-development-secret'),
   }),
   JWT_EXPIRES_IN: Joi.string().default('7d'),
+  REGISTRATION_MODE: Joi.string()
+    .valid('open', 'initial_only', 'disabled')
+    .default('initial_only'),
+  SHOW_LANDING_PAGE: Joi.boolean().truthy('true').falsy('false').default(false),
 
-  DATABASE_TYPE: Joi.string().valid('postgres', 'sqlite').optional(),
+  DATABASE_TYPE: Joi.string().valid('postgres', 'sqlite').empty('').optional(),
   DATABASE_URL: Joi.string()
     .uri({ scheme: ['postgres', 'postgresql'] })
     .allow('')
     .optional(),
   DATABASE_HOST: Joi.string().allow('').optional(),
-  DATABASE_PORT: Joi.number().port().default(5432),
+  DATABASE_PORT: Joi.number().port().empty('').default(5432),
   DATABASE_USER: Joi.string().default('postgres'),
   DATABASE_PASSWORD: Joi.string().allow('').default('postgres'),
   DATABASE_NAME: Joi.string().default('signa_development'),
-  DATABASE_SSL: Joi.boolean().truthy('true').falsy('false').default(false),
-  DATABASE_LOGGING: Joi.boolean().truthy('true').falsy('false').default(false),
+  DATABASE_SSL: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .empty('')
+    .default(false),
+  DATABASE_LOGGING: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .empty('')
+    .default(false),
   DATABASE_MIGRATIONS_RUN: Joi.boolean()
     .truthy('true')
     .falsy('false')
+    .empty('')
     .default(false),
   SQLITE_DATABASE_PATH: Joi.string().default('data/signa.sqlite'),
   SQLITE_SYNCHRONIZE: Joi.boolean().truthy('true').falsy('false').default(true),
@@ -91,7 +105,37 @@ const validationSchema = Joi.object({
   MAIL_TLS_REJECT_UNAUTHORIZED: Joi.boolean()
     .truthy('true')
     .falsy('false')
-    .default(false),
+    .default(true),
+  SMTP_ADDRESS: Joi.string().allow('').optional(),
+  SMTP_PORT: Joi.number().port().empty('').optional(),
+  SMTP_DOMAIN: Joi.string().allow('').optional(),
+  SMTP_USERNAME: Joi.string().allow('').optional(),
+  SMTP_PASSWORD: Joi.string().allow('').optional(),
+  SMTP_AUTHENTICATION: Joi.string().allow('').optional(),
+  SMTP_FROM: Joi.string().allow('').optional(),
+  SMTP_REPLY_TO: Joi.string().email().allow('').optional(),
+  SMTP_ENABLE_STARTTLS: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .empty('')
+    .optional(),
+  SMTP_ENABLE_SSL: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .empty('')
+    .optional(),
+  SMTP_ENABLE_TLS: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .empty('')
+    .optional(),
+  SMTP_SSL_VERIFY: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .empty('')
+    .optional(),
+  SMTP_OPEN_TIMEOUT: Joi.number().integer().min(1).empty('').optional(),
+  SMTP_READ_TIMEOUT: Joi.number().integer().min(1).empty('').optional(),
   GOOGLE_AUTH_CLIENT_ID: Joi.string().allow('').optional(),
   GOOGLE_AUTH_CLIENT_SECRET: Joi.string().allow('').optional(),
   GOOGLE_AUTH_REDIRECT_URI: Joi.string().uri().allow('').optional(),
@@ -111,20 +155,15 @@ const validationSchema = Joi.object({
 
   STORAGE_SERVICE: Joi.string().valid('auto', 'local', 's3').default('auto'),
   STORAGE_PATH: Joi.string().default('storage'),
-  AWS_REGION: Joi.when('STORAGE_SERVICE', {
-    is: 's3',
-    then: Joi.string().required(),
-    otherwise: Joi.string().allow('').optional(),
-  }),
+  AWS_REGION: Joi.string().allow('').optional(),
+  AWS_DEFAULT_REGION: Joi.string().allow('').optional(),
   AWS_ACCESS_KEY_ID: Joi.string().allow('').optional(),
   AWS_SECRET_ACCESS_KEY: Joi.string().allow('').optional(),
   AWS_SESSION_TOKEN: Joi.string().allow('').optional(),
-  AWS_S3_BUCKET: Joi.when('STORAGE_SERVICE', {
-    is: 's3',
-    then: Joi.string().required(),
-    otherwise: Joi.string().allow('').optional(),
-  }),
+  S3_ATTACHMENTS_BUCKET: Joi.string().allow('').optional(),
+  AWS_S3_BUCKET: Joi.string().allow('').optional(),
   AWS_S3_PREFIX: Joi.string().allow('').default(''),
+  S3_ENDPOINT: Joi.string().uri().allow('').optional(),
   AWS_S3_ENDPOINT: Joi.string().uri().allow('').optional(),
   AWS_S3_FORCE_PATH_STYLE: Joi.boolean()
     .truthy('true')

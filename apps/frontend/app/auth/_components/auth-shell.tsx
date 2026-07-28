@@ -3,10 +3,16 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTopLoader } from "nextjs-toploader";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Globe2Icon, InfoIcon, LogInIcon } from "lucide-react";
+import {
+  BookOpenIcon,
+  BracesIcon,
+  Globe2Icon,
+  InfoIcon,
+  LogInIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -35,10 +41,12 @@ import {
 } from "@/components/ui/select";
 import {
   login,
+  getRegistrationStatus,
   getSocialAuthStateKey,
   register,
   saveAuthSession,
   startSocialAuth,
+  type RegistrationStatus,
   type SocialAuthProvider,
 } from "@/lib/api/auth";
 import { ApiError } from "@/lib/api/http";
@@ -74,10 +82,37 @@ export function AuthShell({ mode }: AuthShellProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [needsOtp, setNeedsOtp] = useState(mode === "otp");
+  const [registrationStatus, setRegistrationStatus] =
+    useState<RegistrationStatus | null>(null);
+  const canRegister = registrationStatus?.can_register ?? mode === "register";
   const form = useForm<AuthFormValues>({
     resolver: zodResolver(authFormSchema),
     defaultValues: getAuthFormDefaults(mode),
   });
+
+  useEffect(() => {
+    if (mode !== "login" && mode !== "register") {
+      return;
+    }
+
+    let isActive = true;
+
+    void getRegistrationStatus()
+      .then((status) => {
+        if (isActive) {
+          setRegistrationStatus(status);
+        }
+      })
+      .catch(() => {
+        if (isActive) {
+          setRegistrationStatus(null);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [mode]);
 
   function handleLocaleChange(nextLocale: Locale) {
     setLocale(nextLocale);
@@ -114,6 +149,15 @@ export function AuthShell({ mode }: AuthShellProps) {
       }
 
       if (mode === "register") {
+        if (!canRegister) {
+          form.setError("root", {
+            message:
+              registrationStatus?.reason ??
+              "Registration is disabled for this installation.",
+          });
+          return;
+        }
+
         const session = await register(createRegisterInput(values, locale));
 
         saveAuthSession(session);
@@ -154,13 +198,23 @@ export function AuthShell({ mode }: AuthShellProps) {
 
   return (
     <main className="min-h-svh bg-[var(--auth-background)] text-[var(--auth-foreground)]">
-      <AuthHeader dictionary={dictionary} mode={mode} />
+      <AuthHeader
+        canRegister={canRegister}
+        dictionary={dictionary}
+        mode={mode}
+      />
       <section className="mx-auto flex w-full max-w-lg flex-col px-3 pb-16 pt-5 sm:px-2">
         <h1 className="mt-1 text-center text-4xl font-bold tracking-normal text-[var(--auth-foreground)]">
           {copy.title}
         </h1>
+        {mode === "register" && !canRegister ? (
+          <RegistrationClosedMessage reason={registrationStatus?.reason} />
+        ) : null}
         <form
-          className="mt-8 flex flex-col gap-5"
+          className={cn(
+            "mt-8 flex flex-col gap-5",
+            mode === "register" && !canRegister ? "hidden" : "",
+          )}
           onSubmit={form.handleSubmit(handleValidSubmit)}
         >
           <FieldGroup className="gap-4">
@@ -235,9 +289,17 @@ export function AuthShell({ mode }: AuthShellProps) {
           </FieldError>
         </form>
         {showSocial ? (
-          <SocialButtons dictionary={dictionary} mode={mode} />
+          <SocialButtons
+            canRegister={canRegister}
+            dictionary={dictionary}
+            mode={mode}
+          />
         ) : null}
-        <AuthLinks dictionary={dictionary} mode={mode} />
+        <AuthLinks
+          canRegister={canRegister}
+          dictionary={dictionary}
+          mode={mode}
+        />
         <LanguagePicker
           dictionary={dictionary}
           locale={locale}
@@ -261,54 +323,155 @@ function getAuthFailureTitle(mode: AuthMode): string {
 }
 
 function AuthHeader({
+  canRegister,
   dictionary,
   mode,
 }: {
+  canRegister: boolean;
   dictionary: (typeof authDictionaries)[Locale];
   mode: AuthMode;
 }) {
   return (
     <header className="mx-auto flex w-full max-w-7xl items-center justify-between px-5 py-5 sm:px-8">
-      <Link
-        href="/"
-        className="flex items-center gap-3 rounded-full text-[var(--auth-primary)] outline-none focus-visible:ring-3 focus-visible:ring-[var(--auth-brand)]/30"
-        aria-label={dictionary.brand}
-      >
-        <span className="relative block size-11">
-          <Image
-            alt={dictionary.brand}
-            className="object-contain"
-            fill
-            priority
-            sizes="44px"
-            src="/images/logo.png"
-          />
-        </span>
-        <span className="text-2xl font-bold tracking-normal">Signa</span>
-      </Link>
-      <div className="flex items-center gap-2">
-        {mode !== "login" ? (
-          <Button
-            asChild
-            className="h-11 rounded-full border-[var(--auth-primary)] bg-card px-5 font-bold text-[var(--auth-primary)] hover:bg-[var(--auth-primary)] hover:text-[var(--auth-primary-foreground)]"
-            variant="outline"
-          >
-            <Link href="/auth/login">
-              <LogInIcon data-icon="inline-start" />
-              {dictionary.header.signIn}
-            </Link>
-          </Button>
-        ) : null}
-        {mode !== "register" ? (
-          <Button
-            asChild
-            className="h-11 rounded-full bg-[var(--auth-primary)] px-5 font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
-          >
-            <Link href="/auth/register">{dictionary.header.createAccount}</Link>
-          </Button>
-        ) : null}
-      </div>
+      <AuthHeaderLogo dictionary={dictionary} />
+      <AuthHeaderActions
+        canRegister={canRegister}
+        dictionary={dictionary}
+        mode={mode}
+      />
     </header>
+  );
+}
+
+function AuthHeaderLogo({
+  dictionary,
+}: {
+  dictionary: (typeof authDictionaries)[Locale];
+}) {
+  return (
+    <Link
+      href="/"
+      className="flex items-center gap-3 rounded-full text-[var(--auth-primary)] outline-none focus-visible:ring-3 focus-visible:ring-[var(--auth-brand)]/30"
+      aria-label={dictionary.brand}
+    >
+      <span className="relative block size-11">
+        <Image
+          alt={dictionary.brand}
+          className="object-contain"
+          fill
+          priority
+          sizes="44px"
+          src="/images/logo.png"
+        />
+      </span>
+      <span className="text-2xl font-bold tracking-normal">Signa</span>
+    </Link>
+  );
+}
+
+function AuthHeaderActions({
+  canRegister,
+  dictionary,
+  mode,
+}: {
+  canRegister: boolean;
+  dictionary: (typeof authDictionaries)[Locale];
+  mode: AuthMode;
+}) {
+  if (mode === "login" && !canRegister) {
+    return <AuthDocumentationLinks />;
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      {mode !== "login" ? (
+        <AuthHeaderLoginButton dictionary={dictionary} />
+      ) : null}
+      {mode !== "register" && canRegister ? (
+        <AuthHeaderRegisterButton dictionary={dictionary} />
+      ) : null}
+    </div>
+  );
+}
+
+function AuthDocumentationLinks() {
+  return (
+    <nav className="flex items-center gap-2" aria-label="Documentation">
+      <Button
+        asChild
+        className="h-11 rounded-full border-[var(--auth-primary)] bg-card px-5 font-bold text-[var(--auth-primary)] hover:bg-[var(--auth-primary)] hover:text-[var(--auth-primary-foreground)]"
+        variant="outline"
+      >
+        <Link href="/docs">
+          <BookOpenIcon data-icon="inline-start" />
+          Docs
+        </Link>
+      </Button>
+      <Button
+        asChild
+        className="hidden h-11 rounded-full px-5 font-bold text-[var(--auth-primary)] hover:bg-[var(--auth-muted)] sm:inline-flex"
+        variant="ghost"
+      >
+        <Link href="/docs/api">
+          <BracesIcon data-icon="inline-start" />
+          API
+        </Link>
+      </Button>
+    </nav>
+  );
+}
+
+function AuthHeaderLoginButton({
+  dictionary,
+}: {
+  dictionary: (typeof authDictionaries)[Locale];
+}) {
+  return (
+    <Button
+      asChild
+      className="h-11 rounded-full border-[var(--auth-primary)] bg-card px-5 font-bold text-[var(--auth-primary)] hover:bg-[var(--auth-primary)] hover:text-[var(--auth-primary-foreground)]"
+      variant="outline"
+    >
+      <Link href="/auth/login">
+        <LogInIcon data-icon="inline-start" />
+        {dictionary.header.signIn}
+      </Link>
+    </Button>
+  );
+}
+
+function AuthHeaderRegisterButton({
+  dictionary,
+}: {
+  dictionary: (typeof authDictionaries)[Locale];
+}) {
+  return (
+    <Button
+      asChild
+      className="h-11 rounded-full bg-[var(--auth-primary)] px-5 font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
+    >
+      <Link href="/auth/register">{dictionary.header.createAccount}</Link>
+    </Button>
+  );
+}
+
+function RegistrationClosedMessage({ reason }: { reason?: string | null }) {
+  return (
+    <div className="mt-8 rounded-3xl border border-[var(--auth-border)] bg-card px-6 py-5 text-center shadow-sm">
+      <p className="text-lg font-bold text-[var(--auth-foreground)]">
+        Registration is closed
+      </p>
+      <p className="mt-2 text-sm leading-6 text-[var(--auth-muted-foreground)]">
+        {reason ??
+          "Ask an administrator to invite you to this Signa installation."}
+      </p>
+      <Button
+        asChild
+        className="mt-5 h-11 rounded-full bg-[var(--auth-primary)] px-6 font-bold text-[var(--auth-primary-foreground)] hover:bg-[var(--auth-primary-hover)]"
+      >
+        <Link href="/auth/login">Go to sign in</Link>
+      </Button>
+    </div>
   );
 }
 
@@ -405,12 +568,18 @@ function OtpField({
 }
 
 function SocialButtons({
+  canRegister,
   dictionary,
   mode,
 }: {
+  canRegister: boolean;
   dictionary: (typeof authDictionaries)[Locale];
   mode: AuthMode;
 }) {
+  if (mode === "register" && !canRegister) {
+    return null;
+  }
+
   return (
     <div className="mt-4 flex flex-col gap-4">
       <AuthProviderButton
@@ -522,9 +691,11 @@ function MicrosoftMark() {
 }
 
 function AuthLinks({
+  canRegister,
   dictionary,
   mode,
 }: {
+  canRegister: boolean;
   dictionary: (typeof authDictionaries)[Locale];
   mode: AuthMode;
 }) {
@@ -550,14 +721,18 @@ function AuthLinks({
 
   return (
     <div className="mt-5 flex justify-between gap-4 text-base font-medium">
-      <Link
-        className="auth-link"
-        href={mode === "register" ? "/auth/login" : "/auth/register"}
-      >
-        {mode === "register"
-          ? dictionary.links.alreadyHaveAccount
-          : dictionary.links.createAccount}
-      </Link>
+      {mode === "register" || canRegister ? (
+        <Link
+          className="auth-link"
+          href={mode === "register" ? "/auth/login" : "/auth/register"}
+        >
+          {mode === "register"
+            ? dictionary.links.alreadyHaveAccount
+            : dictionary.links.createAccount}
+        </Link>
+      ) : (
+        <span />
+      )}
       <Link className="auth-link" href="/auth/forgot-password">
         {dictionary.links.forgotPassword}
       </Link>

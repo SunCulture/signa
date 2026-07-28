@@ -12,8 +12,20 @@ completion, decline, load, and error callbacks.
 pnpm add @signajs/react-native react-native-webview
 ```
 
-For bare React Native apps, follow the `react-native-webview` installation
-steps for iOS pods and Android setup.
+For Expo projects, install the WebView peer through Expo so the native version
+matches your SDK:
+
+```sh
+npx expo install react-native-webview
+pnpm add @signajs/react-native
+```
+
+For bare React Native apps, install pods after adding the dependency:
+
+```sh
+cd ios
+pod install
+```
 
 ## Basic Usage
 
@@ -70,6 +82,16 @@ export function ContractSigningScreen() {
 | `onError` | Called when Signa posts `signa:error`. |
 | `onMessage` | Receives every validated `signa:*` message. |
 
+## Native signing flow
+
+| Step | What happens |
+| --- | --- |
+| Create a submission | Your backend calls Signa and receives a submitter signing URL or slug. |
+| Open the WebView | Your app renders `SignaSigningView` with `src` or `host` plus `slug`. |
+| Signer completes fields | The hosted Signa UI handles PDF rendering, field validation, signatures, and completion. |
+| Native callback fires | The page posts `signa:completed`, `signa:declined`, `signa:loaded`, or `signa:error` to React Native. |
+| App continues workflow | Navigate back, refresh your backend state, or show the completed-document action. |
+
 ## Mobile App Permissions
 
 If signers need to upload files, images, or use camera-backed fields, configure
@@ -77,6 +99,16 @@ the host app permissions:
 
 - iOS: camera, photo library, and document picker usage descriptions.
 - Android: camera and media/document permissions appropriate for your target SDK.
+
+For local development, do not use `localhost` inside a simulator or device
+unless it resolves to the Signa server from that environment. Use a LAN IP,
+reverse proxy, or tunnel:
+
+```tsx
+<SignaSigningView
+  src="http://192.168.100.30:3000/s/submitter-slug"
+/>
+```
 
 ## Signa Host Requirements
 
@@ -91,3 +123,31 @@ window.ReactNativeWebView?.postMessage(
 
 The web signing page already remains usable inside a WebView. These postMessage
 events are the native bridge that lets the app react without polling.
+
+## Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| The WebView is blank. | Open the same `src` in the mobile browser, confirm the route is public, and check TLS/certificate trust. |
+| Android cannot load local Signa. | Use your machine LAN IP or `10.0.2.2` for Android emulator networking where applicable. |
+| File upload does not open. | Configure native camera, photo, and document permissions in the host app. |
+| Completion callback does not fire. | Confirm the deployed Signa signing page includes the React Native postMessage bridge. |
+| The host refuses to render. | Configure Signa embed/frame policy for the application origin or use the hosted public signing route. |
+
+## Development and release
+
+From the repository root:
+
+```sh
+pnpm --filter @signajs/react-native typecheck
+pnpm --filter @signajs/react-native build
+pnpm --filter @signajs/react-native pack --dry-run
+```
+
+Publish through the monorepo Changesets flow:
+
+```sh
+pnpm changeset
+pnpm version:packages
+pnpm release:packages
+```

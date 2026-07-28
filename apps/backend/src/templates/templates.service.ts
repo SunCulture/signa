@@ -2780,6 +2780,7 @@ export class TemplatesService {
   private async serializeTemplateDocuments(
     template: Template,
   ): Promise<TemplateDocumentResponse[]> {
+    const previewUrlTtlSeconds = 3600;
     const attachments = await this.storageService.findRecordAttachments({
       recordType: 'Template',
       recordId: template.id,
@@ -2794,31 +2795,40 @@ export class TemplatesService {
     const orderedAttachments = schemaAttachmentUuids
       .map((uuid) => attachmentsByUuid.get(uuid))
       .filter((attachment) => attachment !== undefined);
+    const previewsByAttachmentId =
+      await this.storageService.findPreviewAttachmentsByRecordIds(
+        orderedAttachments.map((attachment) => attachment.id),
+      );
 
-    return Promise.all(
-      orderedAttachments.map(async (attachment) => {
-        const previews = await this.storageService.findPreviewAttachments(
-          attachment.id,
-        );
-        const firstPreview = previews[0] ?? null;
+    return orderedAttachments.map((attachment) => {
+      const previews = previewsByAttachmentId.get(String(attachment.id)) ?? [];
+      const firstPreview = previews[0] ?? null;
 
-        return {
-          id: attachment.id,
-          uuid: attachment.uuid,
-          url: this.storageService.createBlobProxyUrl(attachment.blob),
-          preview_image_url: firstPreview
-            ? this.storageService.createBlobProxyUrl(firstPreview.blob)
-            : null,
-          preview_images: previews.map((preview) => ({
-            id: preview.id,
-            url: this.storageService.createBlobProxyUrl(preview.blob),
-            filename: preview.blob.filename,
-            metadata: preview.blob.metadata ?? {},
-          })),
-          filename: attachment.blob.filename,
-        };
-      }),
-    );
+      return {
+        id: attachment.id,
+        uuid: attachment.uuid,
+        url: this.storageService.createBlobProxyUrl(
+          attachment.blob,
+          previewUrlTtlSeconds,
+        ),
+        preview_image_url: firstPreview
+          ? this.storageService.createBlobProxyUrl(
+              firstPreview.blob,
+              previewUrlTtlSeconds,
+            )
+          : null,
+        preview_images: previews.map((preview) => ({
+          id: preview.id,
+          url: this.storageService.createBlobProxyUrl(
+            preview.blob,
+            previewUrlTtlSeconds,
+          ),
+          filename: preview.blob.filename,
+          metadata: preview.blob.metadata ?? {},
+        })),
+        filename: attachment.blob.filename,
+      };
+    });
   }
 
   private getFolderName(folder: TemplateFolder): string {

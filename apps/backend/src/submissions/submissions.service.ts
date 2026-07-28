@@ -2192,15 +2192,18 @@ export class SubmissionsService {
     const schema =
       submission.templateSchema ?? submission.template?.schema ?? [];
     const orderedAttachments = getSchemaOrderedAttachments(schema, attachments);
+    const previewsByAttachmentId =
+      await this.storageService.findPreviewAttachmentsByRecordIds(
+        orderedAttachments.map((attachment) => attachment.id),
+      );
 
-    return Promise.all(
-      orderedAttachments.map((attachment) =>
-        this.serializeDocumentAttachment(attachment, {
-          name:
-            getSchemaDocumentName(schema, attachment.uuid) ??
-            getBaseName(attachment.blob.filename),
-        }),
-      ),
+    return orderedAttachments.map((attachment) =>
+      this.serializeDocumentAttachment(attachment, {
+        name:
+          getSchemaDocumentName(schema, attachment.uuid) ??
+          getBaseName(attachment.blob.filename),
+        previews: previewsByAttachmentId.get(String(attachment.id)) ?? [],
+      }),
     );
   }
 
@@ -2213,33 +2216,40 @@ export class SubmissionsService {
         submission,
         options,
       );
+    const previewsByAttachmentId =
+      await this.storageService.findPreviewAttachmentsByRecordIds(
+        attachments.map((attachment) => attachment.id),
+      );
 
-    return Promise.all(
-      attachments.map((attachment) =>
-        this.serializeDocumentAttachment(attachment, {
-          name: getBaseName(attachment.blob.filename),
-        }),
-      ),
+    return attachments.map((attachment) =>
+      this.serializeDocumentAttachment(attachment, {
+        name: getBaseName(attachment.blob.filename),
+        previews: previewsByAttachmentId.get(String(attachment.id)) ?? [],
+      }),
     );
   }
 
-  private async serializeDocumentAttachment(
+  private serializeDocumentAttachment(
     attachment: StorageAttachment,
-    options: { name: string },
-  ): Promise<SubmissionDocumentResponseDto> {
-    const previews = await this.storageService.findPreviewAttachments(
-      attachment.id,
-    );
+    options: { name: string; previews: StorageAttachment[] },
+  ): SubmissionDocumentResponseDto {
+    const previewUrlTtlSeconds = 3600;
 
     return {
       id: attachment.id,
       uuid: attachment.uuid,
       filename: attachment.blob.filename,
       name: options.name,
-      url: this.storageService.createBlobProxyUrl(attachment.blob),
-      preview_images: previews.map((preview) => ({
+      url: this.storageService.createBlobProxyUrl(
+        attachment.blob,
+        previewUrlTtlSeconds,
+      ),
+      preview_images: options.previews.map((preview) => ({
         id: preview.id,
-        url: this.storageService.createBlobProxyUrl(preview.blob),
+        url: this.storageService.createBlobProxyUrl(
+          preview.blob,
+          previewUrlTtlSeconds,
+        ),
         filename: preview.blob.filename,
         metadata: preview.blob.metadata ?? {},
       })),

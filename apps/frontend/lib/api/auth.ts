@@ -47,6 +47,12 @@ export type RegisterInput = LoginInput & {
   timezone?: string;
 };
 
+export type RegistrationStatus = {
+  mode: "open" | "initial_only" | "disabled";
+  can_register: boolean;
+  reason: string | null;
+};
+
 export type UpdateProfileInput = {
   first_name?: string;
   last_name?: string;
@@ -298,6 +304,10 @@ export function register(input: RegisterInput): Promise<AuthResponse> {
     body: JSON.stringify(input),
     method: "POST",
   });
+}
+
+export function getRegistrationStatus(): Promise<RegistrationStatus> {
+  return apiFetch<RegistrationStatus>("/auth/registration-status");
 }
 
 export function startSocialAuth(
