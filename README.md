@@ -747,6 +747,12 @@ validated server Route Handler writes with the secret key. These variables are
 not required to compile the static site; missing runtime configuration makes
 newsletter requests return a temporary-unavailable response.
 
+The same deployment publishes the indexable `/alternatives` comparison hub and
+focused DocuSeal, Docusign, PandaDoc, Adobe Acrobat Sign, Dropbox Sign, and
+SignNow comparison routes. Keep `NEXT_PUBLIC_MARKETING_URL` set to the
+production origin so their canonical tags, JSON-LD, Open Graph URLs, robots
+host, and sitemap entries remain consistent.
+
 ## Direct Docker Run
 
 The default container includes its private single-node Redis runtime, so mail,

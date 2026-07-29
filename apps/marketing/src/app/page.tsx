@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import {
+  AlternativesSection,
   HeroSection,
   MainSections,
   PricingSection,
@@ -21,6 +22,7 @@ export default function HomePage() {
         <main>
           <HeroSection />
           <MainSections />
+          <AlternativesSection />
           <PricingSection />
         </main>
         <SiteFooter />

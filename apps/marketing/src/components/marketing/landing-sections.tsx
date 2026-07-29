@@ -9,6 +9,7 @@ import {
   KeyRound,
   MonitorSmartphone,
   RadioTower,
+  Scale,
   ScrollText,
   ServerCog,
   Webhook,
@@ -16,6 +17,7 @@ import {
 
 import { buttonVariants } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { alternatives } from "@/lib/alternatives-content";
 import {
   appUrl,
   deploymentPaths,
@@ -589,6 +591,56 @@ export async function MainSections() {
   );
 }
 
+export function AlternativesSection() {
+  return (
+    <section>
+      <div className="page-frame border-t px-4 py-16 lg:py-20">
+        <div className="grid gap-12 lg:grid-cols-[0.75fr_1.25fr] lg:gap-20">
+          <Reveal>
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase text-signa-700">
+              <Scale className="size-4" />
+              Compare signing platforms
+            </div>
+            <h2 className="mt-8 text-3xl font-semibold tracking-normal text-ink md:text-4xl">
+              Evaluate Signa against the tools already on your shortlist
+            </h2>
+            <p className="mt-4 max-w-xl text-base leading-7 text-copy">
+              Review deployment, API, embedding, document workflow, evidence,
+              and operating responsibilities before choosing a signing
+              platform.
+            </p>
+            <Link
+              href="/alternatives"
+              className="group mt-8 inline-flex"
+            >
+              <ArrowLink>Browse all alternatives</ArrowLink>
+            </Link>
+          </Reveal>
+          <div className="grid overflow-hidden rounded-lg border bg-line sm:grid-cols-2">
+            {alternatives.slice(0, 4).map((alternative) => (
+              <Link
+                key={alternative.slug}
+                href={`/alternatives/${alternative.slug}`}
+                className="group min-h-44 bg-white p-6"
+              >
+                <p className="text-xs font-semibold uppercase text-signa-700">
+                  {alternative.category}
+                </p>
+                <h3 className="mt-4 text-lg font-semibold text-ink">
+                  {alternative.primaryKeyword}
+                </h3>
+                <span className="mt-8 block">
+                  <ArrowLink>Read comparison</ArrowLink>
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function PricingSection() {
   return (
     <section id="deployment">
@@ -702,12 +754,25 @@ export function SiteFooter() {
         { label: "Terms", href: "/terms" },
       ],
     },
+    {
+      title: "Compare",
+      links: [
+        { label: "All alternatives", href: "/alternatives" },
+        { label: "DocuSeal alternative", href: "/alternatives/docuseal" },
+        { label: "Docusign alternative", href: "/alternatives/docusign" },
+        { label: "PandaDoc alternative", href: "/alternatives/pandadoc" },
+        {
+          label: "Adobe Sign alternative",
+          href: "/alternatives/adobe-acrobat-sign",
+        },
+      ],
+    },
   ];
 
   return (
     <footer id="contact">
       <div className="page-frame border-t px-4 py-14">
-        <div className="grid gap-12 text-xs text-copy sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-12 text-xs text-copy sm:grid-cols-2 lg:grid-cols-5">
           <div>
             <Wordmark className="h-24 w-32" />
             <p className="mt-2 max-w-48 font-medium leading-5 text-copy">
