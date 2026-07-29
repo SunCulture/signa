@@ -184,6 +184,10 @@ Docker Compose provides the same setup:
 docker compose up -d --build
 ```
 
+The public documentation includes a copyable installation, health-check,
+SMTP, storage, backup, and upgrade runbook at
+`/resources/deploy-signa-on-premise` on the marketing site.
+
 Useful endpoints:
 
 - App: `http://localhost:3000`
