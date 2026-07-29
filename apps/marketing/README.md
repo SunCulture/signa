@@ -49,7 +49,8 @@ SUPABASE_SECRET_KEY=sb_secret_...
 `SUPABASE_SECRET_KEY` is server-only and is used by
 `POST /api/newsletter`. The subscriber table has RLS enabled, grants no access
 to `anon` or `authenticated`, and can only be changed through this validated
-Route Handler.
+Route Handler. Supabase is required for newsletter submissions, but its
+availability does not block static marketing and documentation builds.
 
 Apply the committed schema after linking the marketing workspace to a Supabase
 project:
@@ -81,8 +82,12 @@ SUPABASE_SECRET_KEY=sb_secret_...
 
 `NEXT_PUBLIC_MARKETING_URL` is the canonical public origin. Preview builds
 should continue to use the production marketing origin for canonical metadata.
-The build fails on Vercel when a required variable is absent, malformed, uses
-plain HTTP, or points to localhost.
+The production build does not contact Supabase or require its credentials.
+After configuring all deployment variables, validate them explicitly with:
+
+```bash
+pnpm --filter marketing validate:env
+```
 
 Apply the Supabase migration before enabling the production domain. After the
 first deployment, verify `/robots.txt`, `/sitemap.xml`, one documentation page,
@@ -94,4 +99,5 @@ one journal article, the product sign-in link, and a newsletter subscription.
 pnpm --filter marketing typecheck
 pnpm --filter marketing lint
 pnpm --filter marketing build
+pnpm --filter marketing validate:env
 ```

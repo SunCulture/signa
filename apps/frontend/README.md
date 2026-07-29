@@ -23,7 +23,9 @@ Open `http://localhost:3000`. During local development the API defaults to
 `http://localhost:3001/api`. In the production container, browser requests use
 same-origin `/api` and Next.js proxies them to the internal NestJS server.
 The root route redirects to `/templates`; the auth guard redirects signed-out
-users to login.
+users to login. The product frontend has no landing-page feature flag.
+Self-service registration is controlled by the backend `REGISTRATION_MODE`
+setting.
 
 ## Route Surfaces
 
@@ -49,7 +51,7 @@ changing them:
 | `NEXT_PUBLIC_SIGNING_BASE_URL` | local   | Public origin used when generating signing and QR links.                 |
 
 Google Picker and OAuth browser variables are documented in the root README
-and `.env.example`.
+and [`apps/frontend/.env.example`](.env.example).
 
 ## Verification
 
