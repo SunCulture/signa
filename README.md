@@ -736,7 +736,8 @@ licensing records:
 
 | Variable                               | Required | Description                                                                                   |
 | -------------------------------------- | -------- | --------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_MARKETING_URL`            | Yes      | Public origin of the marketing, documentation, and journal deployment. Use `https://signa-docs.vercel.app` in production. |
+| `VERCEL_PROJECT_PRODUCTION_URL`        | Vercel   | System-provided production domain used as the canonical marketing and documentation origin on Vercel.                    |
+| `NEXT_PUBLIC_MARKETING_URL`            | Fallback | Public origin used locally and on non-Vercel deployments. Use `https://signa-docs.vercel.app` in production.              |
 | `NEXT_PUBLIC_APP_URL`                  | Yes      | Product application origin used by sign-in and console links.                                 |
 | `SUPABASE_URL`                         | Newsletter | Server-side Supabase project URL for marketing data.                                        |
 | `SUPABASE_SECRET_KEY`                  | Newsletter | Server-only secret used by the newsletter Route Handler. Never expose this value to browsers. |
@@ -749,9 +750,10 @@ newsletter requests return a temporary-unavailable response.
 
 The same deployment publishes the indexable `/alternatives` comparison hub and
 focused DocuSeal, Docusign, PandaDoc, Adobe Acrobat Sign, Dropbox Sign, and
-SignNow comparison routes. Keep `NEXT_PUBLIC_MARKETING_URL` set to the
-production origin so their canonical tags, JSON-LD, Open Graph URLs, robots
-host, and sitemap entries remain consistent.
+SignNow comparison routes. Vercel uses `VERCEL_PROJECT_PRODUCTION_URL`; other
+deployments use `NEXT_PUBLIC_MARKETING_URL`. Keep that canonical origin aligned
+with the public domain so canonical tags, JSON-LD, Open Graph URLs, robots host,
+and sitemap entries remain consistent.
 
 ## Direct Docker Run
 

@@ -12,7 +12,8 @@ function publicOrigin(variable: string | undefined, fallback: string): string {
 }
 
 export const marketingUrl = publicOrigin(
-  process.env.NEXT_PUBLIC_MARKETING_URL,
+  process.env.VERCEL_PROJECT_PRODUCTION_URL ??
+    process.env.NEXT_PUBLIC_MARKETING_URL,
   "http://localhost:3002",
 );
 

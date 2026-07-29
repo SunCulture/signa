@@ -83,9 +83,12 @@ SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SECRET_KEY=sb_secret_...
 ```
 
-`NEXT_PUBLIC_MARKETING_URL` is the canonical public origin. Preview builds
-should continue to use the production marketing origin for canonical metadata.
-The production build does not contact Supabase or require its credentials.
+On Vercel, `VERCEL_PROJECT_PRODUCTION_URL` is the authoritative canonical
+origin and is supplied automatically when system environment variables are
+exposed. `NEXT_PUBLIC_MARKETING_URL` remains the local and non-Vercel fallback.
+Preview builds therefore continue to reference the production domain instead
+of their temporary preview URL. The production build does not contact Supabase
+or require its credentials.
 After configuring all deployment variables, validate them explicitly with:
 
 ```bash

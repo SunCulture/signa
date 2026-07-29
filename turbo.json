@@ -3,7 +3,11 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "env": ["NEXT_PUBLIC_APP_URL", "NEXT_PUBLIC_MARKETING_URL"],
+      "env": [
+        "NEXT_PUBLIC_APP_URL",
+        "NEXT_PUBLIC_MARKETING_URL",
+        "VERCEL_PROJECT_PRODUCTION_URL"
+      ],
       "passThroughEnv": ["SUPABASE_SECRET_KEY", "SUPABASE_URL"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**", "out/**"]
     },
