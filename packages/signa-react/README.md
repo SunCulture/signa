@@ -4,6 +4,9 @@ React components for embedding Signa signing forms and template builder workflow
 
 The API intentionally mirrors `@docuseal/react` so existing DocuSeal-style embeds can migrate with minimal changes. The components load Signa browser custom elements from your Signa host and pass configuration through `data-*` attributes.
 
+See the [Signa embedding guide](https://signa-docs.vercel.app/docs/embedding)
+for browser integration patterns and hosted-flow guidance.
+
 ## Install
 
 ```bash

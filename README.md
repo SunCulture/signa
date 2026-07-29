@@ -48,19 +48,22 @@ Signa ships its user, developer, API, compliance, and deployment documentation
 from the standalone `apps/marketing` deployment. These routes are public and
 do not require an authenticated product account:
 
-| Route                             | Purpose                                                                    |
-| --------------------------------- | -------------------------------------------------------------------------- |
-| `/docs`                           | Documentation home and navigation.                                         |
-| `/docs/api`                       | Curated API onboarding, endpoint contracts, examples, and response shapes. |
-| `/docs/embedding`                 | React and React Native embedding guidance.                                 |
-| `/docs/webhooks`                  | Webhook registration, events, retries, and signature verification.         |
-| `/guides`                         | End-to-end signing, template, verification, and deployment guides.         |
-| `/resources`                      | Operational references for teams, branding, integrations, and storage.     |
-| `/compliance`                     | Audit, certificate, PAdES, timestamp, and LTV controls.                    |
-| `/qualified-electronic-signature` | Signature levels and external qualified trust-provider requirements.       |
+Production documentation: [https://signa-docs.vercel.app](https://signa-docs.vercel.app)
+
+| Route                                                                                                               | Purpose                                                                    |
+| ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| [`/docs`](https://signa-docs.vercel.app/docs)                                                                       | Documentation home and navigation.                                         |
+| [`/docs/api`](https://signa-docs.vercel.app/docs/api)                                                               | Curated API onboarding, endpoint contracts, examples, and response shapes. |
+| [`/docs/embedding`](https://signa-docs.vercel.app/docs/embedding)                                                   | React and React Native embedding guidance.                                 |
+| [`/docs/webhooks`](https://signa-docs.vercel.app/docs/webhooks)                                                     | Webhook registration, events, retries, and signature verification.         |
+| [`/guides`](https://signa-docs.vercel.app/guides)                                                                   | End-to-end signing, template, verification, and deployment guides.         |
+| [`/resources`](https://signa-docs.vercel.app/resources)                                                             | Operational references for teams, branding, integrations, and storage.     |
+| [`/compliance`](https://signa-docs.vercel.app/compliance)                                                           | Audit, certificate, PAdES, timestamp, and LTV controls.                    |
+| [`/qualified-electronic-signature`](https://signa-docs.vercel.app/qualified-electronic-signature)                   | Signature levels and external qualified trust-provider requirements.       |
 
 The generated NestJS OpenAPI explorer remains available at `/api/docs`. Use
-`/docs/api` for guided onboarding and `/api/docs` for the authoritative,
+the [public API guide](https://signa-docs.vercel.app/docs/api) for guided
+onboarding and `/api/docs` on a running Signa instance for the authoritative,
 machine-generated controller and DTO schema.
 
 ## React Embed Package
@@ -186,7 +189,7 @@ docker compose up -d --build
 
 The public documentation includes a copyable installation, health-check,
 SMTP, storage, backup, and upgrade runbook at
-`/resources/deploy-signa-on-premise` on the marketing site.
+[Deploy Signa on premise](https://signa-docs.vercel.app/resources/deploy-signa-on-premise).
 
 Useful endpoints:
 
@@ -721,6 +724,8 @@ These are read when `next build` runs. Rebuild the Docker image after changing t
 for Vercel deployment and does not ship in the on-prem Signa runtime. Run it
 locally with:
 
+Production URL: [https://signa-docs.vercel.app](https://signa-docs.vercel.app)
+
 ```bash
 cp apps/marketing/.env.example apps/marketing/.env.local
 pnpm dev:marketing
@@ -731,7 +736,7 @@ licensing records:
 
 | Variable                               | Required | Description                                                                                   |
 | -------------------------------------- | -------- | --------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_MARKETING_URL`            | Yes      | Public origin of the marketing, documentation, and journal deployment.                        |
+| `NEXT_PUBLIC_MARKETING_URL`            | Yes      | Public origin of the marketing, documentation, and journal deployment. Use `https://signa-docs.vercel.app` in production. |
 | `NEXT_PUBLIC_APP_URL`                  | Yes      | Product application origin used by sign-in and console links.                                 |
 | `SUPABASE_URL`                         | Newsletter | Server-side Supabase project URL for marketing data.                                        |
 | `SUPABASE_SECRET_KEY`                  | Newsletter | Server-only secret used by the newsletter Route Handler. Never expose this value to browsers. |

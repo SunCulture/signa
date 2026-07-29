@@ -6,6 +6,8 @@ verification.
 
 Use the [workspace README](../../README.md) for complete deployment,
 environment-variable, Docker, SMTP, S3, and signing documentation.
+User and developer guides are published at
+[signa-docs.vercel.app](https://signa-docs.vercel.app/docs).
 
 ## Development
 

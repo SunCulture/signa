@@ -6,6 +6,9 @@ The package uses `react-native-webview` and keeps the signing UI hosted by
 Signa. This mirrors the web embed security model while giving native apps typed
 completion, decline, load, and error callbacks.
 
+See the [Signa embedding guide](https://signa-docs.vercel.app/docs/embedding)
+for supported surfaces and hosted-flow guidance.
+
 ## Installation
 
 ```sh

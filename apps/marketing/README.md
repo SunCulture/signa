@@ -5,6 +5,8 @@ licensing website. It is a full-stack Next.js App Router application intended
 for independent Vercel deployment. Product data remains in the Signa
 application; newsletter and future licensing records use Supabase.
 
+Production: [https://signa-docs.vercel.app](https://signa-docs.vercel.app)
+
 The landing page retains the approved editorial layout and responsive behavior
 while presenting Signa's implemented template, submission, embedding,
 webhook, compliance, and self-hosting capabilities. Examples and CTA routes
@@ -16,10 +18,10 @@ prerendered by Next.js.
 
 Public documentation is owned by this workspace:
 
-- `/docs`, `/docs/api`, `/docs/embedding`, and `/docs/webhooks`
-- `/guides` and generated guide detail routes
-- `/resources` and generated resource detail routes
-- `/compliance` and `/qualified-electronic-signature`
+- [Documentation](https://signa-docs.vercel.app/docs), [API](https://signa-docs.vercel.app/docs/api), [embedding](https://signa-docs.vercel.app/docs/embedding), and [webhooks](https://signa-docs.vercel.app/docs/webhooks)
+- [Guides](https://signa-docs.vercel.app/guides) and generated guide detail routes
+- [Resources](https://signa-docs.vercel.app/resources) and generated resource detail routes
+- [Compliance](https://signa-docs.vercel.app/compliance) and [qualified electronic signatures](https://signa-docs.vercel.app/qualified-electronic-signature)
 
 The product frontend redirects its former documentation URLs here.
 
@@ -40,7 +42,7 @@ Open `http://localhost:3002`.
 Configure the server-side project URL and secret:
 
 ```env
-NEXT_PUBLIC_MARKETING_URL=https://www.example.com
+NEXT_PUBLIC_MARKETING_URL=https://signa-docs.vercel.app
 NEXT_PUBLIC_APP_URL=https://app.example.com
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SECRET_KEY=sb_secret_...
@@ -74,7 +76,7 @@ needed. The workspace pins Node.js 24 through `package.json`.
 Configure these variables for both Preview and Production:
 
 ```env
-NEXT_PUBLIC_MARKETING_URL=https://www.example.com
+NEXT_PUBLIC_MARKETING_URL=https://signa-docs.vercel.app
 NEXT_PUBLIC_APP_URL=https://app.example.com
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SECRET_KEY=sb_secret_...

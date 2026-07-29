@@ -3,7 +3,8 @@
 The Signa frontend is a Next.js App Router application containing the
 authenticated console, public signing flows, and embedded runtime assets. The
 marketing, documentation, and journal site lives in
-[`apps/marketing`](../marketing/README.md) and is deployed independently.
+[`apps/marketing`](../marketing/README.md), is deployed independently, and is
+available at [signa-docs.vercel.app](https://signa-docs.vercel.app).
 
 Use the [workspace README](../../README.md) for deployment and the
 [`@signajs/react`](../../packages/signa-react/README.md) and
@@ -47,7 +48,7 @@ changing them:
 | Variable                       | Default | Purpose                                                                  |
 | ------------------------------ | ------- | ------------------------------------------------------------------------ |
 | `NEXT_PUBLIC_API_BASE_URL`     | empty   | Empty uses same-origin `/api`; set only for a deliberately separate API. |
-| `NEXT_PUBLIC_MARKETING_URL`    | `http://localhost:3002` | Marketing and documentation origin used by legacy route redirects. |
+| `NEXT_PUBLIC_MARKETING_URL`    | `http://localhost:3002` | Marketing and documentation origin used by legacy route redirects. Set it to `https://signa-docs.vercel.app` in production. |
 | `NEXT_PUBLIC_SIGNING_BASE_URL` | local   | Public origin used when generating signing and QR links.                 |
 
 Google Picker and OAuth browser variables are documented in the root README
