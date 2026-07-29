@@ -1,5 +1,9 @@
 import type { MetadataRoute } from "next";
 
+import {
+  alternatives,
+  alternativesUpdatedAt,
+} from "@/lib/alternatives-content";
 import { blogPosts } from "@/lib/blog-content";
 import { guideArticles, resourceArticles } from "@/lib/docs/content";
 import { marketingUrl } from "@/lib/site-config";
@@ -25,6 +29,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
       "/docs/webhooks",
       "/guides",
       "/resources",
+      "/alternatives",
       "/compliance",
       "/qualified-electronic-signature",
       "/privacy",
@@ -46,6 +51,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified: new Date(),
       changeFrequency: "monthly" as const,
       priority: 0.7,
+    })),
+    ...alternatives.map((alternative) => ({
+      url: `${marketingUrl}/alternatives/${alternative.slug}`,
+      lastModified: new Date(alternativesUpdatedAt),
+      changeFrequency: "monthly" as const,
+      priority: 0.8,
     })),
     ...blogPosts.map((post) => ({
       url: `${marketingUrl}/blog/${post.slug}`,
