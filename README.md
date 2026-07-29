@@ -733,12 +733,14 @@ licensing records:
 | -------------------------------------- | -------- | --------------------------------------------------------------------------------------------- |
 | `NEXT_PUBLIC_MARKETING_URL`            | Yes      | Public origin of the marketing, documentation, and journal deployment.                        |
 | `NEXT_PUBLIC_APP_URL`                  | Yes      | Product application origin used by sign-in and console links.                                 |
-| `SUPABASE_URL`                         | Yes      | Server-side Supabase project URL for marketing data.                                          |
-| `SUPABASE_SECRET_KEY`                  | Yes      | Server-only secret used by the newsletter Route Handler. Never expose this value to browsers. |
+| `SUPABASE_URL`                         | Newsletter | Server-side Supabase project URL for marketing data.                                        |
+| `SUPABASE_SECRET_KEY`                  | Newsletter | Server-only secret used by the newsletter Route Handler. Never expose this value to browsers. |
 
 Newsletter schema changes live in `apps/marketing/supabase/migrations`. The
 subscriber table enables RLS and grants no public table access; only the
-validated server Route Handler writes with the secret key.
+validated server Route Handler writes with the secret key. These variables are
+not required to compile the static site; missing runtime configuration makes
+newsletter requests return a temporary-unavailable response.
 
 ## Direct Docker Run
 

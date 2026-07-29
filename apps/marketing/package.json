@@ -7,10 +7,11 @@
   },
   "scripts": {
     "dev": "next dev --port 3002",
-    "build": "node scripts/validate-deployment-env.mjs && next build",
+    "build": "next build",
     "start": "next start --port 3002",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "validate:env": "node scripts/validate-deployment-env.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
