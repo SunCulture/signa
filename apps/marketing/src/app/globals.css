@@ -1,0 +1,376 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ink: var(--ink);
+  --color-copy: var(--copy);
+  --color-line: var(--line);
+  --color-surface: var(--surface);
+  --color-code: var(--code);
+  --color-mint: var(--mint);
+  --color-mint-soft: var(--mint-soft);
+  --color-coral-100: var(--coral-100);
+  --color-coral-200: var(--coral-200);
+  --color-coral-500: var(--coral-500);
+  --color-coral-700: var(--coral-700);
+  --color-coral-800: var(--coral-800);
+  --color-signa-50: var(--signa-50);
+  --color-signa-100: var(--signa-100);
+  --color-signa-200: var(--signa-200);
+  --color-signa-300: var(--signa-300);
+  --color-signa-400: var(--signa-400);
+  --color-signa-500: var(--signa-500);
+  --color-signa-600: var(--signa-600);
+  --color-signa-700: var(--signa-700);
+  --color-signa-800: var(--signa-800);
+  --color-signa-900: var(--signa-900);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --shadow-button: 0 1px 1px rgb(255 255 255 / 30%) inset,
+    0 1px 2px rgb(15 23 42 / 12%), 0 8px 18px rgb(15 23 42 / 10%);
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 8%),
+    0 8px 22px rgb(15 23 42 / 8%);
+  --shadow-code: 0 18px 44px rgb(15 23 42 / 24%),
+    0 2px 8px rgb(15 23 42 / 12%);
+}
+
+:root {
+  --background: #ffffff;
+  --foreground: #16304f;
+  --card: #ffffff;
+  --card-foreground: #16304f;
+  --popover: #ffffff;
+  --popover-foreground: #16304f;
+  --primary: #16304f;
+  --primary-foreground: #ffffff;
+  --secondary: #eef5fa;
+  --secondary-foreground: #16304f;
+  --muted: #f6fafd;
+  --muted-foreground: #53728f;
+  --accent: #e7f8f2;
+  --accent-foreground: #16304f;
+  --destructive: #d92d20;
+  --border: #d9eaf5;
+  --input: #d9eaf5;
+  --ring: #27639d;
+  --ink: #16304f;
+  --copy: #53728f;
+  --line: #d9eaf5;
+  --surface: #f6fafd;
+  --code: #101a2c;
+  --mint: #9be3c8;
+  --mint-soft: #e7f8f2;
+  --coral-100: #fff0ea;
+  --coral-200: #ffd8c8;
+  --coral-500: #ef7d52;
+  --coral-700: #b84a2b;
+  --coral-800: #8f361f;
+  --signa-50: #f6fafd;
+  --signa-100: #eef5fa;
+  --signa-200: #d9eaf5;
+  --signa-300: #afd1e9;
+  --signa-400: #9abeda;
+  --signa-500: #6e97b9;
+  --signa-600: #53728f;
+  --signa-700: #27639d;
+  --signa-800: #274a6d;
+  --signa-900: #16304f;
+  --radius: 0.625rem;
+}
+
+* {
+  border-color: var(--line);
+}
+
+html {
+  background: #ffffff;
+}
+
+body {
+  margin: 0;
+  overflow-x: clip;
+  color: var(--ink);
+  background-color: #ffffff;
+  font-family: var(--font-geist-sans), sans-serif;
+}
+
+::selection {
+  color: #ffffff;
+  background: #27639d;
+}
+
+a,
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.page-frame {
+  width: 100%;
+  max-width: 72rem;
+  margin-inline: auto;
+  border-right: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  background: #ffffff;
+}
+
+.site-gutter {
+  width: 100%;
+  max-width: 80rem;
+  min-height: 100%;
+  margin-inline: auto;
+  border-right: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  background-color: #ffffff;
+  background-image: repeating-linear-gradient(
+    -55deg,
+    transparent 0,
+    transparent 5px,
+    rgb(175 209 233 / 42%) 5px,
+    rgb(175 209 233 / 42%) 6px
+  );
+}
+
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--copy);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1rem;
+  text-transform: uppercase;
+}
+
+.eyebrow::before {
+  width: 0.5rem;
+  height: 0.5rem;
+  border: 2px solid var(--coral-500);
+  content: "";
+  transform: rotate(45deg);
+}
+
+.signa-flow {
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    linear-gradient(
+      118deg,
+      rgb(217 234 245 / 96%) 0%,
+      rgb(175 209 233 / 95%) 26%,
+      rgb(155 227 200 / 94%) 55%,
+      rgb(239 125 82 / 78%) 100%
+    );
+  clip-path: polygon(0 42%, 100% 2%, 100% 100%, 0 100%);
+}
+
+.signa-flow::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(rgb(255 255 255 / 26%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 26%) 1px, transparent 1px);
+  background-size: 44px 44px;
+  content: "";
+  mask-image: linear-gradient(to bottom, transparent, #000 38%, #000);
+}
+
+.signa-flow::after {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(
+      104deg,
+      rgb(255 255 255 / 36%) 0 18%,
+      transparent 18% 52%,
+      rgb(22 48 79 / 10%) 52% 70%,
+      transparent 70%
+    );
+  content: "";
+}
+
+.signa-flow-menu {
+  clip-path: polygon(0 30%, 100% 0, 100% 100%, 0 100%);
+}
+
+.brand-marquee-viewport {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 7%,
+    #000 93%,
+    transparent
+  );
+}
+
+.brand-marquee-group {
+  width: 70rem;
+}
+
+.trust-band {
+  background:
+    linear-gradient(135deg, rgb(246 250 253 / 98%), rgb(238 245 250 / 94%)),
+    repeating-linear-gradient(
+      -45deg,
+      transparent 0 18px,
+      rgb(39 99 157 / 5%) 18px 19px
+    );
+}
+
+.deployment-visual {
+  background:
+    linear-gradient(135deg, rgb(217 234 245 / 92%), rgb(155 227 200 / 76%)),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0 31px,
+      rgb(255 255 255 / 28%) 31px 32px
+    );
+}
+
+.code-panel pre {
+  min-width: max-content;
+  min-height: 100%;
+  margin: 0;
+  padding: 2rem;
+  background: transparent !important;
+  font-family: var(--font-geist-mono), monospace !important;
+  line-height: 1.75;
+}
+
+.code-panel code {
+  font-family: inherit !important;
+}
+
+.code-panel-preview pre {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.recipe-code pre {
+  min-width: 0;
+  padding: 1.5rem;
+  overflow: hidden;
+  line-height: 1.55;
+}
+
+.recipe-tabs [data-slot="tabs-trigger"] {
+  min-height: 2.75rem;
+  border-color: transparent !important;
+  background: transparent !important;
+  color: var(--copy) !important;
+  box-shadow: none !important;
+}
+
+.recipe-tabs [data-slot="tabs-trigger"]:hover:not([data-active]) {
+  border-color: var(--signa-300) !important;
+  background: rgb(255 255 255 / 62%) !important;
+  color: var(--ink) !important;
+}
+
+.recipe-tabs [data-slot="tabs-trigger"][data-active] {
+  border-color: var(--mint) !important;
+  background: var(--mint) !important;
+  color: var(--ink) !important;
+  font-weight: 700;
+}
+
+.blog-prose h2 {
+  margin: 0 0 1rem;
+  color: var(--ink);
+  font-size: 1.5rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.blog-prose p {
+  margin: 0 0 1.25rem;
+  color: var(--copy);
+  font-size: 1rem;
+  line-height: 1.8;
+}
+
+.blog-prose ul {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+  padding-left: 1.25rem;
+  color: var(--copy);
+  list-style: disc;
+}
+
+.blog-prose li {
+  padding-left: 0.25rem;
+  line-height: 1.65;
+}
+
+.blog-prose li::marker {
+  color: var(--signa-500);
+}
+
+.brand-marquee-track {
+  animation: brand-marquee 24s linear infinite;
+}
+
+.technical-row {
+  animation: technical-marquee 20s linear infinite;
+}
+
+@keyframes brand-marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes technical-marquee {
+  from {
+    transform: translateX(-16%);
+  }
+  to {
+    transform: translateX(-52%);
+  }
+}
+
+@media (max-width: 767px) {
+  .page-frame {
+    width: calc(100% - 16px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .brand-marquee,
+  .brand-marquee-track,
+  .technical-row {
+    animation: none;
+  }
+}

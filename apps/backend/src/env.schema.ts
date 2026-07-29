@@ -20,7 +20,6 @@ const validationSchema = Joi.object({
   REGISTRATION_MODE: Joi.string()
     .valid('open', 'initial_only', 'disabled')
     .default('initial_only'),
-  SHOW_LANDING_PAGE: Joi.boolean().truthy('true').falsy('false').default(false),
 
   DATABASE_TYPE: Joi.string().valid('postgres', 'sqlite').empty('').optional(),
   DATABASE_URL: Joi.string()

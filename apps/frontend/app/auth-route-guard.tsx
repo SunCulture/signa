@@ -15,12 +15,7 @@ const publicPrefixes = [
   "/auth",
   "/ai-assistant",
   "/api/docs",
-  "/compliance",
   "/d",
-  "/docs",
-  "/guides",
-  "/qualified-electronic-signature",
-  "/resources",
   "/s",
 ]
 const publicPaths = ["/"]
