@@ -1,6 +1,8 @@
 function publicOrigin(variable: string | undefined, fallback: string): string {
   const value = variable?.trim() || fallback;
-  const url = new URL(value);
+  const url = new URL(
+    value.includes("://") ? value : `https://${value}`,
+  );
 
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error(`Unsupported public URL protocol: ${url.protocol}`);

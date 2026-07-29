@@ -24,7 +24,7 @@ for (const name of [
   let url;
 
   try {
-    url = new URL(value);
+    url = new URL(value.includes("://") ? value : `https://${value}`);
   } catch {
     throw new Error(`${name} must be a valid absolute URL.`);
   }
