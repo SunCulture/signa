@@ -17,6 +17,7 @@ RUN apt-get update \
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/backend/package.json apps/backend/package.json
 COPY apps/frontend/package.json apps/frontend/package.json
+COPY apps/marketing/package.json apps/marketing/package.json
 COPY packages/signa-react/package.json packages/signa-react/package.json
 COPY packages/signa-react-native/package.json packages/signa-react-native/package.json
 COPY packages/shared/package.json packages/shared/package.json

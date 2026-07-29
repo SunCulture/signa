@@ -3,11 +3,10 @@ import { basename, dirname, resolve } from "node:path";
 import type { NextConfig } from "next";
 
 const rootEnvKeys = new Set([
-  "SHOW_LANDING_PAGE",
-  "NEXT_PUBLIC_SHOW_LANDING_PAGE",
   "NEXT_PUBLIC_API_BASE_URL",
   "NEXT_PUBLIC_SIGNING_BASE_URL",
   "NEXT_PUBLIC_GOOGLE_CLIENT_ID",
+  "NEXT_PUBLIC_MARKETING_URL",
   "NEXT_PUBLIC_MICROSOFT_CLIENT_ID",
   "INTERNAL_API_URL",
   "NEXT_OUTPUT",
@@ -23,8 +22,30 @@ const internalApiUrl = (
 const apiRewriteTarget = internalApiUrl.endsWith("/api")
   ? internalApiUrl
   : `${internalApiUrl}/api`;
+const marketingUrl = (
+  process.env.NEXT_PUBLIC_MARKETING_URL ?? "http://localhost:3002"
+).replace(/\/$/, "");
 
 const nextConfig: NextConfig = {
+  async redirects() {
+    return [
+      ...["docs", "guides", "resources"].map((section) => ({
+        source: `/${section}/:path*`,
+        destination: `${marketingUrl}/${section}/:path*`,
+        permanent: false,
+      })),
+      {
+        source: "/compliance",
+        destination: `${marketingUrl}/compliance`,
+        permanent: false,
+      },
+      {
+        source: "/qualified-electronic-signature",
+        destination: `${marketingUrl}/qualified-electronic-signature`,
+        permanent: false,
+      },
+    ];
+  },
   async rewrites() {
     return [
       {

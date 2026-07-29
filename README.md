@@ -1,6 +1,6 @@
 # Signa
 
-Signa is a TypeScript and React document-signing platform built for DocuSeal-compatible signing workflows and API behavior. It uses a NestJS backend, Next.js frontend, TypeORM, PostgreSQL or SQLite, Redis-backed queues, PDF rendering/signing tooling, mail/SMS delivery, webhooks, and shared contracts in a pnpm monorepo.
+Signa is a TypeScript and React document-signing platform built for DocuSeal-compatible signing workflows and API behavior. It uses a NestJS backend, Next.js product and marketing applications, TypeORM, PostgreSQL or SQLite, Redis-backed queues, PDF rendering/signing tooling, mail/SMS delivery, webhooks, Supabase-backed marketing data, and shared contracts in a pnpm monorepo.
 
 This scaffold was created from the official framework CLIs:
 
@@ -18,6 +18,7 @@ cd signa
 
 - `apps/frontend`: Next.js App Router frontend.
 - `apps/backend`: NestJS backend API.
+- `apps/marketing`: standalone full-stack Next.js marketing site for independent Vercel deployment and Supabase-backed marketing data.
 - `packages/signa-react`: npm-publishable React embedding package for Signa signing forms and builder workflows.
 - `packages/signa-react-native`: npm-publishable React Native WebView package for mobile signing flows.
 - `packages/shared`: shared Zod schemas, contracts, and types.
@@ -34,17 +35,18 @@ Default local URLs:
 
 - Frontend: `http://localhost:3000`
 - Backend: `http://localhost:3001/api`
+- Marketing: `http://localhost:3002`
 - Swagger: `http://localhost:3001/api/docs`
 - Health: `http://localhost:3001/api/health`
 - Bull Board, when enabled: `http://localhost:3001/queues`
 
-Frontend and backend run as separate servers in development and production because the frontend uses Next.js server routes. Docker starts both processes in one app container for simple deployment.
+Frontend and backend run as separate servers in development and production because the frontend uses Next.js server routes. Docker starts both product processes in one app container for simple deployment. The marketing workspace is deployed independently and is not served by the on-prem product container.
 
 ## Public Documentation
 
 Signa ships its user, developer, API, compliance, and deployment documentation
-inside the frontend. These routes are public and do not require an authenticated
-account:
+from the standalone `apps/marketing` deployment. These routes are public and
+do not require an authenticated product account:
 
 | Route                             | Purpose                                                                    |
 | --------------------------------- | -------------------------------------------------------------------------- |
@@ -196,7 +198,6 @@ Useful endpoints:
 | `DATABASE_URL`      | No                    | Leave empty for SQLite. Set a PostgreSQL URL to switch to Postgres.                                                                               |
 | `JWT_SECRET`        | No                    | Generated once into `/data/signa.env` when omitted. Supply your own secret through a secrets manager for stateless or multi-instance deployments. |
 | `REGISTRATION_MODE` | No                    | Defaults to `initial_only`. Use `initial_only` for on-prem bootstrap, `open` for public signup, or `disabled` to block self-service registration. |
-| `SHOW_LANDING_PAGE` | No                    | Defaults to `false`. On-prem deployments redirect `/` to `/auth/login`; set `true` for public marketing/SaaS deployments.                         |
 
 Run behind an HTTPS reverse proxy or load balancer and set:
 
@@ -224,7 +225,9 @@ Registration modes:
 | `open`         | Public signup is enabled. Use this only for controlled SaaS/public deployments.                                                  |
 | `disabled`     | Self-service registration is fully disabled, including the first user. Use this when users are seeded or provisioned externally. |
 
-`SHOW_LANDING_PAGE=false` is also the default for on-prem installations, so the base domain opens the login page. Set it to `true` only when the deployment should expose the marketing landing page.
+The product root redirects to `/templates`. Existing auth guards send signed-out
+users to login and preserve authenticated access to the console. The public
+marketing site is the separate `apps/marketing` deployment.
 
 ### Database Env Vars
 
@@ -701,12 +704,37 @@ These are read when `next build` runs. Rebuild the Docker image after changing t
 | Variable                             | Required | Default                            | Description                                                                                                                  |
 | ------------------------------------ | -------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `NEXT_PUBLIC_API_BASE_URL`           | No       | empty                              | Empty uses same-origin `/api` and is recommended. Set only when the API is intentionally hosted on a separate public origin. |
-| `SHOW_LANDING_PAGE`                  | No       | `false`                            | When `false`, the root route redirects to `/auth/login`. Set `true` to show the marketing landing page.                      |
+| `NEXT_PUBLIC_MARKETING_URL`          | No       | `http://localhost:3002`            | Standalone marketing and documentation origin used by legacy product redirects.                                             |
 | `NEXT_PUBLIC_SIGNING_BASE_URL`       | No       | `http://localhost:3000` in Compose | Public signing-page origin, useful for QR signing links.                                                                     |
 | `NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID` | Optional | empty                              | Browser Google OAuth client ID.                                                                                              |
 | `NEXT_PUBLIC_GOOGLE_PICKER_API_KEY`  | Optional | empty                              | Google Picker API key.                                                                                                       |
 | `NEXT_PUBLIC_GOOGLE_PICKER_APP_ID`   | Optional | empty                              | Google Picker app ID.                                                                                                        |
 | `NEXT_OUTPUT`                        | Optional | empty                              | Set to `export` only for static export experiments. Do not use for the full app.                                             |
+
+### Marketing Site
+
+`apps/marketing` is a separate full-stack Next.js application. It is intended
+for Vercel deployment and does not ship in the on-prem Signa runtime. Run it
+locally with:
+
+```bash
+cp apps/marketing/.env.example apps/marketing/.env.local
+pnpm dev:marketing
+```
+
+The marketing workspace uses Supabase for newsletter subscriptions and future
+licensing records:
+
+| Variable                               | Required | Description                                                                                   |
+| -------------------------------------- | -------- | --------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_MARKETING_URL`            | Yes      | Public origin of the marketing, documentation, and journal deployment.                        |
+| `NEXT_PUBLIC_APP_URL`                  | Yes      | Product application origin used by sign-in and console links.                                 |
+| `SUPABASE_URL`                         | Yes      | Server-side Supabase project URL for marketing data.                                          |
+| `SUPABASE_SECRET_KEY`                  | Yes      | Server-only secret used by the newsletter Route Handler. Never expose this value to browsers. |
+
+Newsletter schema changes live in `apps/marketing/supabase/migrations`. The
+subscriber table enables RLS and grants no public table access; only the
+validated server Route Handler writes with the secret key.
 
 ## Direct Docker Run
 
