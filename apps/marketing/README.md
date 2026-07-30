@@ -66,6 +66,12 @@ pnpm dlx supabase@latest db push
 
 The migration is stored in `supabase/migrations`.
 
+The same server-only Supabase client stores documentation helpfulness votes in
+`docs_page_feedback`. Each browser keeps one response identifier per page so a
+reader can revise a Yes/No answer without creating duplicate rows. Apply all
+committed migrations before enabling newsletter subscriptions or docs
+feedback.
+
 ## Vercel
 
 Import the repository as a new Vercel project and set the project Root
@@ -83,9 +89,12 @@ SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SECRET_KEY=sb_secret_...
 ```
 
-`NEXT_PUBLIC_MARKETING_URL` is the canonical public origin. Preview builds
-should continue to use the production marketing origin for canonical metadata.
-The production build does not contact Supabase or require its credentials.
+On Vercel, `VERCEL_PROJECT_PRODUCTION_URL` is the authoritative canonical
+origin and is supplied automatically when system environment variables are
+exposed. `NEXT_PUBLIC_MARKETING_URL` remains the local and non-Vercel fallback.
+Preview builds therefore continue to reference the production domain instead
+of their temporary preview URL. The production build does not contact Supabase
+or require its credentials.
 After configuring all deployment variables, validate them explicitly with:
 
 ```bash

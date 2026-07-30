@@ -8,7 +8,7 @@ export function createAdminSupabaseClient() {
 
   if (!url || !secretKey) {
     throw new Error(
-      "Newsletter storage is not configured. Set SUPABASE_URL and SUPABASE_SECRET_KEY.",
+      "Supabase admin storage is not configured. Set SUPABASE_URL and SUPABASE_SECRET_KEY.",
     );
   }
 

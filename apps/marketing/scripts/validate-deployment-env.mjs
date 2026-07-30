@@ -1,13 +1,19 @@
 const deploymentVariables = [
-  "NEXT_PUBLIC_MARKETING_URL",
   "NEXT_PUBLIC_APP_URL",
   "SUPABASE_URL",
   "SUPABASE_SECRET_KEY",
 ];
 
-const missing = deploymentVariables.filter(
-  (name) => !process.env[name]?.trim(),
-);
+const marketingUrl =
+  process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim() ||
+  process.env.NEXT_PUBLIC_MARKETING_URL?.trim();
+const missing = deploymentVariables.filter((name) => !process.env[name]?.trim());
+
+if (!marketingUrl) {
+  missing.unshift(
+    "VERCEL_PROJECT_PRODUCTION_URL or NEXT_PUBLIC_MARKETING_URL",
+  );
+}
 
 if (missing.length > 0) {
   throw new Error(
@@ -15,12 +21,11 @@ if (missing.length > 0) {
   );
 }
 
-for (const name of [
-  "NEXT_PUBLIC_MARKETING_URL",
-  "NEXT_PUBLIC_APP_URL",
-  "SUPABASE_URL",
+for (const [name, value] of [
+  ["marketing production URL", marketingUrl],
+  ["NEXT_PUBLIC_APP_URL", process.env.NEXT_PUBLIC_APP_URL],
+  ["SUPABASE_URL", process.env.SUPABASE_URL],
 ]) {
-  const value = process.env[name];
   let url;
 
   try {

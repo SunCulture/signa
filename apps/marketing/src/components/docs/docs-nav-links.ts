@@ -116,3 +116,17 @@ export const guideLinks = docsNavGroups
 export const resourceLinks = docsNavGroups
   .filter((group) => ["Administer", "Operate"].includes(group.label))
   .flatMap((group) => group.links);
+
+export const docsPageLinks = Array.from(
+  new Map(
+    docsNavGroups
+      .flatMap((group) => group.links)
+      .map((link) => [
+        link.href.split("#")[0],
+        {
+          href: link.href.split("#")[0],
+          label: link.label,
+        },
+      ]),
+  ).values(),
+);
