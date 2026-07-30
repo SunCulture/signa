@@ -748,6 +748,11 @@ validated server Route Handler writes with the secret key. These variables are
 not required to compile the static site; missing runtime configuration makes
 newsletter requests return a temporary-unavailable response.
 
+Documentation helpfulness responses use the same protected server integration
+and the `docs_page_feedback` migration. The docs footer derives previous and
+next destinations from the shared sidebar navigation, preserves each browser's
+vote per page, and lets readers revise their response.
+
 The same deployment publishes the indexable `/alternatives` comparison hub and
 focused DocuSeal, Docusign, PandaDoc, Adobe Acrobat Sign, Dropbox Sign, and
 SignNow comparison routes. Vercel uses `VERCEL_PROJECT_PRODUCTION_URL`; other

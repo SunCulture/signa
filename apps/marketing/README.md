@@ -66,6 +66,12 @@ pnpm dlx supabase@latest db push
 
 The migration is stored in `supabase/migrations`.
 
+The same server-only Supabase client stores documentation helpfulness votes in
+`docs_page_feedback`. Each browser keeps one response identifier per page so a
+reader can revise a Yes/No answer without creating duplicate rows. Apply all
+committed migrations before enabling newsletter subscriptions or docs
+feedback.
+
 ## Vercel
 
 Import the repository as a new Vercel project and set the project Root
