@@ -1,8 +1,10 @@
 # Signa Frontend
 
 The Signa frontend is a Next.js App Router application containing the
-authenticated console, public signing flows, embedded runtime assets, landing
-page, and public documentation.
+authenticated console, public signing flows, and embedded runtime assets. The
+marketing, documentation, and journal site lives in
+[`apps/marketing`](../marketing/README.md), is deployed independently, and is
+available at [signa-docs.vercel.app](https://signa-docs.vercel.app).
 
 Use the [workspace README](../../README.md) for deployment and the
 [`@signajs/react`](../../packages/signa-react/README.md) and
@@ -21,20 +23,22 @@ pnpm dev:frontend
 Open `http://localhost:3000`. During local development the API defaults to
 `http://localhost:3001/api`. In the production container, browser requests use
 same-origin `/api` and Next.js proxies them to the internal NestJS server.
+The root route redirects to `/templates`; the auth guard redirects signed-out
+users to login. The product frontend has no landing-page feature flag.
+Self-service registration is controlled by the backend `REGISTRATION_MODE`
+setting.
 
 ## Route Surfaces
 
 - `/templates`, `/submissions`, and `/settings` are authenticated console
   routes.
 - `/s/[slug]` and `/d/[slug]` are public signing and template form routes.
-- `/docs`, `/guides`, `/resources`, `/compliance`, and
-  `/qualified-electronic-signature` are public documentation routes.
-- `/docs/api`, `/docs/embedding`, and `/docs/webhooks` provide developer
-  onboarding.
 - `/api/docs` proxies the generated NestJS OpenAPI explorer.
 
-Public documentation must remain outside the auth redirect guard so users can
-self-onboard before creating an account.
+Requests to the former `/docs`, `/guides`, `/resources`, `/compliance`, and
+`/qualified-electronic-signature` routes redirect to
+`NEXT_PUBLIC_MARKETING_URL`. The product app no longer owns or bundles the
+documentation implementation.
 
 ## Build-Time Configuration
 
@@ -43,12 +47,12 @@ changing them:
 
 | Variable                       | Default | Purpose                                                                  |
 | ------------------------------ | ------- | ------------------------------------------------------------------------ |
-| `SHOW_LANDING_PAGE`            | `false` | Redirect `/` to login on-prem; set `true` to expose the marketing page.  |
 | `NEXT_PUBLIC_API_BASE_URL`     | empty   | Empty uses same-origin `/api`; set only for a deliberately separate API. |
+| `NEXT_PUBLIC_MARKETING_URL`    | `http://localhost:3002` | Marketing and documentation origin used by legacy route redirects. Set it to `https://signa-docs.vercel.app` in production. |
 | `NEXT_PUBLIC_SIGNING_BASE_URL` | local   | Public origin used when generating signing and QR links.                 |
 
 Google Picker and OAuth browser variables are documented in the root README
-and `.env.example`.
+and [`apps/frontend/.env.example`](.env.example).
 
 ## Verification
 
@@ -59,5 +63,4 @@ pnpm --filter frontend build
 ```
 
 The production build is the authoritative check for App Router server/client
-boundaries, generated static documentation routes, and build-time environment
-configuration.
+boundaries and build-time environment configuration.
