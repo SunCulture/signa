@@ -65,7 +65,9 @@ if [ -z "${DATABASE_MIGRATIONS_RUN:-}" ]; then
 fi
 
 if [ "${DATABASE_MIGRATIONS_RUN:-false}" = "true" ]; then
-  node /app/node_modules/typeorm/cli-ts-node-commonjs.js -d /app/apps/backend/src/database/data-source.ts migration:run
+  cd /app/apps/backend
+  ./node_modules/.bin/typeorm -d dist/database/data-source.js migration:run
 fi
 
+cd /app
 exec node /app/docker/runner.mjs

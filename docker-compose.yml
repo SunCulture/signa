@@ -11,8 +11,11 @@ services:
         APP_VERSION: ${APP_VERSION:-0.1.0}
         APP_COMMIT_SHA: ${APP_COMMIT_SHA:-}
         APP_BUILD_TIME: ${APP_BUILD_TIME:-}
-    init: true
-    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       NODE_ENV: production
       APP_URL: ${APP_URL:-http://localhost:3000}
@@ -22,18 +25,18 @@ services:
       APP_VERSION: ${APP_VERSION:-0.1.0}
       APP_COMMIT_SHA: ${APP_COMMIT_SHA:-}
       APP_BUILD_TIME: ${APP_BUILD_TIME:-}
-
-      # Leave DATABASE_URL empty for SQLite at /data/signa.sqlite.
-      # Set one PostgreSQL URL to switch database engines.
+      DATABASE_TYPE: ${DATABASE_TYPE:-postgres}
       DATABASE_URL: ${DATABASE_URL:-}
-      DATABASE_SSL: ${DATABASE_SSL:-false}
-      DATABASE_MIGRATIONS_RUN: ${DATABASE_MIGRATIONS_RUN:-}
-      SQLITE_DATABASE_PATH: /data/signa.sqlite
-      SQLITE_SYNCHRONIZE: ${SQLITE_SYNCHRONIZE:-true}
-
-      JWT_SECRET: ${JWT_SECRET:-}
-      REGISTRATION_MODE: ${REGISTRATION_MODE:-initial_only}
-
+      DATABASE_HOST: ${DATABASE_HOST:-}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      DATABASE_USER: ${DATABASE_USER:-}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-}
+      DATABASE_NAME: ${DATABASE_NAME:-signa}
+      DATABASE_SSL: ${DATABASE_SSL:-true}
+      DATABASE_MIGRATIONS_RUN: ${DATABASE_MIGRATIONS_RUN:-true}
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-production-secret}
+      API_PUBLIC_URL: ${API_PUBLIC_URL:-http://localhost:3001/api}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
       STORAGE_SERVICE: ${STORAGE_SERVICE:-auto}
       STORAGE_PATH: /data/storage
       S3_ATTACHMENTS_BUCKET: ${S3_ATTACHMENTS_BUCKET:-}
@@ -49,11 +52,9 @@ services:
       AWS_S3_ENDPOINT: ${AWS_S3_ENDPOINT:-}
       AWS_S3_FORCE_PATH_STYLE: ${AWS_S3_FORCE_PATH_STYLE:-false}
       AWS_S3_SERVER_SIDE_ENCRYPTION: ${AWS_S3_SERVER_SIDE_ENCRYPTION:-}
-
-      # Redis runs privately inside the container when REDIS_URL is empty.
-      REDIS_URL: ${REDIS_URL:-}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       QUEUE_ENABLED: ${QUEUE_ENABLED:-true}
-      QUEUE_REDIS_URL: ${QUEUE_REDIS_URL:-}
+      QUEUE_REDIS_URL: ${QUEUE_REDIS_URL:-redis://redis:6379}
       BULL_BOARD_ENABLED: ${BULL_BOARD_ENABLED:-false}
       BULL_BOARD_PASS: ${BULL_BOARD_PASS:-change-me-please}
 

@@ -9,3 +9,4 @@ apps/backend/storage/blobs/*
 .env
 .env.*
 !.env.example
+!docker/.env.ec2.example
