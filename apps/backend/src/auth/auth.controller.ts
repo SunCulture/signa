@@ -35,6 +35,7 @@ import {
 import type { OAuthAuthProvider } from './dto/oauth-auth.dto';
 import { PasswordResetResponseDto } from './dto/password-reset-response.dto';
 import { RegisterDto } from './dto/register.dto';
+import { RegistrationStatusDto } from './dto/registration-status.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtGuard } from './guards/jwt/jwt.guard';
 import { OAuthAuthService } from './oauth-auth.service';
@@ -46,6 +47,17 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly oauthAuthService: OAuthAuthService,
   ) {}
+
+  @Get('registration-status')
+  @ApiOperation({
+    description:
+      'Returns whether self-service registration is currently available. On-prem deployments default to initial-only registration, matching DocuSeal non-multitenant bootstrap behavior.',
+    summary: 'Get registration availability',
+  })
+  @ApiOkResponse({ type: RegistrationStatusDto })
+  registrationStatus(): Promise<RegistrationStatusDto> {
+    return this.authService.getRegistrationStatus();
+  }
 
   @Post('register')
   @ApiOperation({

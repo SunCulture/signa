@@ -1,98 +1,86 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Signa Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+The Signa API is a NestJS application that owns authentication, templates,
+submissions, signing, storage, queues, delivery events, PDF processing, and
+verification.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+Use the [workspace README](../../README.md) for complete deployment,
+environment-variable, Docker, SMTP, S3, and signing documentation.
+User and developer guides are published at
+[signa-docs.vercel.app](https://signa-docs.vercel.app/docs).
 
-## Description
+## Development
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
+Run commands from the repository root:
 
 ```bash
-$ pnpm install
+pnpm install
+pnpm dev:backend
 ```
 
-## Compile and run the project
+The default endpoints are:
+
+- API: `http://localhost:3001/api`
+- OpenAPI: `http://localhost:3001/api/docs`
+- Health: `http://localhost:3001/api/health`
+- Readiness: `http://localhost:3001/api/health/ready`
+
+The frontend normally accesses the backend through its same-origin `/api`
+proxy. Keep port `3001` private in production unless clients intentionally use
+the API from a separate origin.
+
+## Database
+
+The backend selects its TypeORM driver from configuration:
+
+- Leave `DATABASE_URL` and legacy `DATABASE_HOST` empty to use SQLite.
+- Set `DATABASE_URL=postgresql://...` to use PostgreSQL.
+- Legacy `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_USER`,
+  `DATABASE_PASSWORD`, and `DATABASE_NAME` remain supported.
+
+SQLite is the zero-configuration single-node option. PostgreSQL is required
+when application instances share relational state.
+
+Migration commands:
 
 ```bash
-# development
-$ pnpm run start
-
-# watch mode
-$ pnpm run start:dev
-
-# production mode
-$ pnpm run start:prod
+pnpm db:migration:run
+pnpm db:migration:revert
+pnpm db:migration:check
 ```
 
-## Run tests
+## Storage And PDF Previews
+
+Local storage is used when no S3 bucket is configured. Setting
+`S3_ATTACHMENTS_BUCKET` enables private S3 storage automatically and uses the
+AWS SDK credential provider chain. See the root README before configuring
+custom S3-compatible endpoints or static credentials.
+
+PDF upload requests complete only after page previews are generated:
+
+1. Inspect the PDF and detect standard, AcroForm, or XFA processing.
+2. Render standard PDFs with PDFium.
+3. Use PDF.js for XFA documents and as the PDFium fallback.
+4. Store PNG page previews as child attachments.
+5. Return signed application proxy URLs rather than public bucket URLs.
+
+An upload that cannot produce any preview page fails explicitly instead of
+creating a permanently preview-less template.
+
+## Verification
 
 ```bash
-# unit tests
-$ pnpm run test
-
-# e2e tests
-$ pnpm run test:e2e
-
-# test coverage
-$ pnpm run test:cov
+pnpm --filter backend typecheck
+pnpm --filter backend lint
+pnpm --filter backend test
+pnpm --filter backend build
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+Focused tests can be passed directly to Jest:
 
 ```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
+pnpm --filter backend test -- --runInBand src/storage/storage.service.spec.ts
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Do not edit generated files under `dist`. They are recreated by
+`pnpm --filter backend build`.

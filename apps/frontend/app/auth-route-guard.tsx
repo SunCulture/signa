@@ -11,7 +11,13 @@ import {
 const authPrefix = "/auth"
 const authenticatedFallback = "/templates"
 const loginPath = "/auth/login"
-const publicPrefixes = ["/auth", "/ai-assistant", "/s", "/d"]
+const publicPrefixes = [
+  "/auth",
+  "/ai-assistant",
+  "/api/docs",
+  "/d",
+  "/s",
+]
 const publicPaths = ["/"]
 
 export function AuthRouteGuard({ children }: { children: React.ReactNode }) {
@@ -24,7 +30,7 @@ export function AuthRouteGuard({ children }: { children: React.ReactNode }) {
       const isAuthRoute = pathname.startsWith(authPrefix)
       const isPublicRoute =
         publicPaths.includes(pathname) ||
-        publicPrefixes.some((prefix) => pathname.startsWith(prefix))
+        publicPrefixes.some((prefix) => hasRoutePrefix(pathname, prefix))
 
       if (hasSession && isAuthRoute) {
         router.replace(authenticatedFallback)
@@ -42,4 +48,8 @@ export function AuthRouteGuard({ children }: { children: React.ReactNode }) {
   }, [pathname, router])
 
   return children
+}
+
+function hasRoutePrefix(pathname: string, prefix: string) {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`)
 }

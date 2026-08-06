@@ -4,6 +4,9 @@ React components for embedding Signa signing forms and template builder workflow
 
 The API intentionally mirrors `@docuseal/react` so existing DocuSeal-style embeds can migrate with minimal changes. The components load Signa browser custom elements from your Signa host and pass configuration through `data-*` attributes.
 
+See the [Signa embedding guide](https://signa-docs.vercel.app/docs/embedding)
+for browser integration patterns and hosted-flow guidance.
+
 ## Install
 
 ```bash
@@ -65,12 +68,24 @@ import { DocusealForm } from "@signajs/react";
 | `token` | Signed embed token where supported by the host. |
 | `host` | Signa app origin used for self-hosted script loading and relative iframe URLs. When omitted, the package loads the custom element script from jsDelivr. |
 | `scriptUrl` | Exact custom element script URL. Use this to pin a CDN version or point at a private CDN. |
-| `email`, `name`, `role`, `submitter`, `externalId` | Submitter identity and routing values. |
+| `email`, `name`, `role`, `submitter`, `externalId`, `applicationKey` | Submitter identity and routing values. |
 | `preview`, `dryRun`, `expand`, `minimize`, `orderAsOnPage` | Display and flow options. |
-| `withTitle`, `withDecline`, `withFieldNames`, `withDownloadButton`, `withSendCopyButton`, `withCompleteButton` | Signing UI toggles. |
+| `backgroundColor`, `logo`, `language`, `completedMessage`, `completedRedirectUrl`, `completedButton` | Branding, locale, and completion controls. |
+| `goToLast`, `skipFields`, `autoscrollFields`, `onlyRequiredFields` | Navigation and field traversal controls. |
+| `withTitle`, `withDecline`, `withFieldNames`, `withFieldPlaceholder`, `withDownloadButton`, `withSendCopyButton`, `withCompleteButton` | Signing UI toggles. |
 | `allowToResubmit`, `allowTypedSignature`, `rememberSignature`, `reuseSignature` | Signer behavior toggles. |
-| `values`, `metadata`, `fields`, `readonlyFields`, `i18n` | Prefilled values and runtime configuration. |
+| `signature`, `values`, `metadata`, `fields`, `readonlyFields`, `i18n` | Saved signature, prefilled values, field schema overrides, and runtime configuration. |
+| `className`, `customCss`, `style` | Host application styling hooks. |
 | `onInit`, `onLoad`, `onComplete`, `onDecline` | Lifecycle callbacks. |
+
+### Signing callbacks
+
+| Callback | When it fires | Typical use |
+| --- | --- | --- |
+| `onInit` | The custom element is initialized. | Start loading state and analytics. |
+| `onLoad` | The hosted signing UI has loaded. | Hide skeletons and show the signing area. |
+| `onComplete` | The signer completes or the submission reaches completion. | Update local state, navigate, or fetch completed documents from your backend. |
+| `onDecline` | The signer declines. | Record the decline and route the user back to your workflow. |
 
 ## Template Builder
 
@@ -100,10 +115,33 @@ export function EmbeddedBuilder() {
 | `host` | Signa app origin used for self-hosted script loading and relative iframe URLs. When omitted, the package loads the custom element script from jsDelivr. |
 | `scriptUrl` | Exact custom element script URL. Use this to pin a CDN version or point at a private CDN. |
 | `withRecipientsButton`, `withSendButton`, `withTitle`, `withDocumentsList`, `withFieldsList` | Builder UI toggles. |
-| `withFieldsDetection`, `withFieldPlaceholder`, `withPrefillable`, `withCustomFieldsTab` | Field-management options. |
+| `withDynamicDocuments`, `withFieldsDetection`, `withFieldPlaceholder`, `withPrefillable`, `withCustomFieldsTab`, `onlyDefinedFields` | Field and document-management options. |
+| `preview`, `previewMode`, `inputMode`, `language`, `autosave` | Builder mode, locale, preview, and persistence options. |
 | `roles`, `fieldTypes`, `drawFieldType`, `fields`, `submitters`, `requiredFields`, `dateFormats` | Builder defaults and constraints. |
+| `withSignYourselfButton`, `withUploadButton`, `withSignatureId`, `withRevisions`, `withAddPageButton` | Advanced builder feature toggles. |
 | `customButton`, `emailMessage`, `backgroundColor`, `saveButtonText`, `sendButtonText`, `customCss` | Presentation and copy controls. |
+| `className`, `style` | Host application styling hooks. |
 | `onLoad`, `onUpload`, `onSend`, `onSave`, `onChange` | Builder lifecycle callbacks. |
+
+### Builder callbacks
+
+| Callback | When it fires | Typical use |
+| --- | --- | --- |
+| `onLoad` | The hosted builder has loaded. | Hide loading state. |
+| `onUpload` | A document is uploaded into the builder. | Track onboarding progress or update surrounding UI. |
+| `onChange` | Fields, roles, documents, or settings change. | Autosave external drafts or mark the parent form dirty. |
+| `onSave` | The template is saved. | Persist the returned template id in your application. |
+| `onSend` | Recipients are sent from the embedded builder. | Navigate to a completion screen or refresh submission lists. |
+
+## Backend setup checklist
+
+| Step | What to do |
+| --- | --- |
+| Create a template | Use the Signa console or `POST /api/templates/pdf` / `POST /api/templates/docx`. |
+| Create a submission | Use `POST /api/submissions` with `template_id`, `submitters`, and optional `metadata` / `external_id`. |
+| Embed the signer | Pass the returned submitter `url` to `SignaForm.src`. |
+| Listen for completion | Configure `submission.completed` and `form.completed` webhooks in Settings > Webhooks. |
+| Download output | Use the completed submission document endpoint from your backend. |
 
 ## Runtime Scripts
 
@@ -198,6 +236,16 @@ The wrapper listens for the same custom events as DocuSeal:
 - builder: `send`, `load`, `upload`, `save`, `change`
 
 Callbacks receive the event `detail` payload emitted by the hosted Signa custom element.
+
+## Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| The iframe says the host refused to connect. | Use a Signa host that allows embedding for your application origin and pass the same origin through `host` / `src`. |
+| Localhost works in web but not mobile. | Use your machine LAN IP or a tunnel; mobile simulators cannot always reach `localhost` on your laptop. |
+| The script fails to load from CDN. | Pin `scriptUrl` to a published package version or serve `/js/form.js` from your Signa frontend. |
+| Callbacks do not fire. | Confirm the hosted Signa version emits `completed`, `init`, `declined`, `load`, `send`, `upload`, `save`, and `change` custom events. |
+| TypeScript cannot find declarations. | Build or install the published package; declarations are emitted into `dist/*.d.ts`. |
 
 ## Development
 

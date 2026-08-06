@@ -27,6 +27,7 @@ import {
   OAuthStartResponseDto,
 } from './dto/oauth-auth.dto';
 import { hashPassword } from './passwords';
+import { assertRegistrationAllowed } from './registration-policy';
 import { WebSessionJwtPayload } from './web-session';
 
 type OAuthStatePayload = {
@@ -350,6 +351,12 @@ export class OAuthAuthService {
     }
 
     return this.dataSource.transaction(async (manager) => {
+      await assertRegistrationAllowed({
+        configService: this.configService,
+        dataSource: this.dataSource,
+        manager,
+      });
+
       const accountRepository = manager.getRepository(Account);
       const teamMemberRepository = manager.getRepository(TeamMember);
       const teamRepository = manager.getRepository(Team);

@@ -5,7 +5,8 @@ FROM node:24-bookworm-slim AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 
-RUN corepack enable
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+  && corepack enable
 
 WORKDIR /app
 
@@ -18,6 +19,7 @@ RUN apt-get update \
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/backend/package.json apps/backend/package.json
 COPY apps/frontend/package.json apps/frontend/package.json
+COPY apps/marketing/package.json apps/marketing/package.json
 COPY packages/signa-react/package.json packages/signa-react/package.json
 COPY packages/signa-react-native/package.json packages/signa-react-native/package.json
 COPY packages/shared/package.json packages/shared/package.json
@@ -118,11 +120,11 @@ RUN /app/apps/backend/node_modules/.bin/playwright install --with-deps chromium 
   && chmod +x /app/docker/entrypoint.sh \
   && mkdir -p /data /storage
 
-VOLUME ["/data", "/storage"]
+VOLUME ["/data"]
 
-EXPOSE 3000 3001
+EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:' + (process.env.BACKEND_PORT || process.env.PORT || 3001) + '/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:' + (process.env.FRONTEND_PORT || 3000) + '/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 ENTRYPOINT ["/app/docker/entrypoint.sh"]

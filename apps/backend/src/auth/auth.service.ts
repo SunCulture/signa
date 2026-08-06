@@ -38,6 +38,7 @@ import { AuthResponseDto } from './dto/auth-response.dto';
 import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { RegisterDto } from './dto/register.dto';
+import { RegistrationStatusDto } from './dto/registration-status.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { AccessToken } from './entities/access-token.entity';
 import { hashPassword, verifyPassword } from './passwords';
@@ -45,6 +46,10 @@ import {
   createPasswordResetToken,
   hashPasswordResetToken,
 } from './password-reset-tokens';
+import {
+  assertRegistrationAllowed,
+  getRegistrationStatus,
+} from './registration-policy';
 import { TenantContext } from './tenant-context';
 import { WebSessionJwtPayload } from './web-session';
 
@@ -211,6 +216,11 @@ export class AuthService {
 
   async register(input: RegisterDto): Promise<AuthResponseDto> {
     const email = input.email.toLowerCase();
+    await assertRegistrationAllowed({
+      configService: this.configService,
+      dataSource: this.dataSource,
+    });
+
     const existingUser = await this.dataSource.getRepository(User).findOne({
       where: { email },
     });
@@ -222,6 +232,12 @@ export class AuthService {
     try {
       const { account, user } = await this.dataSource.transaction(
         async (manager) => {
+          await assertRegistrationAllowed({
+            configService: this.configService,
+            dataSource: this.dataSource,
+            manager,
+          });
+
           const accountRepository = manager.getRepository(Account);
           const teamMemberRepository = manager.getRepository(TeamMember);
           const teamRepository = manager.getRepository(Team);
@@ -269,6 +285,19 @@ export class AuthService {
     } catch (error) {
       throwIfUniqueConstraint(error, 'Email already exists');
     }
+  }
+
+  async getRegistrationStatus(): Promise<RegistrationStatusDto> {
+    const status = await getRegistrationStatus({
+      configService: this.configService,
+      dataSource: this.dataSource,
+    });
+
+    return {
+      can_register: status.canRegister,
+      mode: status.mode,
+      reason: status.reason,
+    };
   }
 
   async login(input: LoginDto): Promise<AuthResponseDto> {

@@ -25,6 +25,12 @@ import {
   type TemplateSubmitter,
 } from "../../_lib/template-editor-model";
 
+type PreviewLoadState = "error" | "loaded" | "loading";
+type PreviewLoad = {
+  state: PreviewLoadState;
+  url: string;
+};
+
 export function DocumentPageImage({
   activeFieldType,
   documentUuid,
@@ -88,9 +94,16 @@ export function DocumentPageImage({
 }) {
   const pageRef = useRef<HTMLDivElement>(null);
   const [drawDraft, setDrawDraft] = useState<DrawDraft | null>(null);
+  const [previewLoad, setPreviewLoad] = useState<PreviewLoad>({
+    state: "loading",
+    url: previewImage.url,
+  });
   const width = getPreviewDimension(previewImage.metadata.width, 1400);
   const height = getPreviewDimension(previewImage.metadata.height, 1812);
   const pageAspectRatio = width / height;
+  const previewLoadState =
+    previewLoad.url === previewImage.url ? previewLoad.state : "loading";
+  const isPreviewLoaded = previewLoadState === "loaded";
   const pageFields = fields.flatMap((field) =>
     field.areas.flatMap((area, areaIndex) =>
       area.attachment_uuid === documentUuid && area.page === pageIndex
@@ -268,18 +281,32 @@ export function DocumentPageImage({
       ref={pageRef}
       style={{ aspectRatio: `${width} / ${height}` }}
     >
-      {/* Short-lived signed blob URLs are rendered directly, matching DocuSeal's image-page builder. */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        alt={`${filename} page ${pageIndex + 1}`}
-        className="h-full w-full rounded object-contain"
+      <PreviewImageStatus
+        filename={filename}
+        pageIndex={pageIndex}
+        state={previewLoadState}
+      />
+      <PreviewImage
+        filename={filename}
         height={height}
-        loading="lazy"
-        src={previewImage.url}
+        onError={() =>
+          setPreviewLoad({ state: "error", url: previewImage.url })
+        }
+        onLoad={() =>
+          setPreviewLoad({ state: "loaded", url: previewImage.url })
+        }
+        pageIndex={pageIndex}
+        previewUrl={previewImage.url}
         width={width}
       />
       <TooltipProvider>
-        <div className="absolute inset-0" data-page-layer>
+        <div
+          className={cn(
+            "absolute inset-0 transition-opacity",
+            isPreviewLoaded ? "opacity-100" : "pointer-events-none opacity-0",
+          )}
+          data-page-layer
+        >
           {pageFields.map(({ area, areaIndex, field }) => (
             <FieldAreaOverlay
               area={area}
@@ -310,6 +337,64 @@ export function DocumentPageImage({
           ) : null}
         </div>
       </TooltipProvider>
+    </div>
+  );
+}
+
+function PreviewImage({
+  filename,
+  height,
+  onError,
+  onLoad,
+  pageIndex,
+  previewUrl,
+  width,
+}: {
+  filename: string;
+  height: number;
+  onError: () => void;
+  onLoad: () => void;
+  pageIndex: number;
+  previewUrl: string;
+  width: number;
+}) {
+  return (
+    // Signed blob URLs are rendered directly so editor geometry exactly matches stored page pixels.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      alt={`${filename} page ${pageIndex + 1}`}
+      className="h-full w-full rounded object-contain"
+      decoding="async"
+      height={height}
+      loading={pageIndex === 0 ? "eager" : "lazy"}
+      onError={onError}
+      onLoad={onLoad}
+      src={previewUrl}
+      width={width}
+    />
+  );
+}
+
+function PreviewImageStatus({
+  filename,
+  pageIndex,
+  state,
+}: {
+  filename: string;
+  pageIndex: number;
+  state: PreviewLoadState;
+}) {
+  if (state === "loaded") {
+    return null;
+  }
+
+  return (
+    <div className="absolute inset-0 z-10 flex items-center justify-center bg-white">
+      <div className="rounded-full border border-[var(--auth-input-border)] bg-white px-4 py-2 text-sm text-muted-foreground shadow-sm">
+        {state === "error"
+          ? `${filename} page ${pageIndex + 1} preview could not be loaded. Refresh the page to request a new signed URL.`
+          : "Loading preview..."}
+      </div>
     </div>
   );
 }

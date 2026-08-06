@@ -51,7 +51,8 @@ export class HealthResponseDto {
   commitSha?: string;
 
   @ApiPropertyOptional({
-    description: 'UTC build timestamp for the deployed artifact, when provided.',
+    description:
+      'UTC build timestamp for the deployed artifact, when provided.',
     example: '2026-07-11T10:00:00.000Z',
   })
   buildTime?: string;

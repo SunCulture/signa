@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { createBullBoardOptions } from './bull-board-options';
+import { getMailRuntimeConfig } from './mail-runtime-config';
 import { createMailerOptions } from './mailer-options';
 import { createQueueOptions, queueNames } from './queue-options';
 import { runtimeEvents } from './runtime-events';
@@ -71,6 +72,53 @@ describe('runtime options', () => {
     expect(options.template?.dir).toContain('mail/templates');
   });
 
+  it('enables authenticated STARTTLS mail from SMTP variables alone', () => {
+    const config = createConfig({
+      MAIL_ENABLED: false,
+      SMTP_ADDRESS: 'email-smtp.eu-west-1.amazonaws.com',
+      SMTP_FROM: 'Signa <signing@example.com>',
+      SMTP_PASSWORD: 'smtp-password',
+      SMTP_USERNAME: 'smtp-username',
+    });
+    const runtime = getMailRuntimeConfig(config);
+    const options = createMailerOptions(config);
+
+    expect(runtime).toMatchObject({
+      enabled: true,
+      from: 'Signa <signing@example.com>',
+      host: 'email-smtp.eu-west-1.amazonaws.com',
+      port: 587,
+      requireTls: true,
+      secure: false,
+    });
+    expect(options.transport).toMatchObject({
+      auth: {
+        pass: 'smtp-password',
+        user: 'smtp-username',
+      },
+      host: 'email-smtp.eu-west-1.amazonaws.com',
+      port: 587,
+      requireTLS: true,
+      secure: false,
+      tls: {
+        rejectUnauthorized: true,
+      },
+    });
+  });
+
+  it('rejects incomplete SMTP authentication', () => {
+    expect(() =>
+      getMailRuntimeConfig(
+        createConfig({
+          SMTP_ADDRESS: 'smtp.example.com',
+          SMTP_USERNAME: 'missing-password',
+        }),
+      ),
+    ).toThrow(
+      'SMTP authentication requires both SMTP_USERNAME and SMTP_PASSWORD.',
+    );
+  });
+
   it('tracks event and job names used by future processors', () => {
     expect(runtimeEvents.submissionCreated).toBe('submission.created');
     expect(runtimeEvents.submitterInvitationRequested).toBe(
@@ -121,7 +169,7 @@ const runtimeConfigDefaults: Record<string, unknown> = {
   MAIL_REPLY_TO: '',
   MAIL_SECURE: false,
   MAIL_TEMPLATE_DIR: '',
-  MAIL_TLS_REJECT_UNAUTHORIZED: false,
+  MAIL_TLS_REJECT_UNAUTHORIZED: true,
   QUEUE_BACKOFF_MS: 5000,
   QUEUE_DEFAULT_ATTEMPTS: 3,
   QUEUE_ENABLED: false,

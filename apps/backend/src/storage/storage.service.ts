@@ -1,9 +1,9 @@
 import {
   GetObjectCommand,
   type GetObjectCommandOutput,
+  HeadBucketCommand,
   PutObjectCommand,
   S3Client,
-  type ServerSideEncryption,
 } from '@aws-sdk/client-s3';
 import {
   ForbiddenException,
@@ -14,18 +14,25 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHmac, createHash, randomBytes } from 'node:crypto';
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { constants as fsConstants, createReadStream } from 'node:fs';
+import { access, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, resolve } from 'node:path';
+import { Readable } from 'node:stream';
 import { PDFDocument } from 'pdf-lib';
 import sharp from 'sharp';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { PdfjsProcessingService } from '../pdf-processing/pdfjs-processing.service';
-import { PdfiumProcessingService } from '../pdf-processing/pdfium-processing.service';
+import {
+  type PdfiumRenderedPage,
+  PdfiumProcessingService,
+} from '../pdf-processing/pdfium-processing.service';
 import { StorageAttachment } from './entities/storage-attachment.entity';
 import { StorageBlob } from './entities/storage-blob.entity';
+import {
+  getS3RuntimeConfig,
+  getWriteStorageServiceName,
+} from './storage-runtime-config';
 import { CreateAttachmentInput } from './storage.types';
-
-type StorageServiceName = 'local' | 's3';
 
 @Injectable()
 export class StorageService {
@@ -53,7 +60,7 @@ export class StorageService {
         filename: input.filename,
         contentType: input.contentType,
         metadata: input.metadata ?? {},
-        serviceName: this.getWriteStorageServiceName(),
+        serviceName: getWriteStorageServiceName(this.config),
         byteSize: String(input.buffer.byteLength),
         checksum,
       }),
@@ -156,6 +163,31 @@ export class StorageService {
     });
   }
 
+  async findPreviewAttachmentsByRecordIds(
+    attachmentIds: string[],
+  ): Promise<Map<string, StorageAttachment[]>> {
+    if (attachmentIds.length === 0) {
+      return new Map();
+    }
+
+    const normalizedAttachmentIds = attachmentIds.map(normalizeStorageRecordId);
+    const previews = await this.attachments.find({
+      where: {
+        recordType: 'ActiveStorage::Attachment',
+        recordId: In(normalizedAttachmentIds),
+        name: 'preview_images',
+      },
+      relations: {
+        blob: true,
+      },
+      order: {
+        id: 'ASC',
+      },
+    });
+
+    return groupAttachmentsByRecordId(previews);
+  }
+
   async deleteRecordAttachments(options: {
     recordType: string;
     recordId: string;
@@ -232,6 +264,41 @@ export class StorageService {
     return readFile(this.getBlobPath(blob));
   }
 
+  async readBlobStream(blob: StorageBlob): Promise<NodeJS.ReadableStream> {
+    if (blob.serviceName === 's3') {
+      return this.readS3BlobStream(blob);
+    }
+
+    return createReadStream(this.getBlobPath(blob));
+  }
+
+  async checkAvailability(): Promise<Record<string, unknown>> {
+    const serviceName = getWriteStorageServiceName(this.config);
+
+    if (serviceName === 's3') {
+      const runtime = getS3RuntimeConfig(this.config);
+
+      await this.getS3Client().send(
+        new HeadBucketCommand({ Bucket: runtime.bucket }),
+      );
+
+      return {
+        service: serviceName,
+        bucket: runtime.bucket,
+        region: runtime.region,
+        ...(runtime.endpoint ? { endpoint: runtime.endpoint } : {}),
+      };
+    }
+
+    const path = this.getStorageRoot();
+    await access(path, fsConstants.R_OK | fsConstants.W_OK);
+
+    return {
+      service: serviceName,
+      path,
+    };
+  }
+
   getSafeDownloadName(blob: StorageBlob): string {
     return basename(blob.filename);
   }
@@ -305,9 +372,17 @@ export class StorageService {
       maxPages: this.config.get<number>('PDF_PREVIEW_MAX_PAGES', 15),
       maxWidth: this.config.get<number>('PDF_PREVIEW_MAX_WIDTH', 1400),
     };
-    const renderedPages = shouldRenderXfaPreviewWithPdfjs(attachment)
-      ? await this.pdfjsProcessing.renderPagePreviews(buffer, options)
-      : await this.pdfiumProcessing.renderPagePreviews(buffer, options);
+    const renderedPages = await this.renderPdfPreviewPages(
+      attachment,
+      buffer,
+      options,
+    );
+
+    if (renderedPages.length === 0) {
+      throw new Error(
+        `PDF preview generation returned no pages for attachment ${attachment.id}.`,
+      );
+    }
 
     for (const [pageIndex, rendered] of renderedPages.entries()) {
       const preview = await renderPdfPageToPng(rendered);
@@ -327,6 +402,37 @@ export class StorageService {
         },
       });
     }
+  }
+
+  private async renderPdfPreviewPages(
+    attachment: StorageAttachment,
+    buffer: Buffer,
+    options: { maxPages: number; maxWidth: number },
+  ): Promise<PdfiumRenderedPage[]> {
+    if (shouldRenderXfaPreviewWithPdfjs(attachment)) {
+      return this.pdfjsProcessing.renderPagePreviews(buffer, options);
+    }
+
+    try {
+      const renderedPages = await this.pdfiumProcessing.renderPagePreviews(
+        buffer,
+        options,
+      );
+
+      if (renderedPages.length > 0) {
+        return renderedPages;
+      }
+
+      this.logger.warn(
+        `PDFium returned no preview pages for attachment ${attachment.id}; retrying with PDF.js.`,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `PDFium preview rendering failed for attachment ${attachment.id}; retrying with PDF.js. ${getErrorMessage(error)}`,
+      );
+    }
+
+    return this.pdfjsProcessing.renderPagePreviews(buffer, options);
   }
 
   private async findAttachmentOrFail(
@@ -383,116 +489,66 @@ export class StorageService {
     return resolve(storagePath);
   }
 
-  private getWriteStorageServiceName(): StorageServiceName {
-    const mode = this.config.get<string>('STORAGE_SERVICE', 'auto');
-
-    if (mode === 'local' || mode === 's3') {
-      return mode;
-    }
-
-    return this.hasS3Config() ? 's3' : 'local';
-  }
-
-  private hasS3Config(): boolean {
-    return Boolean(
-      this.config.get<string>('AWS_S3_BUCKET') &&
-      this.config.get<string>('AWS_REGION'),
-    );
-  }
-
   private getS3Client(): S3Client {
     if (this.s3Client) {
       return this.s3Client;
     }
 
-    const accessKeyId = this.config.get<string>('AWS_ACCESS_KEY_ID', '');
-    const secretAccessKey = this.config.get<string>(
-      'AWS_SECRET_ACCESS_KEY',
-      '',
-    );
-    const sessionToken = this.config.get<string>('AWS_SESSION_TOKEN', '');
-    const endpoint = this.config.get<string>('AWS_S3_ENDPOINT', '');
+    const runtime = getS3RuntimeConfig(this.config);
 
     this.s3Client = new S3Client({
-      region: this.getS3Region(),
-      ...(endpoint ? { endpoint } : {}),
-      forcePathStyle: this.config.get<boolean>(
-        'AWS_S3_FORCE_PATH_STYLE',
-        false,
-      ),
-      ...(accessKeyId && secretAccessKey
-        ? {
-            credentials: {
-              accessKeyId,
-              secretAccessKey,
-              ...(sessionToken ? { sessionToken } : {}),
-            },
-          }
-        : {}),
+      region: runtime.region,
+      forcePathStyle: runtime.forcePathStyle,
+      ...(runtime.endpoint ? { endpoint: runtime.endpoint } : {}),
+      ...(runtime.credentials ? { credentials: runtime.credentials } : {}),
     });
 
     return this.s3Client;
   }
 
   private async writeS3Blob(blob: StorageBlob, buffer: Buffer): Promise<void> {
+    const runtime = getS3RuntimeConfig(this.config);
+
     await this.getS3Client().send(
       new PutObjectCommand({
         Body: buffer,
-        Bucket: this.getS3Bucket(),
+        Bucket: runtime.bucket,
         ContentLength: buffer.byteLength,
         ContentType: blob.contentType ?? undefined,
-        Key: this.getS3ObjectKey(blob),
-        ServerSideEncryption: this.getS3ServerSideEncryption(),
+        Key: this.getS3ObjectKey(blob, runtime.prefix),
+        ServerSideEncryption: runtime.serverSideEncryption,
       }),
     );
   }
 
   private async readS3Blob(blob: StorageBlob): Promise<Buffer> {
+    const runtime = getS3RuntimeConfig(this.config);
     const response = await this.getS3Client().send(
       new GetObjectCommand({
-        Bucket: this.getS3Bucket(),
-        Key: this.getS3ObjectKey(blob),
+        Bucket: runtime.bucket,
+        Key: this.getS3ObjectKey(blob, runtime.prefix),
       }),
     );
 
     return s3BodyToBuffer(response.Body);
   }
 
-  private getS3Bucket(): string {
-    const bucket = this.config.get<string>('AWS_S3_BUCKET');
+  private async readS3BlobStream(
+    blob: StorageBlob,
+  ): Promise<NodeJS.ReadableStream> {
+    const runtime = getS3RuntimeConfig(this.config);
+    const response = await this.getS3Client().send(
+      new GetObjectCommand({
+        Bucket: runtime.bucket,
+        Key: this.getS3ObjectKey(blob, runtime.prefix),
+      }),
+    );
 
-    if (!bucket) {
-      throw new Error('AWS_S3_BUCKET is required when S3 storage is enabled.');
-    }
-
-    return bucket;
+    return s3BodyToReadableStream(response.Body);
   }
 
-  private getS3Region(): string {
-    const region = this.config.get<string>('AWS_REGION');
-
-    if (!region) {
-      throw new Error('AWS_REGION is required when S3 storage is enabled.');
-    }
-
-    return region;
-  }
-
-  private getS3ObjectKey(blob: StorageBlob): string {
-    const prefix = this.config.get<string>('AWS_S3_PREFIX', '').trim();
-    const normalizedPrefix = prefix.replace(/^\/+|\/+$/g, '');
-
-    return normalizedPrefix ? `${normalizedPrefix}/${blob.key}` : blob.key;
-  }
-
-  private getS3ServerSideEncryption(): ServerSideEncryption | undefined {
-    const value = this.config.get<string>('AWS_S3_SERVER_SIDE_ENCRYPTION', '');
-
-    if (value === 'AES256' || value === 'aws:kms') {
-      return value;
-    }
-
-    return undefined;
+  private getS3ObjectKey(blob: StorageBlob, prefix: string): string {
+    return prefix ? `${prefix}/${blob.key}` : blob.key;
   }
 
   private sign(payload: string): string {
@@ -556,8 +612,61 @@ async function s3BodyToBuffer(
   return Buffer.concat(chunks);
 }
 
+async function s3BodyToReadableStream(
+  body: GetObjectCommandOutput['Body'],
+): Promise<NodeJS.ReadableStream> {
+  if (!body) {
+    throw new NotFoundException({ error: 'File not found' });
+  }
+
+  if (isReadableStream(body)) {
+    return body;
+  }
+
+  if ('transformToByteArray' in body) {
+    const bytes = await body.transformToByteArray();
+
+    return Readable.from(Buffer.from(bytes));
+  }
+
+  throw new NotFoundException({ error: 'File not found' });
+}
+
+function isReadableStream(value: unknown): value is NodeJS.ReadableStream {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'pipe' in value &&
+    typeof (value as { pipe?: unknown }).pipe === 'function'
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function groupAttachmentsByRecordId(
+  attachments: StorageAttachment[],
+): Map<string, StorageAttachment[]> {
+  const grouped = new Map<string, StorageAttachment[]>();
+
+  for (const attachment of attachments) {
+    const recordId = normalizeStorageRecordId(attachment.recordId);
+    const group = grouped.get(recordId) ?? [];
+
+    group.push(attachment);
+    grouped.set(recordId, group);
+  }
+
+  return grouped;
+}
+
+function normalizeStorageRecordId(recordId: string | number): string {
+  return String(recordId);
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function shouldRasterizeXfa(metadata: Record<string, unknown>): boolean {

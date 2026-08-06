@@ -3,6 +3,8 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
+import { AccountsService } from '../accounts/accounts.service';
+import { EmailMessage } from '../mail/entities/email-message.entity';
 import { StorageAttachment } from '../storage/entities/storage-attachment.entity';
 import { StorageBlob } from '../storage/entities/storage-blob.entity';
 import { StorageService } from '../storage/storage.service';
@@ -15,6 +17,7 @@ import { User } from '../users/entities/user.entity';
 import { SubmissionEvent } from './entities/submission-event.entity';
 import { Submission } from './entities/submission.entity';
 import { DocumentGenerationQueueService } from './document-generation-queue.service';
+import { OwnerAutoSignService } from './owner-auto-sign.service';
 import { SubmissionDocumentsService } from './submission-documents.service';
 import { SubmitterValueNormalizer } from './submitter-value-normalizer.service';
 import { SubmissionsService } from './submissions.service';
@@ -45,7 +48,10 @@ describe('SubmissionsService', () => {
   let storage: jest.Mocked<
     Pick<
       StorageService,
-      'createBlobProxyUrl' | 'findPreviewAttachments' | 'findRecordAttachments'
+      | 'createBlobProxyUrl'
+      | 'findPreviewAttachments'
+      | 'findPreviewAttachmentsByRecordIds'
+      | 'findRecordAttachments'
     >
   >;
   let submissionDocuments: jest.Mocked<
@@ -70,6 +76,7 @@ describe('SubmissionsService', () => {
     storage = {
       findRecordAttachments: jest.fn().mockResolvedValue([]),
       findPreviewAttachments: jest.fn().mockResolvedValue([]),
+      findPreviewAttachmentsByRecordIds: jest.fn().mockResolvedValue(new Map()),
       createBlobProxyUrl: jest.fn((blob: StorageBlob) => `/files/${blob.id}`),
     };
     submissionDocuments = {
@@ -150,6 +157,10 @@ describe('SubmissionsService', () => {
           useValue: templates,
         },
         {
+          provide: getRepositoryToken(EmailMessage),
+          useValue: createRepository<EmailMessage>(),
+        },
+        {
           provide: DataSource,
           useValue: dataSource,
         },
@@ -162,6 +173,16 @@ describe('SubmissionsService', () => {
         {
           provide: StorageService,
           useValue: storage,
+        },
+        {
+          provide: AccountsService,
+          useValue: {
+            getTestingAccountContext: jest.fn().mockResolvedValue({
+              isTestMode: false,
+              productionAccountId: 'account-1',
+              testingAccountId: null,
+            }),
+          },
         },
         {
           provide: ConfigService,
@@ -183,6 +204,15 @@ describe('SubmissionsService', () => {
         {
           provide: EventEmitter2,
           useValue: events,
+        },
+        {
+          provide: OwnerAutoSignService,
+          useValue: {
+            completeSavedSignatureSubmitters: jest.fn(),
+            prepareSubmittersInput: jest.fn(
+              (_user: User, _template: Template, input: unknown) => input,
+            ),
+          },
         },
         SubmitterValueNormalizer,
       ],
@@ -363,17 +393,24 @@ describe('SubmissionsService', () => {
         blob: { id: 'blob-1', filename: 'contract.pdf' } as StorageBlob,
       }),
     ]);
-    storage.findPreviewAttachments.mockResolvedValue([
-      createAttachment({
-        id: 'preview-1',
-        uuid: 'preview-uuid',
-        blob: {
-          id: 'preview-blob-1',
-          filename: '0.png',
-          metadata: { width: 1400, height: 1800 },
-        } as unknown as StorageBlob,
-      }),
-    ]);
+    storage.findPreviewAttachmentsByRecordIds.mockResolvedValue(
+      new Map([
+        [
+          'attachment-1',
+          [
+            createAttachment({
+              id: 'preview-1',
+              uuid: 'preview-uuid',
+              blob: {
+                id: 'preview-blob-1',
+                filename: '0.png',
+                metadata: { width: 1400, height: 1800 },
+              } as unknown as StorageBlob,
+            }),
+          ],
+        ],
+      ]),
+    );
 
     await expect(
       service.getSubmissionDocuments(createUser(), 'submission-1'),
