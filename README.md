@@ -253,7 +253,7 @@ DATABASE_URL=postgresql://signa:password@database.example.com:5432/signa
 | `SQLITE_DATABASE_PATH`    | No       | `/data/signa.sqlite`  | SQLite file path inside the container.                                                     |
 | `SQLITE_SYNCHRONIZE`      | No       | `true`                | TypeORM synchronize for SQLite quick starts. Disable for controlled production migrations. |
 | `DATABASE_URL`            | Optional | empty                 | PostgreSQL URL. If set, PostgreSQL is used.                                                |
-| `DATABASE_SSL`            | Optional | `false`               | Enables PostgreSQL SSL.                                                                    |
+| `DATABASE_SSL`            | Optional | `false`               | Encrypts PostgreSQL traffic without requiring a custom CA certificate.                      |
 | `DATABASE_MIGRATIONS_RUN` | Optional | `true` for PostgreSQL | Runs TypeORM migrations on container start.                                                |
 
 PostgreSQL example:
@@ -262,6 +262,12 @@ PostgreSQL example:
 DATABASE_URL=postgresql://signa:password@database.example.com:5432/signa
 DATABASE_SSL=true
 ```
+
+`DATABASE_SSL=true` encrypts the PostgreSQL connection but does not validate
+the database certificate chain. Keep SSL parameters out of `DATABASE_URL` when
+using this flag because PostgreSQL URL parameters can override the driver SSL
+configuration. Deployments that require database identity verification should
+use a trusted CA configuration instead.
 
 `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_USER`, `DATABASE_PASSWORD`, and
 `DATABASE_NAME` remain accepted for backward compatibility, but new

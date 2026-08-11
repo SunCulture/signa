@@ -17,6 +17,9 @@ export function createTypeOrmOptions(config: ConfigService): DatabaseConfig {
 
 function createPostgresOptions(config: ConfigService): DatabaseConfig {
   const databaseUrl = getOptionalString(config, 'DATABASE_URL');
+  const ssl = getBoolean(config, 'DATABASE_SSL', false)
+    ? { rejectUnauthorized: false }
+    : false;
   const connection = databaseUrl
     ? { url: databaseUrl }
     : {
@@ -37,7 +40,7 @@ function createPostgresOptions(config: ConfigService): DatabaseConfig {
     migrationsRun: false,
     synchronize: false,
     logging: getBoolean(config, 'DATABASE_LOGGING', false),
-    ssl: getBoolean(config, 'DATABASE_SSL', false),
+    ssl,
   };
 }
 
