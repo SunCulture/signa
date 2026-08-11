@@ -22,12 +22,17 @@ const internalApiUrl = (
 const apiRewriteTarget = internalApiUrl.endsWith("/api")
   ? internalApiUrl
   : `${internalApiUrl}/api`;
-const marketingUrl = (
-  process.env.NEXT_PUBLIC_MARKETING_URL ?? "http://localhost:3002"
-).replace(/\/$/, "");
+const marketingUrl = process.env.NEXT_PUBLIC_MARKETING_URL?.trim().replace(
+  /\/$/,
+  "",
+);
 
 const nextConfig: NextConfig = {
   async redirects() {
+    if (!marketingUrl) {
+      return [];
+    }
+
     return [
       ...["docs", "guides", "resources"].map((section) => ({
         source: `/${section}/:path*`,
