@@ -26,6 +26,7 @@ services:
       # Leave DATABASE_URL empty for SQLite at /data/signa.sqlite.
       # Set one PostgreSQL URL to switch database engines.
       DATABASE_URL: ${DATABASE_URL:-}
+      # Encrypts PostgreSQL traffic without requiring a custom CA certificate.
       DATABASE_SSL: ${DATABASE_SSL:-false}
       DATABASE_MIGRATIONS_RUN: ${DATABASE_MIGRATIONS_RUN:-}
       SQLITE_DATABASE_PATH: /data/signa.sqlite
