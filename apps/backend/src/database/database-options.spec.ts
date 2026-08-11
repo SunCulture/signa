@@ -40,6 +40,36 @@ describe('database options', () => {
     expect(options).not.toHaveProperty('username');
   });
 
+  it('encrypts PostgreSQL connections without requiring a custom CA', () => {
+    const options = createTypeOrmOptions(
+      createConfig({
+        DATABASE_URL:
+          'postgresql://signa:secret@database.example.com:5432/signa',
+        DATABASE_SSL: true,
+      }),
+    );
+
+    expect(options).toMatchObject({
+      type: 'postgres',
+      ssl: { rejectUnauthorized: false },
+    });
+  });
+
+  it('keeps PostgreSQL TLS disabled unless DATABASE_SSL is enabled', () => {
+    const options = createTypeOrmOptions(
+      createConfig({
+        DATABASE_URL:
+          'postgresql://signa:secret@database.example.com:5432/signa',
+        DATABASE_SSL: false,
+      }),
+    );
+
+    expect(options).toMatchObject({
+      type: 'postgres',
+      ssl: false,
+    });
+  });
+
   it('accepts empty optional values emitted by Docker Compose', () => {
     const validationResult = validationSchema.validate({
       DATABASE_MIGRATIONS_RUN: '',
