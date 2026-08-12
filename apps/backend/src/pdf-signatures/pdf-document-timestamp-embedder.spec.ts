@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PDFDocument } from 'pdf-lib';
+import { PdfiumProcessingService } from '../pdf-processing/pdfium-processing.service';
 import { PdfDocumentTimestampEmbedder } from './pdf-document-timestamp-embedder';
 import { Rfc3161TimestampClient } from './rfc3161-timestamp-client';
 
@@ -84,6 +85,11 @@ describe('PdfDocumentTimestampEmbedder', () => {
 
     expect(timestampRequest.digest).toBeInstanceOf(Buffer);
     expect(timestampRequest.serverUrls).toEqual(['https://tsa.example.com']);
+
+    await expect(PDFDocument.load(result.buffer)).resolves.toBeDefined();
+    await expect(
+      new PdfiumProcessingService().inspectPdf(result.buffer),
+    ).resolves.toBeDefined();
   });
 
   it('keeps the approval-signed PDF when optional timestamping fails', async () => {

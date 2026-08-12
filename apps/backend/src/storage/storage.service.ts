@@ -54,6 +54,7 @@ export class StorageService {
   ): Promise<StorageAttachment> {
     const key = this.buildStorageKey(input.filename);
     const checksum = createHash('md5').update(input.buffer).digest('base64');
+    const sha256 = getMetadataSha256(input.metadata);
     const blob = await this.blobs.save(
       this.blobs.create({
         key,
@@ -63,6 +64,7 @@ export class StorageService {
         serviceName: getWriteStorageServiceName(this.config),
         byteSize: String(input.buffer.byteLength),
         checksum,
+        sha256,
       }),
     );
 
@@ -559,6 +561,16 @@ export class StorageService {
       .update(payload)
       .digest('base64url');
   }
+}
+
+function getMetadataSha256(
+  metadata: Record<string, unknown> | undefined,
+): string | null {
+  const value = metadata?.sha256;
+
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value)
+    ? value
+    : null;
 }
 
 function isBackendAppCwd(): boolean {

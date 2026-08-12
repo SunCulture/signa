@@ -780,105 +780,141 @@ describe('TemplatesService', () => {
     );
   });
 
-  it('creates a DOCX template with extracted field tags and explicit fields', async () => {
-    const folder = { id: 'folder-1', name: 'Default' } as TemplateFolder;
-    const documentAttachment = createAttachment();
-    const docxBuffer = Buffer.from('PK fake-docx');
-    folders.findOne?.mockResolvedValue(folder);
-    templates.findOne?.mockResolvedValue(null);
-    dynamicDocuments.create?.mockImplementation(
-      (input: Partial<DynamicDocument>) => input,
-    );
-    dynamicDocuments.save?.mockResolvedValue({
-      id: 'dynamic-document-1',
-      sha1: 'dynamic-sha1',
-    });
-    dynamicDocumentVersions.create?.mockImplementation(
-      (input: Partial<DynamicDocumentVersion>) => input,
-    );
-    dynamicDocumentVersions.save?.mockResolvedValue({
-      id: 'dynamic-version-1',
-    });
-    templates.create?.mockImplementation((input: Partial<Template>) =>
-      createTemplate({
-        ...input,
-        id: undefined as never,
-        author: createTemplate().author,
-        folder,
-      }),
-    );
-    templates.save?.mockImplementation((entity: Template) =>
-      Promise.resolve(
+  it.each(['json', 'multipart'] as const)(
+    'creates a DOCX template from %s input with extracted field tags',
+    async (inputType) => {
+      const folder = { id: 'folder-1', name: 'Default' } as TemplateFolder;
+      const documentAttachment = createAttachment();
+      const docxBuffer = Buffer.from('PK fake-docx');
+      folders.findOne?.mockResolvedValue(folder);
+      templates.findOne?.mockResolvedValue(null);
+      dynamicDocuments.create?.mockImplementation(
+        (input: Partial<DynamicDocument>) => input,
+      );
+      dynamicDocuments.save?.mockResolvedValue({
+        id: 'dynamic-document-1',
+        sha1: 'dynamic-sha1',
+      });
+      dynamicDocumentVersions.create?.mockImplementation(
+        (input: Partial<DynamicDocumentVersion>) => input,
+      );
+      dynamicDocumentVersions.save?.mockResolvedValue({
+        id: 'dynamic-version-1',
+      });
+      templates.create?.mockImplementation((input: Partial<Template>) =>
         createTemplate({
-          ...entity,
-          id: entity.id ?? '10',
+          ...input,
+          id: undefined as never,
           author: createTemplate().author,
           folder,
-          updatedAt: new Date('2026-06-19T01:00:00.000Z'),
         }),
-      ),
-    );
-    templates.findOne?.mockResolvedValue(
-      createTemplate({
-        folder,
-        schema: [
-          { attachment_uuid: 'attachment-uuid', dynamic: true, name: 'docx' },
-        ],
-      }),
-    );
-    storage.createPdfAttachment.mockResolvedValue(documentAttachment);
-    storage.findRecordAttachments.mockResolvedValue([documentAttachment]);
-    docxFieldTags.prepareDocument.mockReturnValue({
-      buffer: Buffer.from('prepared-docx'),
-      markers: [
-        {
-          marker: 'SIGNATAG0001',
-          field: { name: 'Signature', role: 'Signer', type: 'signature' },
-        },
-      ],
-    });
-    docxFieldTags.extractMarkerFields.mockResolvedValue([
-      {
-        areas: [{ h: 0.04, page: 0, w: 0.16, x: 0.2, y: 0.3 }],
-        name: 'Signature',
-        role: 'Signer',
-        type: 'signature',
-      },
-    ]);
-    documentConversion.convertDocxToPdf.mockResolvedValue(
-      Buffer.from('%PDF-1.7'),
-    );
-
-    await service.createTemplateFromDocx(createUser(), {
-      documents: [
-        {
-          fields: [
-            {
-              areas: [{ h: 0.04, page: 1, w: 0.2, x: 0.1, y: 0.1 }],
-              name: 'Name',
-              role: 'Signer',
-              type: 'text',
-            },
+      );
+      templates.save?.mockImplementation((entity: Template) =>
+        Promise.resolve(
+          createTemplate({
+            ...entity,
+            id: entity.id ?? '10',
+            author: createTemplate().author,
+            folder,
+            updatedAt: new Date('2026-06-19T01:00:00.000Z'),
+          }),
+        ),
+      );
+      templates.findOne?.mockResolvedValue(
+        createTemplate({
+          folder,
+          schema: [
+            { attachment_uuid: 'attachment-uuid', dynamic: true, name: 'docx' },
           ],
-          file: docxBuffer.toString('base64'),
-          name: 'contract.docx',
+        }),
+      );
+      storage.createPdfAttachment.mockResolvedValue(documentAttachment);
+      storage.findRecordAttachments.mockResolvedValue([documentAttachment]);
+      docxFieldTags.prepareDocument.mockReturnValue({
+        buffer: Buffer.from('prepared-docx'),
+        markers: [
+          {
+            marker: 'SIGNATAG0001',
+            field: { name: 'Signature', role: 'Signer', type: 'signature' },
+          },
+        ],
+      });
+      docxFieldTags.extractMarkerFields.mockResolvedValue([
+        {
+          areas: [{ h: 0.04, page: 0, w: 0.16, x: 0.2, y: 0.3 }],
+          name: 'Signature',
+          role: 'Signer',
+          type: 'signature',
         },
-      ],
-      name: 'DOCX Template',
-    });
+      ]);
+      documentConversion.convertDocxToPdf.mockResolvedValue(
+        Buffer.from('%PDF-1.7'),
+      );
 
-    expect(documentConversion.convertDocxToPdf).toHaveBeenCalledWith({
-      buffer: Buffer.from('prepared-docx'),
-      name: 'contract.docx',
-    });
-    const saveMock = templates.save as jest.Mock<Promise<Template>, [Template]>;
-    const savedTemplate = saveMock.mock.calls.at(-1)?.[0];
+      await service.createTemplateFromDocx(
+        createUser(),
+        inputType === 'json'
+          ? {
+              documents: [
+                {
+                  fields: [
+                    {
+                      areas: [{ h: 0.04, page: 1, w: 0.2, x: 0.1, y: 0.1 }],
+                      name: 'Name',
+                      role: 'Signer',
+                      type: 'text',
+                    },
+                  ],
+                  file: docxBuffer.toString('base64'),
+                  name: 'contract.docx',
+                },
+              ],
+              name: 'DOCX Template',
+            }
+          : { name: 'DOCX Template' },
+        inputType === 'multipart'
+          ? {
+              documents: [
+                {
+                  buffer: docxBuffer,
+                  mimetype:
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                  originalname: 'contract.docx',
+                  size: docxBuffer.byteLength,
+                },
+              ],
+            }
+          : undefined,
+      );
 
-    expect(savedTemplate?.fields).toEqual([
-      expect.objectContaining({ name: 'Signature', type: 'signature' }),
-      expect.objectContaining({ name: 'Name', type: 'text' }),
-    ]);
-  });
+      expect(documentConversion.convertDocxToPdf).toHaveBeenCalledWith({
+        buffer: Buffer.from('prepared-docx'),
+        name: 'contract.docx',
+      });
+      const saveMock = templates.save as jest.Mock<
+        Promise<Template>,
+        [Template]
+      >;
+      const savedTemplate = saveMock.mock.calls.at(-1)?.[0];
+
+      expect(savedTemplate?.fields).toEqual(
+        inputType === 'json'
+          ? [
+              expect.objectContaining({
+                name: 'Signature',
+                type: 'signature',
+              }),
+              expect.objectContaining({ name: 'Name', type: 'text' }),
+            ]
+          : [
+              expect.objectContaining({
+                name: 'Signature',
+                type: 'signature',
+              }),
+            ],
+      );
+    },
+  );
 
   it('adds a DOCX document to an existing template from the editor flow', async () => {
     const documentAttachment = createAttachment({

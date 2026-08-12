@@ -23,6 +23,9 @@ import { PdfRevocationEvidenceService } from './pdf-revocation-evidence.service'
 import { StoredSigningCertificateRevocation } from './pdf-signature-certificate';
 import { buildSignaInternalCrl } from './signa-internal-crl';
 
+const maxOcspResponseBytes = 1024 * 1024;
+const maxCrlResponseBytes = 10 * 1024 * 1024;
+
 export type PdfLtvCollectionResult = {
   evidences: PdfDssEvidence[];
   metadata: {
@@ -34,6 +37,10 @@ export type PdfLtvCollectionResult = {
 @Injectable()
 export class PdfRevocationCollectorService {
   private readonly logger = new Logger(PdfRevocationCollectorService.name);
+  private readonly inFlightCollections = new Map<
+    string,
+    Promise<CollectedEvidence>
+  >();
 
   constructor(
     private readonly config: ConfigService,
@@ -146,12 +153,14 @@ export class PdfRevocationCollectorService {
       evidenceType: 'ocsp',
     });
 
-    if (cachedOcsp?.dataBase64) {
+    const cachedOcspData = cachedEvidenceData(cachedOcsp);
+
+    if (cachedOcspData && cachedOcsp) {
       return {
         dssEvidence: {
           certificateDer,
           crlResponses: [],
-          ocspResponses: [Buffer.from(cachedOcsp.dataBase64, 'base64')],
+          ocspResponses: [cachedOcspData],
           vriKey: input.parsed.vriKey,
         },
         status: cachedOcsp.status,
@@ -169,11 +178,13 @@ export class PdfRevocationCollectorService {
       });
     }
 
-    const ocsp = await this.collectOcsp({
-      accountId: input.accountId,
-      issuer,
-      signer,
-    });
+    const ocsp = cachedOcsp
+      ? { data: null, status: cachedOcsp.status }
+      : await this.collectOcsp({
+          accountId: input.accountId,
+          issuer,
+          signer,
+        });
 
     if (ocsp.status === 'good' || ocsp.status === 'revoked') {
       return {
@@ -222,11 +233,13 @@ export class PdfRevocationCollectorService {
       evidenceType: 'crl',
     });
 
-    if (cachedCrl?.dataBase64) {
+    const cachedCrlData = cachedEvidenceData(cachedCrl);
+
+    if (cachedCrl && cachedCrlData) {
       return {
         dssEvidence: {
           certificateDer: input.certificateDer,
-          crlResponses: [Buffer.from(cachedCrl.dataBase64, 'base64')],
+          crlResponses: [cachedCrlData],
           ocspResponses: [],
           vriKey: input.vriKey,
         },
@@ -297,6 +310,16 @@ export class PdfRevocationCollectorService {
     issuer: Certificate;
     signer: Certificate;
   }): Promise<CollectedEvidence> {
+    const key = `ocsp:${input.accountId}:${certificateHash(input.signer)}`;
+
+    return this.singleFlight(key, () => this.collectOcspUncached(input));
+  }
+
+  private async collectOcspUncached(input: {
+    accountId: string;
+    issuer: Certificate;
+    signer: Certificate;
+  }): Promise<CollectedEvidence> {
     const urls = getExtensionHttpUrls(input.signer, '1.3.6.1.5.5.7.1.1');
     const issuerHash = certificateHash(input.issuer);
     const serialNumber = certificateSerial(input.signer);
@@ -324,7 +347,10 @@ export class PdfRevocationCollectorService {
           continue;
         }
 
-        const data = Buffer.from(await response.arrayBuffer());
+        const data = await readLimitedResponseBody(
+          response,
+          maxOcspResponseBytes,
+        );
         const status = await this.validateOcspEvidence(
           data,
           input.signer,
@@ -353,10 +379,48 @@ export class PdfRevocationCollectorService {
       }
     }
 
+    if (urls.length) {
+      await this.evidenceCache.store({
+        accountId: input.accountId,
+        certificateDer: certificateToDer(input.signer),
+        data: null,
+        evidenceType: 'ocsp',
+        issuerHash,
+        nextUpdate: null,
+        serialNumber,
+        status: 'unavailable',
+        thisUpdate: null,
+        url: urls[0],
+      });
+    }
+
     return { data: null, status: 'unavailable' };
   }
 
   private async collectCrl(input: {
+    accountId: string;
+    issuer: Certificate;
+    signer: Certificate;
+  }): Promise<CollectedEvidence> {
+    const cached = await this.evidenceCache.findFresh({
+      accountId: input.accountId,
+      certificateDer: certificateToDer(input.signer),
+      evidenceType: 'crl',
+    });
+
+    if (cached) {
+      return {
+        data: cachedEvidenceData(cached),
+        status: cached.status,
+      };
+    }
+
+    const key = `crl:${input.accountId}:${certificateHash(input.signer)}`;
+
+    return this.singleFlight(key, () => this.collectCrlUncached(input));
+  }
+
+  private async collectCrlUncached(input: {
     accountId: string;
     issuer: Certificate;
     signer: Certificate;
@@ -378,7 +442,10 @@ export class PdfRevocationCollectorService {
           continue;
         }
 
-        const data = Buffer.from(await response.arrayBuffer());
+        const data = await readLimitedResponseBody(
+          response,
+          maxCrlResponseBytes,
+        );
         const status = await this.validateCrlEvidence(
           data,
           input.signer,
@@ -407,7 +474,42 @@ export class PdfRevocationCollectorService {
       }
     }
 
+    if (urls.length) {
+      await this.evidenceCache.store({
+        accountId: input.accountId,
+        certificateDer: certificateToDer(input.signer),
+        data: null,
+        evidenceType: 'crl',
+        issuerHash,
+        nextUpdate: null,
+        serialNumber,
+        status: 'unavailable',
+        thisUpdate: null,
+        url: urls[0],
+      });
+    }
+
     return { data: null, status: 'unavailable' };
+  }
+
+  private singleFlight(
+    key: string,
+    operation: () => Promise<CollectedEvidence>,
+  ): Promise<CollectedEvidence> {
+    const existing = this.inFlightCollections.get(key);
+
+    if (existing) {
+      return existing;
+    }
+
+    const pending = operation().finally(() => {
+      if (this.inFlightCollections.get(key) === pending) {
+        this.inFlightCollections.delete(key);
+      }
+    });
+
+    this.inFlightCollections.set(key, pending);
+    return pending;
   }
 
   private async validateOcspEvidence(
@@ -473,6 +575,16 @@ type CollectedEvidence = {
   data: Buffer | null;
   status: PdfRevocationEvidenceStatus;
 };
+
+function cachedEvidenceData(
+  evidence: {
+    dataBase64?: string | null;
+  } | null,
+): Buffer | null {
+  return evidence?.dataBase64
+    ? Buffer.from(evidence.dataBase64, 'base64')
+    : null;
+}
 
 function findSignerAndIssuer(
   parsed: ParsedPdfCmsSignature,
@@ -591,6 +703,51 @@ function formatName(name: Certificate['subject']): string {
   return name.typesAndValues
     .map((value) => `${value.type}:${String(value.value.valueBlock.value)}`)
     .join('|');
+}
+
+async function readLimitedResponseBody(
+  response: Response,
+  maxBytes: number,
+): Promise<Buffer> {
+  const contentLength = Number(response.headers.get('content-length'));
+
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new Error(`Revocation response exceeds ${maxBytes} bytes`);
+  }
+
+  if (!response.body) {
+    return Buffer.alloc(0);
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      totalBytes += value.byteLength;
+
+      if (totalBytes > maxBytes) {
+        await reader.cancel();
+        throw new Error(`Revocation response exceeds ${maxBytes} bytes`);
+      }
+
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return Buffer.concat(
+    chunks.map((chunk) => Buffer.from(chunk)),
+    totalBytes,
+  );
 }
 
 function summarizeEvidenceStatuses(

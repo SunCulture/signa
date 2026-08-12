@@ -178,16 +178,17 @@ export class PdfSignatureService {
     signerName: string;
     signingTime?: Date;
   }): Promise<PdfSignatureResult> {
-    const { certificate, name } = await this.loadDefaultCertificate(
-      input.accountId,
-    );
-    const timestampServerUrl = await this.getTimestampServerUrl(
-      input.accountId,
-    );
+    const startedAt = Date.now();
+    const [{ certificate, name }, timestampServerUrl] = await Promise.all([
+      this.loadDefaultCertificate(input.accountId),
+      this.getTimestampServerUrl(input.accountId),
+    ]);
+    const configurationReadyAt = Date.now();
     const signatureSubFilter = this.getSignatureSubFilter();
 
     try {
       const pdfA = await this.pdfAService.convertBeforeSigning(input.buffer);
+      const pdfAReadyAt = Date.now();
       const pdf = await PDFDocument.load(pdfA.buffer, {
         ignoreEncryption: true,
         updateMetadata: false,
@@ -223,11 +224,13 @@ export class PdfSignatureService {
         signer,
         input.signingTime,
       );
+      const cmsReadyAt = Date.now();
       const ltv = await this.revocationCollector.collectForSignedPdf({
         accountId: input.accountId,
         internalRevocation: certificate.internal_revocation ?? null,
         pdfBuffer: signedBuffer,
       });
+      const revocationReadyAt = Date.now();
 
       if (ltv.metadata.ltvRequired && ltv.metadata.evidenceStatus !== 'good') {
         throw new UnprocessableEntityException({
@@ -242,11 +245,13 @@ export class PdfSignatureService {
         evidences: ltv.evidences,
         pdfBuffer: signedBuffer,
       });
+      const dssReadyAt = Date.now();
       const timestampedPdf =
         await this.timestampEmbedder.embedDocumentTimestamp({
           pdfBuffer: ltvPdf,
           timestampServerUrl,
         });
+      const completedAt = Date.now();
 
       const finalEvidenceStatus =
         ltv.metadata.evidenceStatus === 'good' &&
@@ -266,6 +271,20 @@ export class PdfSignatureService {
           revocation_status: finalLtv.evidenceStatus,
         });
       }
+
+      this.logger.debug(
+        `PDF signing completed ${JSON.stringify({
+          accountId: input.accountId,
+          bytes: input.buffer.byteLength,
+          cmsMs: cmsReadyAt - pdfAReadyAt,
+          configurationMs: configurationReadyAt - startedAt,
+          dssMs: dssReadyAt - revocationReadyAt,
+          pdfAMs: pdfAReadyAt - configurationReadyAt,
+          revocationMs: revocationReadyAt - cmsReadyAt,
+          timestampMs: completedAt - dssReadyAt,
+          totalMs: completedAt - startedAt,
+        })}`,
+      );
 
       return {
         buffer: timestampedPdf.buffer,
@@ -318,7 +337,7 @@ export class PdfSignatureService {
   ): boolean {
     return (
       ltvBuffer.byteLength > signedBuffer.byteLength &&
-      ltvBuffer.toString('latin1').includes('/DSS')
+      ltvBuffer.includes('/DSS')
     );
   }
 }

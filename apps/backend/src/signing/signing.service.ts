@@ -189,6 +189,7 @@ export class SigningService {
       submitter,
       input,
     );
+    let completionEventId: string | null = null;
 
     submitter.values = {
       ...(submitter.values ?? {}),
@@ -221,16 +222,19 @@ export class SigningService {
       }
 
       if (input.completed) {
-        await manager.getRepository(SubmissionEvent).save(
-          manager.getRepository(SubmissionEvent).create({
-            accountId: submitter.accountId,
-            submissionId: submitter.submissionId,
-            submitterId: submitter.id,
-            eventType: 'complete_form',
-            eventTimestamp: new Date(),
-            data: buildEventData(metadata),
-          }),
-        );
+        const completionEvent = await manager
+          .getRepository(SubmissionEvent)
+          .save(
+            manager.getRepository(SubmissionEvent).create({
+              accountId: submitter.accountId,
+              submissionId: submitter.submissionId,
+              submitterId: submitter.id,
+              eventType: 'complete_form',
+              eventTimestamp: new Date(),
+              data: buildEventData(metadata),
+            }),
+          );
+        completionEventId = completionEvent.id;
       }
     });
 
@@ -247,9 +251,24 @@ export class SigningService {
     }
 
     if (input.completed) {
-      await this.submissionDocumentsService.processSubmitterCompletion(
-        submitter,
-      );
+      try {
+        await this.submissionDocumentsService.processSubmitterCompletion(
+          submitter,
+        );
+      } catch (error) {
+        await this.dataSource.transaction(async (manager) => {
+          submitter.completedAt = null;
+          await manager.getRepository(Submitter).save(submitter);
+
+          if (completionEventId) {
+            await manager
+              .getRepository(SubmissionEvent)
+              .delete(completionEventId);
+          }
+        });
+
+        throw error;
+      }
       await this.documentGenerationQueue.enqueueSubmitterCompletion(
         submitter.id,
       );

@@ -4,7 +4,6 @@ import { createHash } from 'node:crypto';
 import { PDFDocument } from 'pdf-lib';
 import { Repository } from 'typeorm';
 import { StorageAttachment } from '../storage/entities/storage-attachment.entity';
-import { StorageBlob } from '../storage/entities/storage-blob.entity';
 import { CompletedDocument } from '../submissions/entities/completed-document.entity';
 import { PdfTrustRootService } from '../pdf-signatures/pdf-trust-root.service';
 import { PdfSignatureVerifierService } from './pdf-signature-verifier.service';
@@ -17,7 +16,10 @@ type MockRepository<T extends object> = Partial<
 describe('ToolsService', () => {
   let service: ToolsService;
   let completedDocuments: MockRepository<CompletedDocument>;
-  let pdfSignatureVerifier: Pick<PdfSignatureVerifierService, 'verify'>;
+  let pdfSignatureVerifier: Pick<
+    PdfSignatureVerifierService,
+    'prepareDssRead' | 'verify'
+  >;
   let storageAttachments: MockRepository<StorageAttachment>;
 
   beforeEach(async () => {
@@ -25,6 +27,11 @@ describe('ToolsService', () => {
       exists: jest.fn().mockResolvedValue(false),
     };
     pdfSignatureVerifier = {
+      prepareDssRead: jest.fn((pdfBuffer: Buffer) => ({
+        dssObject: null,
+        pdfBuffer,
+        text: pdfBuffer.toString('latin1'),
+      })),
       verify: jest.fn().mockResolvedValue({
         certificateChain: [],
         certificateChainStatus: 'missing',
@@ -42,7 +49,7 @@ describe('ToolsService', () => {
       }),
     };
     storageAttachments = {
-      find: jest.fn().mockResolvedValue([]),
+      exists: jest.fn().mockResolvedValue(false),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -105,19 +112,18 @@ describe('ToolsService', () => {
       .update(Buffer.from(pdf, 'base64'))
       .digest('base64url');
 
-    storageAttachments.find?.mockResolvedValueOnce([
-      {
-        blob: {
-          contentType: 'application/pdf',
-          metadata: { sha256 },
-        } as unknown as StorageBlob,
-      } as StorageAttachment,
-    ]);
+    storageAttachments.exists?.mockResolvedValueOnce(true);
 
     await expect(service.verify({ file: pdf })).resolves.toMatchObject({
       checksum_status: 'verified',
       cryptographic_verification: false,
       sha256,
+    });
+    expect(lastStorageExistsInput(storageAttachments)).toMatchObject({
+      relations: { blob: true },
+      where: {
+        blob: { contentType: 'application/pdf', sha256 },
+      },
     });
   });
 
@@ -189,10 +195,9 @@ trailer
     expect(lastVerifyInput(pdfSignatureVerifier)).toMatchObject({
       cmsContents: null,
       pdfBuffer: signedPdf,
+      signedByteRanges: [0, 120, 220, signedPdf.byteLength - 220],
     });
-    expect(lastVerifyInput(pdfSignatureVerifier).signedBytes).toBeInstanceOf(
-      Buffer,
-    );
+    expect(lastVerifyInput(pdfSignatureVerifier).signedBytes).toBeUndefined();
   });
 
   it('detects RFC3161 document timestamp signatures', async () => {
@@ -247,6 +252,27 @@ trailer
       response: { error: 'PDF file is required' },
     });
   });
+
+  it('rejects verification payloads above the bounded PDF size', async () => {
+    await expect(
+      service.verify(Buffer.alloc(10 * 1024 * 1024 + 1)),
+    ).rejects.toMatchObject({
+      response: { error: 'PDF exceeds the 10 MB verification limit' },
+    });
+    expect(completedDocuments.exists).not.toHaveBeenCalled();
+  });
+
+  it('rejects PDFs with an excessive number of signatures before database work', async () => {
+    const signature = '/ByteRange [0 0 0 0]\n/Contents <00>\n';
+    const pdf = Buffer.from(`%PDF-1.7\n${signature.repeat(21)}%%EOF`);
+
+    jest.spyOn(PDFDocument, 'load').mockResolvedValueOnce({} as PDFDocument);
+
+    await expect(service.verify(pdf)).rejects.toMatchObject({
+      response: { error: 'PDF contains more than 20 signatures' },
+    });
+    expect(completedDocuments.exists).not.toHaveBeenCalled();
+  });
 });
 
 async function buildPdfBase64(): Promise<string> {
@@ -261,6 +287,7 @@ function lastVerifyInput(
 ): {
   cmsContents: Buffer | null;
   pdfBuffer: Buffer;
+  signedByteRanges?: readonly [number, number, number, number] | null;
   signedBytes: Buffer | null;
 } {
   const verify = verifier.verify as jest.Mock;
@@ -273,8 +300,22 @@ function lastVerifyInput(
   return call[0] as {
     cmsContents: Buffer | null;
     pdfBuffer: Buffer;
+    signedByteRanges?: readonly [number, number, number, number] | null;
     signedBytes: Buffer | null;
   };
+}
+
+function lastStorageExistsInput(
+  repository: MockRepository<StorageAttachment>,
+): Record<string, unknown> {
+  const exists = repository.exists as jest.Mock;
+  const call: unknown = exists.mock.calls.at(-1);
+
+  if (!Array.isArray(call) || !call[0] || typeof call[0] !== 'object') {
+    throw new Error('StorageAttachment.exists was not called');
+  }
+
+  return call[0] as Record<string, unknown>;
 }
 
 function buildSignedPdfFixture(input: {

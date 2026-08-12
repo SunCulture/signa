@@ -15,7 +15,12 @@ export type PdfRevocationEvidenceStatus =
   | 'unknown';
 
 @Entity('pdf_revocation_evidence')
-@Index(['accountId', 'certificateSha256', 'evidenceType'])
+@Index('IDX_pdf_revocation_evidence_lookup', [
+  'accountId',
+  'certificateSha256',
+  'evidenceType',
+  'checkedAt',
+])
 export class PdfRevocationEvidence {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

@@ -78,13 +78,14 @@ export class CreateTemplateFromDocxDto {
   @IsBoolean()
   shared_link?: boolean;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     description:
-      'DOCX documents to render into template PDFs. Each document can define its own variables and explicit fields.',
+      'DOCX documents supplied as JSON. Multipart requests can upload documents/files/file fields instead.',
     type: [CreateTemplateDocxDocumentDto],
   })
+  @IsOptional()
   @IsArray()
-  documents: CreateTemplateDocxDocumentDto[];
+  documents?: CreateTemplateDocxDocumentDto[];
 
   @ApiPropertyOptional({
     description:
