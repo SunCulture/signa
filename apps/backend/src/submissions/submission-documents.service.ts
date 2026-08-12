@@ -117,7 +117,6 @@ export class SubmissionDocumentsService {
 
   async processSubmitterCompletion(submitter: Submitter): Promise<void> {
     await this.recordGenerationEvent(submitter.id, 'start');
-    await this.ensureCompletedSubmitter(submitter);
     const resultDocuments = await this.ensureResultDocuments(
       submitter,
       submitter.submission,
@@ -129,6 +128,7 @@ export class SubmissionDocumentsService {
       await this.ensureAuditTrail(submitter.submission);
     }
 
+    await this.ensureCompletedSubmitter(submitter);
     await this.recordGenerationEvent(submitter.id, 'complete');
   }
 

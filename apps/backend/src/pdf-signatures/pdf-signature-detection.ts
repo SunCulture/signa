@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 
 export type DetectedPdfSignature = {
   byteRange: {
+    ranges: readonly [number, number, number, number] | null;
     sha256: string | null;
-    signedBytes: Buffer | null;
     valid: boolean;
   };
   contents: Buffer | null;
@@ -36,6 +36,22 @@ export function detectPdfSignatures(file: Buffer): DetectedPdfSignature[] {
       signatureType: extractPdfName(signatureObject, 'SubFilter'),
     };
   });
+}
+
+export function materializePdfSignedBytes(
+  file: Buffer,
+  ranges: readonly [number, number, number, number] | null,
+): Buffer | null {
+  if (!ranges) {
+    return null;
+  }
+
+  const [firstOffset, firstLength, secondOffset, secondLength] = ranges;
+
+  return Buffer.concat([
+    file.subarray(firstOffset, firstOffset + firstLength),
+    file.subarray(secondOffset, secondOffset + secondLength),
+  ]);
 }
 
 export function extractPdfObjectContaining(
@@ -85,7 +101,7 @@ function inspectByteRange(
     values.length !== 4 ||
     values.some((value) => !Number.isSafeInteger(value))
   ) {
-    return { sha256: null, signedBytes: null, valid: false };
+    return { ranges: null, sha256: null, valid: false };
   }
 
   const [firstOffset, firstLength, secondOffset, secondLength] = values;
@@ -99,17 +115,23 @@ function inspectByteRange(
     secondEnd <= file.byteLength;
 
   if (!isValid) {
-    return { sha256: null, signedBytes: null, valid: false };
+    return { ranges: null, sha256: null, valid: false };
   }
 
-  const signedBytes = Buffer.concat([
-    file.subarray(firstOffset, firstEnd),
-    file.subarray(secondOffset, secondEnd),
-  ]);
+  const ranges = [
+    firstOffset,
+    firstLength,
+    secondOffset,
+    secondLength,
+  ] as const;
+  const digest = createHash('sha256')
+    .update(file.subarray(firstOffset, firstEnd))
+    .update(file.subarray(secondOffset, secondEnd))
+    .digest('base64url');
 
   return {
-    sha256: createHash('sha256').update(signedBytes).digest('base64url'),
-    signedBytes,
+    ranges,
+    sha256: digest,
     valid: true,
   };
 }

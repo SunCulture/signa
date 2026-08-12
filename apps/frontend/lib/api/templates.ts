@@ -225,21 +225,20 @@ export function createTemplateFromPdf(
   });
 }
 
-export async function createTemplateFromDocx(
+export function createTemplateFromDocx(
   file: File,
   folderName?: string,
 ): Promise<TemplateResponse> {
+  const formData = new FormData();
+
+  formData.set("name", removeExtension(file.name));
+  if (folderName) {
+    formData.set("folder_name", folderName);
+  }
+  formData.append("documents", file, file.name);
+
   return authenticatedApiFetch<TemplateResponse>("/templates/docx", {
-    body: JSON.stringify({
-      documents: [
-        {
-          file: await fileToBase64(file),
-          name: file.name,
-        },
-      ],
-      folder_name: folderName,
-      name: removeExtension(file.name),
-    }),
+    body: formData,
     method: "POST",
   });
 }
@@ -484,22 +483,19 @@ export function addBlankTemplatePage(
   );
 }
 
-async function addTemplateDocxDocument(
+function addTemplateDocxDocument(
   id: string,
   file: File,
 ): Promise<TemplateDocumentsUpdateResponse> {
+  const formData = new FormData();
+
+  formData.set("merge", "true");
+  formData.append("documents", file, file.name);
+
   return authenticatedApiFetch<TemplateDocumentsUpdateResponse>(
     `/templates/${id}/documents`,
     {
-      body: JSON.stringify({
-        documents: [
-          {
-            file: await fileToBase64(file),
-            name: file.name,
-          },
-        ],
-        merge: true,
-      }),
+      body: formData,
       method: "PUT",
     },
   );
@@ -539,16 +535,4 @@ function isDocxFile(file: File): boolean {
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
     file.name.toLowerCase().endsWith(".docx")
   );
-}
-
-async function fileToBase64(file: File): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const chunkSize = 0x8000;
-  let binary = "";
-
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
-  }
-
-  return btoa(binary);
 }

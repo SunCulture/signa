@@ -49,7 +49,9 @@ export class ToolsController {
   }
 
   @Post('verify')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
+  )
   @ApiConsumes('multipart/form-data', 'application/json')
   @ApiBody({
     description:

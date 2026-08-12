@@ -12,6 +12,11 @@ import { StorageBlob } from './storage-blob.entity';
 
 @Entity('active_storage_attachments')
 @Index(['recordType', 'recordId', 'name', 'blobId'])
+@Index('IDX_active_storage_attachments_blob_record_name', [
+  'blobId',
+  'recordType',
+  'name',
+])
 export class StorageAttachment {
   @PrimaryGeneratedColumn()
   id!: string;

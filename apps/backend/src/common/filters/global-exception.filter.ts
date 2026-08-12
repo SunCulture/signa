@@ -83,7 +83,28 @@ function getHttpStatus(exception: unknown): number {
     return exception.getStatus();
   }
 
+  if (isHttpStatusError(exception)) {
+    return exception.status;
+  }
+
   return HttpStatus.INTERNAL_SERVER_ERROR;
+}
+
+function isHttpStatusError(
+  exception: unknown,
+): exception is { status: number } {
+  if (!exception || typeof exception !== 'object' || !('status' in exception)) {
+    return false;
+  }
+
+  const status = exception.status;
+
+  return (
+    typeof status === 'number' &&
+    Number.isInteger(status) &&
+    status >= 400 &&
+    status <= 599
+  );
 }
 
 function getErrorMessage(exception: unknown, host: ArgumentsHost): string {

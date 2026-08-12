@@ -1,4 +1,8 @@
-import { Injectable, UnprocessableEntityException } from '@nestjs/common';
+import {
+  Injectable,
+  PayloadTooLargeException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
 import type { Certificate } from 'pkijs';
@@ -11,6 +15,7 @@ import {
   detectPdfSignatures,
   DetectedPdfSignature,
 } from '../pdf-signatures/pdf-signature-detection';
+import type { PdfDssReadContext } from '../pdf-signatures/pdf-dss-vri-embedder';
 import {
   MergePdfsDto,
   MergePdfsResponseDto,
@@ -47,11 +52,12 @@ export class ToolsService {
   async verify(input: VerifyPdfServiceInput): Promise<VerifyPdfResponseDto> {
     const normalizedInput = normalizeVerifyServiceInput(input);
     const file = this.loadVerifyInput(normalizedInput.file);
-    const trustedCertificates = normalizedInput.accountId
-      ? await this.pdfTrustRootService.getTrustedCertificates(
-          normalizedInput.accountId,
-        )
-      : [];
+
+    if (file.byteLength > maxVerifiedPdfBytes) {
+      throw new PayloadTooLargeException({
+        error: `PDF exceeds the ${maxVerifiedPdfBytes / 1024 / 1024} MB verification limit`,
+      });
+    }
 
     try {
       await PDFDocument.load(file, { ignoreEncryption: true });
@@ -60,17 +66,35 @@ export class ToolsService {
     }
 
     const checksum = createHash('sha256').update(file).digest('base64url');
-    const isChecksumFound = await this.isCompletedDocumentChecksum(checksum);
+    const detectedSignatures = detectPdfSignatures(file);
 
-    const signatures = await Promise.all(
-      detectPdfSignatures(file).map((signature) =>
+    if (detectedSignatures.length > maxVerifiedSignatures) {
+      throw new UnprocessableEntityException({
+        error: `PDF contains more than ${maxVerifiedSignatures} signatures`,
+      });
+    }
+
+    const [isChecksumFound, trustedCertificates] = await Promise.all([
+      this.isCompletedDocumentChecksum(checksum),
+      normalizedInput.accountId
+        ? this.pdfTrustRootService.getTrustedCertificates(
+            normalizedInput.accountId,
+          )
+        : Promise.resolve([]),
+    ]);
+
+    const dssContext = this.pdfSignatureVerifier.prepareDssRead(file);
+    const signatures = await mapWithConcurrency(
+      detectedSignatures,
+      signatureVerificationConcurrency,
+      (signature) =>
         this.toSignatureVerificationResponse({
+          dssContext,
           file,
           isChecksumFound,
           signature,
           trustedCertificates,
         }),
-      ),
     );
 
     return {
@@ -106,9 +130,13 @@ export class ToolsService {
       return true;
     }
 
-    const completedArtifactAttachments = await this.storageAttachments.find({
+    return this.storageAttachments.exists({
       relations: { blob: true },
       where: {
+        blob: {
+          contentType: 'application/pdf',
+          sha256: checksum,
+        },
         name: In([
           'documents',
           'merged_document',
@@ -117,17 +145,6 @@ export class ToolsService {
         ]),
         recordType: In(['Submitter', 'Submission']),
       },
-    });
-
-    return completedArtifactAttachments.some((attachment) => {
-      const metadata = attachment.blob.metadata;
-
-      return (
-        attachment.blob.contentType === 'application/pdf' &&
-        metadata &&
-        typeof metadata.sha256 === 'string' &&
-        metadata.sha256 === checksum
-      );
     });
   }
 
@@ -142,16 +159,24 @@ export class ToolsService {
   }
 
   private async toSignatureVerificationResponse(input: {
+    dssContext: PdfDssReadContext;
     file: Buffer;
     isChecksumFound: boolean;
     signature: DetectedPdfSignature;
     trustedCertificates: Certificate[];
   }) {
-    const { file, isChecksumFound, signature, trustedCertificates } = input;
+    const {
+      dssContext,
+      file,
+      isChecksumFound,
+      signature,
+      trustedCertificates,
+    } = input;
     const cmsVerification = await this.pdfSignatureVerifier.verify({
       cmsContents: signature.contents,
+      dssContext,
       pdfBuffer: file,
-      signedBytes: signature.byteRange.signedBytes,
+      signedByteRanges: signature.byteRange.ranges,
       trustedCertificates,
     });
     const messages = [
@@ -241,6 +266,32 @@ type PdfSignatureCertificate = {
 };
 
 const padesSubFilter = 'ETSI.CAdES.detached';
+const maxVerifiedPdfBytes = 10 * 1024 * 1024;
+const maxVerifiedSignatures = 20;
+const signatureVerificationConcurrency = 2;
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (cursor < items.length) {
+        const index = cursor;
+        cursor += 1;
+        results[index] = await mapper(items[index], index);
+      }
+    },
+  );
+
+  await Promise.all(workers);
+  return results;
+}
 
 function certificateToResponse(
   certificate: PdfSignatureCertificate,

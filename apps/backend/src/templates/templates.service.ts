@@ -548,8 +548,9 @@ export class TemplatesService {
   async createTemplateFromDocx(
     user: User,
     input: CreateTemplateFromDocxDto,
+    multipartFiles?: Record<string, UploadedBufferFile[]>,
   ): Promise<TemplateResponseDto> {
-    const documents = await this.resolveDocxDocuments(input);
+    const documents = await this.resolveDocxDocuments(input, multipartFiles);
 
     return this.createTemplateFromResolvedDocuments(user, input, documents);
   }
@@ -1874,7 +1875,27 @@ export class TemplatesService {
 
   private async resolveDocxDocuments(
     input: CreateTemplateFromDocxDto,
+    multipartFiles?: Record<string, UploadedBufferFile[]>,
   ): Promise<ResolvedPdfDocument[]> {
+    const multipartDocuments = [
+      ...(multipartFiles?.documents ?? []),
+      ...(multipartFiles?.files ?? []),
+      ...(multipartFiles?.file ?? []),
+    ];
+
+    if (multipartDocuments.length) {
+      return Promise.all(
+        multipartDocuments.map((file) =>
+          this.resolveDocxBufferDocument({
+            buffer: file.buffer,
+            fields: [],
+            name: file.originalname,
+            variables: input.variables,
+          }),
+        ),
+      );
+    }
+
     const documents = input.documents ?? [];
 
     if (!documents.length) {

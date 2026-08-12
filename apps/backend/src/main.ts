@@ -1,4 +1,5 @@
 import { INestApplication, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
@@ -6,7 +7,9 @@ import morgan from 'morgan';
 import { I18nValidationPipe } from 'nestjs-i18n';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import { configureBodyParsers } from './common/http/body-parser';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { httpObservabilityMiddleware } from './common/middleware/http-observability.middleware';
 import { requestIdMiddleware } from './common/middleware/request-id.middleware';
@@ -14,8 +17,16 @@ import { RuntimeObservabilityService } from './health/runtime-observability.serv
 
 async function bootstrap() {
   const logger = new Logger(bootstrap.name, { timestamp: true });
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bodyParser: false,
+  });
 
+  configureBodyParsers(
+    app,
+    app
+      .get(ConfigService)
+      .get<number>('ATTACHMENT_INGEST_MAX_BYTES', 10 * 1024 * 1024),
+  );
   configureApp(app);
   setupSwagger(app);
 
