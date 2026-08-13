@@ -88,15 +88,22 @@ export function BlogIndexClient() {
                   <span className="sr-only">Search posts</span>
                   <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-copy" />
                   <input
-                    autoFocus
+                    autoComplete="off"
+                    name="articleSearch"
+                    type="search"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Search posts..."
+                    placeholder="Search posts…"
                     className="h-10 w-full rounded-lg border border-transparent bg-signa-100 pl-11 pr-4 text-sm text-ink outline-none transition placeholder:text-signa-500 focus:border-mint focus:bg-white focus:ring-2 focus:ring-mint"
                   />
                 </label>
                 {query.trim() ? (
                   <div className="mt-2 max-h-[calc(100svh-10rem)] overflow-y-auto bg-white">
+                    <p aria-live="polite" className="sr-only" role="status">
+                      {searchResults.length === 1
+                        ? "1 article found"
+                        : `${searchResults.length} articles found`}
+                    </p>
                     {searchResults.length > 0 ? (
                       searchResults.slice(0, 8).map((post) => (
                         <Link
@@ -125,6 +132,7 @@ export function BlogIndexClient() {
         <div
           className="flex gap-3 overflow-x-auto px-1 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           aria-label="Filter articles by category"
+          role="group"
         >
           {blogCategories.map((item) => (
             <button
@@ -133,7 +141,7 @@ export function BlogIndexClient() {
               aria-pressed={category === item}
               onClick={() => setCategory(item)}
               className={cn(
-                "shrink-0 text-sm capitalize transition-colors",
+                "relative shrink-0 touch-manipulation rounded text-sm capitalize transition-colors after:absolute after:-inset-y-2.5 after:-inset-x-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signa-400",
                 category === item
                   ? "font-medium text-ink"
                   : "text-copy hover:text-ink",

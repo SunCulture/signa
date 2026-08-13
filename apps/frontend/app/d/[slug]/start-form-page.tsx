@@ -236,7 +236,11 @@ function StartFormShell({
   title: string;
 }) {
   return (
-    <main className="min-h-svh bg-[var(--auth-background)] px-4 py-10 text-[var(--auth-foreground)]">
+    <main
+      className="min-h-svh bg-[var(--auth-background)] px-4 py-10 text-[var(--auth-foreground)]"
+      id="main-content"
+      tabIndex={-1}
+    >
       <div className="mx-auto flex w-full max-w-md flex-col gap-6">
         <div className="flex justify-center">
           <Image
@@ -294,4 +298,3 @@ function StartFormInput({
     />
   );
 }
-

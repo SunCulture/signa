@@ -2,6 +2,7 @@
 
 import { ChevronDownIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import { useId } from "react";
 
 import {
   Accordion,
@@ -488,11 +489,16 @@ function LabeledInput({
   type?: string;
   value: string;
 }) {
+  const id = useId();
+
   return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
+    <div className="flex flex-col gap-2">
+      <Label htmlFor={id}>{label}</Label>
       <Input
+        autoComplete="off"
         className="h-12 rounded-full border-[var(--auth-input-border)] px-5 shadow-none focus-visible:ring-0"
+        id={id}
+        name={id}
         onChange={(event) => onChange(event.target.value)}
         type={type}
         value={value}
@@ -510,11 +516,16 @@ function LabeledTextarea({
   onChange: (value: string) => void;
   value: string;
 }) {
+  const id = useId();
+
   return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
+    <div className="flex flex-col gap-2">
+      <Label htmlFor={id}>{label}</Label>
       <Textarea
+        autoComplete="off"
         className="min-h-28 rounded-2xl border-[var(--auth-input-border)] px-5 py-3 shadow-none focus-visible:ring-0"
+        id={id}
+        name={id}
         onChange={(event) => onChange(event.target.value)}
         value={value}
       />

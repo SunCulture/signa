@@ -24,7 +24,7 @@ export default function BlogPage() {
     <>
       <SiteHeader />
       <div className="site-gutter">
-        <main className="pt-[69px]">
+        <main className="pt-[69px]" id="main-content" tabIndex={-1}>
           <section>
             <div className="page-frame px-4 pb-12 pt-24 lg:pt-28">
               <div className="grid items-end gap-8 md:grid-cols-2 lg:grid-cols-3">

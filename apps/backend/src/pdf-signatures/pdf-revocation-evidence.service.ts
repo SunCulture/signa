@@ -47,7 +47,11 @@ export class PdfRevocationEvidenceService {
       return null;
     }
 
-    if (evidence.nextUpdate && evidence.nextUpdate.getTime() < Date.now()) {
+    const expiresAt =
+      evidence.nextUpdate?.getTime() ??
+      evidence.checkedAt.getTime() + evidenceWithoutNextUpdateMaxAgeMs;
+
+    if (expiresAt < Date.now()) {
       return null;
     }
 
@@ -74,6 +78,8 @@ export class PdfRevocationEvidenceService {
     );
   }
 }
+
+const evidenceWithoutNextUpdateMaxAgeMs = 5 * 60 * 1000;
 
 function sha256(buffer: Buffer): string {
   return createHash('sha256').update(buffer).digest('hex');

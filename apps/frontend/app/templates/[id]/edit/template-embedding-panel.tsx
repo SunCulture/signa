@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { BundledLanguage } from "shiki";
 import {
@@ -106,12 +106,15 @@ function useEmbeddingUrl(template: TemplateResponse) {
 }
 
 function CopyableValue({ label, value }: { label: string; value: string }) {
+  const id = useId();
+
   return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
+    <div className="flex flex-col gap-2">
+      <Label htmlFor={id}>{label}</Label>
       <div className="flex gap-2">
         <Input
           className="h-12 rounded-full border-[var(--auth-input-border)] px-5 shadow-none focus-visible:ring-0"
+          id={id}
           readOnly
           value={value}
         />

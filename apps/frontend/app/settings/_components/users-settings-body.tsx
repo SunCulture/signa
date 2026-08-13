@@ -3,7 +3,7 @@
 import type React from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useId, useMemo, useState } from "react"
 import { signaRoleLabels, signaRoles, type SignaRole } from "@repo/shared"
 import {
   ArchiveIcon,
@@ -317,7 +317,7 @@ function UsersPanel() {
                   disabled={isSubmitting || (Boolean(editingUser) && !hasUserChanges)}
                   type="submit"
                 >
-                  {isSubmitting ? "SUBMITTING..." : "SUBMIT"}
+                  {isSubmitting ? "SUBMITTING…" : "SUBMIT"}
                 </Button>
               </form>
             </DialogContent>
@@ -348,7 +348,7 @@ function UsersPanel() {
         </div>
         {isLoading ? (
           <p className="border-b border-border px-6 py-6 text-sm text-muted-foreground">
-            Loading...
+            Loading…
           </p>
         ) : users.length === 0 ? (
           <p className="border-b border-border px-6 py-6 text-sm text-muted-foreground">
@@ -566,11 +566,16 @@ function SelectField({
   onValueChange: (value: string) => void
   value: string
 }) {
+  const id = useId()
+
   return (
     <div className="grid gap-2">
-      <Label>{label}</Label>
+      <Label htmlFor={id}>{label}</Label>
       <Select onValueChange={onValueChange} value={value}>
-        <SelectTrigger className="!h-14 min-h-14 w-full rounded-full px-6 py-0 text-lg">
+        <SelectTrigger
+          className="!h-14 min-h-14 w-full rounded-full px-6 py-0 text-lg"
+          id={id}
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>{children}</SelectContent>
@@ -628,11 +633,16 @@ function FieldInput({
   type?: string
   value: string
 }) {
+  const id = useId()
+
   return (
     <div className="grid gap-2">
-      <Label>{label}</Label>
+      <Label htmlFor={id}>{label}</Label>
       <Input
+        autoComplete={type === "email" ? "email" : "off"}
         className="h-14 rounded-full px-6 text-lg"
+        id={id}
+        name={id}
         onChange={(event) => onChange(event.target.value)}
         required={required}
         type={type}

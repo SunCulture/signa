@@ -25,7 +25,11 @@ const quickActions = [
 
 export default function AiAssistantPage() {
   return (
-    <main className="min-h-svh bg-[var(--auth-background)] text-[var(--auth-foreground)]">
+    <main
+      className="min-h-svh bg-[var(--auth-background)] text-[var(--auth-foreground)]"
+      id="main-content"
+      tabIndex={-1}
+    >
       <header className="mx-auto flex h-20 w-full max-w-6xl items-center justify-between px-6">
         <Link className="flex items-center gap-3" href="/">
           <Image
@@ -37,7 +41,10 @@ export default function AiAssistantPage() {
             width={120}
           />
         </Link>
-        <nav className="hidden items-center gap-10 text-sm font-semibold md:flex">
+        <nav
+          aria-label="AI assistant"
+          className="hidden items-center gap-10 text-sm font-semibold md:flex"
+        >
           <Link href="/templates">Solutions</Link>
           <Link href="/settings/api">For Developers</Link>
           <Link href="/settings/plans">Pricing</Link>
@@ -65,7 +72,7 @@ export default function AiAssistantPage() {
             <div className="rounded-[24px] border border-[var(--auth-input-border)] bg-[var(--auth-background)] p-4 shadow-inner">
               <input
                 aria-label="Ask Signa AI"
-                className="mb-6 h-7 w-full bg-transparent text-base text-[var(--auth-foreground)] outline-none placeholder:text-[var(--auth-placeholder)]"
+                className="mb-6 h-7 w-full rounded bg-transparent text-base text-[var(--auth-foreground)] outline-none placeholder:text-[var(--auth-placeholder)] focus-visible:ring-2 focus-visible:ring-ring"
                 placeholder="Send a message... (@ to mention, / for commands)"
                 type="text"
               />

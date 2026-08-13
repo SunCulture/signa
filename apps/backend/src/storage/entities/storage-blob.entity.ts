@@ -41,6 +41,10 @@ export class StorageBlob {
   @Column({ type: 'varchar', length: 255, nullable: true })
   checksum!: string | null;
 
+  @Index('IDX_active_storage_blobs_sha256')
+  @Column({ type: 'varchar', length: 43, nullable: true })
+  sha256!: string | null;
+
   @Index({ unique: true })
   @Column({
     type: 'varchar',

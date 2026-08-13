@@ -3,6 +3,14 @@
 import { useState } from "react";
 import { PlusIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import phoneData from "@/lib/phone-data";
@@ -62,19 +70,13 @@ export function FieldDescriptionModal({
   }
 
   return (
-    <div
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/35 px-4 py-16"
-      role="dialog"
-    >
-      <button
-        aria-label="Close description dialog"
-        className="absolute inset-0 cursor-default"
-        onClick={() => onOpenChange(false)}
-        type="button"
-      />
-      <form
-        className="relative w-full max-w-xl rounded-2xl border border-[var(--auth-input-border)] bg-card p-6 text-[var(--auth-foreground)] shadow-2xl"
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogContent
+        className="top-16 max-w-xl -translate-y-0 border-[var(--auth-input-border)] bg-card p-6 text-[var(--auth-foreground)] shadow-2xl"
+        overlayClassName="bg-black/35 backdrop-blur-none"
+        showCloseButton={false}
+      >
+        <form
         onSubmit={(event) => {
           event.preventDefault();
           void onSave({
@@ -83,25 +85,27 @@ export function FieldDescriptionModal({
           }).then(() => onOpenChange(false));
         }}
       >
-        <div className="mb-4 flex items-center justify-between border-b border-[var(--auth-input-border)] pb-3">
-          <h2 className="text-base font-bold text-[var(--auth-primary)]">
+        <DialogHeader className="mb-4 flex-row items-center justify-between border-b border-[var(--auth-input-border)] pb-3">
+          <DialogTitle className="text-base font-bold text-[var(--auth-primary)]">
             {title}
-          </h2>
-          <button
-            aria-label="Close"
-            className="rounded-full px-2 text-xl leading-none text-[var(--auth-primary)] hover:bg-[var(--auth-muted)]"
-            onClick={() => onOpenChange(false)}
-            type="button"
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            Edit the field description and display title.
+          </DialogDescription>
+          <DialogClose
+            aria-label="Close description dialog"
+            className="rounded-full px-2 text-xl leading-none text-[var(--auth-primary)] hover:bg-[var(--auth-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             ×
-          </button>
-        </div>
+          </DialogClose>
+        </DialogHeader>
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
             <Label htmlFor={`${field.uuid}-description`}>Description</Label>
             <textarea
-              className="min-h-24 resize-y rounded-3xl border border-[var(--auth-input-border)] bg-background px-4 py-3 text-sm outline-none transition-colors focus:border-[var(--auth-primary)]"
+              className="min-h-24 resize-y rounded-3xl border border-[var(--auth-input-border)] bg-background px-4 py-3 text-sm outline-none transition-colors focus:border-[var(--auth-primary)] focus-visible:ring-2 focus-visible:ring-ring"
               id={`${field.uuid}-description`}
+              name="description"
               onChange={(event) => setDescription(event.target.value)}
               value={description}
             />
@@ -111,8 +115,10 @@ export function FieldDescriptionModal({
               Display title (optional)
             </Label>
             <Input
+              autoComplete="off"
               className="h-12 rounded-full bg-background"
               id={`${field.uuid}-display-title`}
+              name="displayTitle"
               onChange={(event) => setDisplayTitle(event.target.value)}
               value={displayTitle}
             />
@@ -124,8 +130,9 @@ export function FieldDescriptionModal({
             SAVE
           </Button>
         </div>
-      </form>
-    </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -313,37 +320,33 @@ export function FieldAdvancedSettingsModal({
   }
 
   return (
-    <div
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/35 px-4 py-12"
-      role="dialog"
-    >
-      <button
-        aria-label="Close field settings"
-        className="absolute inset-0 cursor-default"
-        onClick={() => onOpenChange(false)}
-        type="button"
-      />
+    <Dialog onOpenChange={onOpenChange} open>
+      <DialogContent
+        className="top-12 max-h-[calc(100svh-6rem)] max-w-xl -translate-y-0 gap-0 overflow-hidden border-[var(--auth-input-border)] bg-card p-0 text-[var(--auth-foreground)] shadow-2xl"
+        overlayClassName="bg-black/35 backdrop-blur-none"
+        showCloseButton={false}
+      >
       <form
-        className="relative flex max-h-[calc(100svh-6rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-[var(--auth-input-border)] bg-card text-[var(--auth-foreground)] shadow-2xl"
+        className="flex min-h-0 flex-col overflow-hidden"
         onSubmit={(event) => {
           event.preventDefault();
           saveSettings();
         }}
       >
-        <div className="flex items-center justify-between border-b border-[var(--auth-input-border)] px-6 py-4">
-          <h2 className="text-base font-bold text-[var(--auth-primary)]">
+        <DialogHeader className="flex-row items-center justify-between border-b border-[var(--auth-input-border)] px-6 py-4">
+          <DialogTitle className="text-base font-bold text-[var(--auth-primary)]">
             Field Settings - {title}
-          </h2>
-          <button
-            aria-label="Close"
-            className="rounded-full px-2 text-xl leading-none text-[var(--auth-primary)] hover:bg-[var(--auth-muted)]"
-            onClick={() => onOpenChange(false)}
-            type="button"
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            Configure validation, defaults, options, and areas for this field.
+          </DialogDescription>
+          <DialogClose
+            aria-label="Close field settings"
+            className="rounded-full px-2 text-xl leading-none text-[var(--auth-primary)] hover:bg-[var(--auth-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             ×
-          </button>
-        </div>
+          </DialogClose>
+        </DialogHeader>
         <div className="flex flex-col gap-4 overflow-y-auto px-6 py-4">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <FieldToggle
@@ -457,6 +460,7 @@ export function FieldAdvancedSettingsModal({
               {validationKind === "length" ? (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Input
+                    aria-label="Minimum length"
                     className="h-11 rounded-full bg-card"
                     min={0}
                     onChange={(event) => setLengthMin(event.target.value)}
@@ -465,6 +469,7 @@ export function FieldAdvancedSettingsModal({
                     value={lengthMin}
                   />
                   <Input
+                    aria-label="Maximum length"
                     className="h-11 rounded-full bg-card"
                     min={1}
                     onChange={(event) => setLengthMax(event.target.value)}
@@ -477,12 +482,14 @@ export function FieldAdvancedSettingsModal({
               {validationKind === "custom" ? (
                 <div className="flex flex-col gap-3">
                   <Input
+                    aria-label="Validation pattern"
                     className="h-11 rounded-full bg-card"
                     onChange={(event) => setCustomPattern(event.target.value)}
                     placeholder="Regexp validation"
                     value={customPattern}
                   />
                   <Input
+                    aria-label="Validation error message"
                     className="h-11 rounded-full bg-card"
                     onChange={(event) => setCustomMessage(event.target.value)}
                     placeholder="Error message"
@@ -517,7 +524,7 @@ export function FieldAdvancedSettingsModal({
           {supportsOptions ? (
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
-                <Label>Options</Label>
+                <Label id={`${field.uuid}-options-label`}>Options</Label>
                 <Button
                   onClick={() =>
                     setOptions((current) => [
@@ -537,6 +544,7 @@ export function FieldAdvancedSettingsModal({
                 {options.map((option, optionIndex) => (
                   <div className="flex items-center gap-2" key={option.uuid}>
                     <Input
+                      aria-label={`Option ${optionIndex + 1}`}
                       className="h-10 rounded-full bg-background"
                       onChange={(event) => {
                         const nextValue = event.target.value;
@@ -604,7 +612,7 @@ export function FieldAdvancedSettingsModal({
 
           {areas.length > 0 ? (
             <div className="flex flex-col gap-2 rounded-xl border border-[var(--auth-input-border)] bg-background p-3">
-              <Label>Areas</Label>
+              <Label id={`${field.uuid}-areas-label`}>Areas</Label>
               <div className="flex flex-col gap-2">
                 {areas.map((area, areaIndex) => (
                   <div
@@ -647,7 +655,8 @@ export function FieldAdvancedSettingsModal({
           </Button>
         </div>
       </form>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -743,37 +752,33 @@ export function FieldConditionsModal({
   }
 
   return (
-    <div
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/35 px-4 py-12"
-      role="dialog"
-    >
-      <button
-        aria-label="Close conditions dialog"
-        className="absolute inset-0 cursor-default"
-        onClick={() => onOpenChange(false)}
-        type="button"
-      />
+    <Dialog onOpenChange={onOpenChange} open>
+      <DialogContent
+        className="top-12 max-h-[calc(100svh-6rem)] max-w-xl -translate-y-0 gap-0 overflow-hidden border-[var(--auth-input-border)] bg-card p-0 text-[var(--auth-foreground)] shadow-2xl"
+        overlayClassName="bg-black/35 backdrop-blur-none"
+        showCloseButton={false}
+      >
       <form
-        className="relative flex max-h-[calc(100svh-6rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-[var(--auth-input-border)] bg-card text-[var(--auth-foreground)] shadow-2xl"
+        className="flex min-h-0 flex-col overflow-hidden"
         onSubmit={(event) => {
           event.preventDefault();
           saveConditions();
         }}
       >
-        <div className="flex items-center justify-between border-b border-[var(--auth-input-border)] px-6 py-4">
-          <h2 className="text-base font-bold text-[var(--auth-primary)]">
+        <DialogHeader className="flex-row items-center justify-between border-b border-[var(--auth-input-border)] px-6 py-4">
+          <DialogTitle className="text-base font-bold text-[var(--auth-primary)]">
             Condition - {title}
-          </h2>
-          <button
-            aria-label="Close"
-            className="rounded-full px-2 text-xl leading-none text-[var(--auth-primary)] hover:bg-[var(--auth-muted)]"
-            onClick={() => onOpenChange(false)}
-            type="button"
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            Define when this field is shown or hidden based on another field.
+          </DialogDescription>
+          <DialogClose
+            aria-label="Close conditions dialog"
+            className="rounded-full px-2 text-xl leading-none text-[var(--auth-primary)] hover:bg-[var(--auth-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             ×
-          </button>
-        </div>
+          </DialogClose>
+        </DialogHeader>
         <div className="flex flex-col gap-4 overflow-y-auto px-6 py-4">
           {conditions.map((condition, index) => {
             const conditionField = availableFields.find(
@@ -808,7 +813,8 @@ export function FieldConditionsModal({
                 ) : null}
                 <div className="flex flex-col gap-3">
                   <select
-                    className="h-11 rounded-full border border-[var(--auth-input-border)] bg-card px-4 text-sm outline-none focus:border-[var(--auth-primary)]"
+                    aria-label={`Condition ${index + 1} field`}
+                    className="h-11 rounded-full border border-[var(--auth-input-border)] bg-card px-4 text-sm outline-none focus:border-[var(--auth-primary)] focus-visible:ring-2 focus-visible:ring-ring"
                     onChange={(event) => {
                       const nextField = availableFields.find(
                         (item) => item.uuid === event.target.value,
@@ -833,7 +839,8 @@ export function FieldConditionsModal({
                     ))}
                   </select>
                   <select
-                    className="h-11 rounded-full border border-[var(--auth-input-border)] bg-card px-4 text-sm outline-none focus:border-[var(--auth-primary)]"
+                    aria-label={`Condition ${index + 1} comparison`}
+                    className="h-11 rounded-full border border-[var(--auth-input-border)] bg-card px-4 text-sm outline-none focus:border-[var(--auth-primary)] focus-visible:ring-2 focus-visible:ring-ring"
                     disabled={!conditionField}
                     onChange={(event) =>
                       updateCondition(index, {
@@ -853,7 +860,8 @@ export function FieldConditionsModal({
                   requiresConditionValue(conditionField, action) ? (
                     isChoiceField(conditionField.type) ? (
                       <select
-                        className="h-11 rounded-full border border-[var(--auth-input-border)] bg-card px-4 text-sm outline-none focus:border-[var(--auth-primary)]"
+                        aria-label={`Condition ${index + 1} value`}
+                        className="h-11 rounded-full border border-[var(--auth-input-border)] bg-card px-4 text-sm outline-none focus:border-[var(--auth-primary)] focus-visible:ring-2 focus-visible:ring-ring"
                         onChange={(event) =>
                           updateCondition(index, { value: event.target.value })
                         }
@@ -871,6 +879,7 @@ export function FieldConditionsModal({
                       </select>
                     ) : (
                       <Input
+                        aria-label={`Condition ${index + 1} value`}
                         className="h-11 rounded-full bg-card"
                         onChange={(event) =>
                           updateCondition(index, { value: event.target.value })
@@ -934,6 +943,7 @@ export function FieldConditionsModal({
           ) : null}
         </div>
       </form>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

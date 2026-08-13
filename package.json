@@ -2,7 +2,7 @@
   "name": "signa",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@11.5.1",
+  "packageManager": "pnpm@11.21.0",
   "scripts": {
     "dev": "turbo run dev",
     "dev:backend": "pnpm --filter backend dev",
@@ -34,9 +34,9 @@
     "format": "prettier --write ."
   },
   "devDependencies": {
-    "@changesets/changelog-github": "^0.7.0",
-    "@changesets/cli": "^2.31.0",
-    "prettier": "^3.8.4",
-    "turbo": "^2.9.18"
+    "@changesets/changelog-github": "^1.0.0",
+    "@changesets/cli": "^3.0.0",
+    "prettier": "^3.9.6",
+    "turbo": "^2.10.9"
   }
 }

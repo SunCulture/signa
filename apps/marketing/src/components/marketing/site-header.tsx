@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 
 import { buttonVariants } from "@/components/ui/button";
@@ -27,6 +28,8 @@ const navItems = [
 ];
 
 export function SiteHeader() {
+  const pathname = usePathname();
+
   return (
     <header className="fixed inset-x-0 top-0 z-50">
       <div className="site-gutter">
@@ -42,6 +45,7 @@ export function SiteHeader() {
             >
               {navItems.map((item) => (
                 <Link
+                  aria-current={isCurrentSiteRoute(pathname, item.href) ? "page" : undefined}
                   key={item.label}
                   href={item.href}
                   className="text-sm font-medium text-ink transition-colors hover:text-slate-500"
@@ -97,6 +101,7 @@ export function SiteHeader() {
                       nativeButton={false}
                       render={
                         <Link
+                          aria-current={isCurrentSiteRoute(pathname, item.href) ? "page" : undefined}
                           href={item.href}
                           className="text-[clamp(3rem,15vw,4.5rem)] font-semibold leading-[1.05] tracking-normal text-ink"
                         />
@@ -129,4 +134,12 @@ export function SiteHeader() {
       </div>
     </header>
   );
+}
+
+function isCurrentSiteRoute(pathname: string, href: string) {
+  if (href.includes("#")) {
+    return false;
+  }
+
+  return pathname === href || (href !== "/" && pathname.startsWith(`${href}/`));
 }

@@ -274,6 +274,31 @@ describe('SubmissionDocumentsService', () => {
     expect(typeof completedDocumentInput?.sha256).toBe('string');
   });
 
+  it('does not persist completion when result document storage fails', async () => {
+    storage.createPdfAttachment.mockRejectedValueOnce(
+      new Error('PDF metadata inspection failed'),
+    );
+    const submitter = createSubmitter({
+      completedAt: new Date('2026-06-20T00:00:00.000Z'),
+      values: { field_name: 'Ada' },
+    });
+    const submission = createSubmission({ submitters: [submitter] });
+    submitter.submission = submission;
+
+    await expect(service.processSubmitterCompletion(submitter)).rejects.toThrow(
+      'PDF metadata inspection failed',
+    );
+
+    expect(completedSubmitters.save).not.toHaveBeenCalled();
+    expect(generationEvents.save).toHaveBeenCalledTimes(1);
+    expect(generationEvents.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: 'start',
+        submitterId: 'submitter-1',
+      }),
+    );
+  });
+
   it('uses the account document filename format for completed downloads', async () => {
     accountConfigs.find?.mockResolvedValue([
       {

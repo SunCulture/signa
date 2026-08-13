@@ -435,10 +435,12 @@ function TimestampServerForm({
 
   return (
     <div className="mt-8 max-w-xl space-y-3">
-      <Label>Timestamp server URL</Label>
+      <Label htmlFor="timestamp-server-url">Timestamp server URL</Label>
       <div className="flex gap-3">
         <input
           className="h-12 min-w-0 flex-1 rounded-full border bg-transparent px-5 outline-none"
+          id="timestamp-server-url"
+          name="timestampServerUrl"
           onChange={(event) => setNextTimestampServerUrl(event.target.value)}
           placeholder="URL (optional)"
           type="url"
@@ -497,10 +499,13 @@ function ESignaturePreferences({
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
           <div className="space-y-2">
-            <Label>Owner role name</Label>
+            <Label htmlFor="owner-role-name">Owner role name</Label>
             <Input
+              autoComplete="off"
               className="h-12 rounded-full"
               disabled={!preferences.auto_sign_owner_enabled}
+              id="owner-role-name"
+              name="ownerRoleName"
               onBlur={(event) => {
                 const role = event.currentTarget.value.trim() || "First Party";
 
@@ -529,7 +534,9 @@ function ESignaturePreferences({
         </div>
       </div>
       <div className="space-y-2">
-        <Label>Document download filename format</Label>
+        <Label htmlFor="document-filename-format">
+          Document download filename format
+        </Label>
         <Select
           onValueChange={(document_filename_format) =>
             void onSave({
@@ -539,7 +546,7 @@ function ESignaturePreferences({
           }
           value={preferences.document_filename_format}
         >
-          <SelectTrigger className="h-12 rounded-full">
+          <SelectTrigger className="h-12 rounded-full" id="document-filename-format">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

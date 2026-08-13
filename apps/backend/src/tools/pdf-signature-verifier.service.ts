@@ -7,12 +7,16 @@ import {
   SignedData,
   SignedDataVerifyError,
 } from 'pkijs';
-import { PdfDssVriEmbedder } from '../pdf-signatures/pdf-dss-vri-embedder';
+import {
+  PdfDssReadContext,
+  PdfDssVriEmbedder,
+} from '../pdf-signatures/pdf-dss-vri-embedder';
 import {
   parsePdfCmsSignature,
   toArrayBuffer,
 } from '../pdf-signatures/pdf-cms-utils';
 import { PdfRevocationCollectorService } from '../pdf-signatures/pdf-revocation-collector.service';
+import { materializePdfSignedBytes } from '../pdf-signatures/pdf-signature-detection';
 
 export type PdfCmsCertificate = {
   issuer: string | null;
@@ -49,13 +53,26 @@ export class PdfSignatureVerifierService {
     private readonly revocationCollector: PdfRevocationCollectorService,
   ) {}
 
+  prepareDssRead(pdfBuffer: Buffer): PdfDssReadContext {
+    return this.dssVriEmbedder.prepareRead(pdfBuffer);
+  }
+
   async verify(input: {
     cmsContents: Buffer | null;
+    dssContext?: PdfDssReadContext;
     pdfBuffer: Buffer;
-    signedBytes: Buffer | null;
+    signedByteRanges?: readonly [number, number, number, number] | null;
+    signedBytes?: Buffer | null;
     trustedCertificates?: Certificate[];
   }): Promise<PdfCmsVerificationResult> {
-    if (!input.cmsContents || !input.signedBytes) {
+    const signedBytes =
+      input.signedBytes ??
+      materializePdfSignedBytes(
+        input.pdfBuffer,
+        input.signedByteRanges ?? null,
+      );
+
+    if (!input.cmsContents || !signedBytes) {
       return missingCmsResult();
     }
 
@@ -83,7 +100,8 @@ export class PdfSignatureVerifierService {
       parsed.signedData,
     );
     const dssEvidence = this.dssVriEmbedder.read({
-      pdfBuffer: input.pdfBuffer,
+      context: input.dssContext,
+      pdfBuffer: input.dssContext ? undefined : input.pdfBuffer,
       vriKey: parsed.vriKey,
     });
     const dssRevocationStatus =
@@ -103,7 +121,7 @@ export class PdfSignatureVerifierService {
     try {
       const verification = await parsed.signedData.verify({
         checkChain: trustedRoots.length > 0,
-        data: toArrayBuffer(input.signedBytes),
+        data: toArrayBuffer(signedBytes),
         extendedMode: true,
         passedWhenNotRevValues: true,
         signer: 0,

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 
 export type PdfDssEvidence = {
   certificateDer: Buffer[];
@@ -12,6 +13,12 @@ export type ParsedPdfDssEvidence = {
   crlResponses: Buffer[];
   hasMatchingVri: boolean;
   ocspResponses: Buffer[];
+};
+
+export type PdfDssReadContext = {
+  dssObject: string | null;
+  pdfBuffer: Buffer;
+  text: string;
 };
 
 type PdfObject = {
@@ -38,7 +45,11 @@ export class PdfDssVriEmbedder {
     try {
       const context = parseIncrementalContext(input.pdfBuffer);
       const builder = new IncrementalPdfBuilder(input.pdfBuffer, context);
-      const dssObjectRef = this.createDssObject(builder, usefulEvidence);
+      const dssObjectRef = this.createDssObject(
+        builder,
+        context,
+        usefulEvidence,
+      );
       const catalogBody = replaceOrAppendDictionaryEntry(
         context.catalogBody,
         'DSS',
@@ -59,77 +70,136 @@ export class PdfDssVriEmbedder {
     }
   }
 
-  read(input: { pdfBuffer: Buffer; vriKey: string }): ParsedPdfDssEvidence {
-    const text = input.pdfBuffer.toString('latin1');
-    const dssRef = /\/DSS\s+(\d+)\s+\d+\s+R/.exec(text)?.[1];
+  prepareRead(pdfBuffer: Buffer): PdfDssReadContext {
+    const text = pdfBuffer.toString('latin1');
+    const dssRef = [...text.matchAll(/\/DSS\s+(\d+)\s+\d+\s+R/g)].at(-1)?.[1];
 
-    if (!dssRef) {
+    return {
+      dssObject: dssRef ? readPdfObject(text, Number(dssRef)) : null,
+      pdfBuffer,
+      text,
+    };
+  }
+
+  read(input: {
+    context?: PdfDssReadContext;
+    pdfBuffer?: Buffer;
+    vriKey: string;
+  }): ParsedPdfDssEvidence {
+    const context =
+      input.context ??
+      (input.pdfBuffer ? this.prepareRead(input.pdfBuffer) : null);
+
+    if (!context?.dssObject) {
       return emptyParsedEvidence(false);
     }
 
-    const dssObject = readPdfObject(text, Number(dssRef));
     const vriRef = new RegExp(`/${input.vriKey}\\s+(\\d+)\\s+\\d+\\s+R`).exec(
-      dssObject,
+      context.dssObject,
     )?.[1];
 
     if (!vriRef) {
       return emptyParsedEvidence(false);
     }
 
-    const vriObject = readPdfObject(text, Number(vriRef));
+    const vriObject = readPdfObject(context.text, Number(vriRef));
 
     return {
-      certificateDer: readStreamRefs(input.pdfBuffer, text, vriObject, 'Cert'),
-      crlResponses: readStreamRefs(input.pdfBuffer, text, vriObject, 'CRL'),
+      certificateDer: readStreamRefs(
+        context.pdfBuffer,
+        context.text,
+        vriObject,
+        'Cert',
+      ),
+      crlResponses: readStreamRefs(
+        context.pdfBuffer,
+        context.text,
+        vriObject,
+        'CRL',
+      ),
       hasMatchingVri: true,
-      ocspResponses: readStreamRefs(input.pdfBuffer, text, vriObject, 'OCSP'),
+      ocspResponses: readStreamRefs(
+        context.pdfBuffer,
+        context.text,
+        vriObject,
+        'OCSP',
+      ),
     };
   }
 
   private createDssObject(
     builder: IncrementalPdfBuilder,
+    context: IncrementalPdfContext,
     evidences: PdfDssEvidence[],
   ): string {
-    const allCertRefs: string[] = [];
-    const allOcspRefs: string[] = [];
-    const allCrlRefs: string[] = [];
-    const vriEntries: string[] = [];
+    const existingDss = context.dssObject ?? '';
+    const allCertRefs = readReferenceArray(existingDss, 'Certs');
+    const allOcspRefs = readReferenceArray(existingDss, 'OCSPs');
+    const allCrlRefs = readReferenceArray(existingDss, 'CRLs');
+    const replacedVriKeys = new Set(
+      evidences.map((evidence) => evidence.vriKey),
+    );
+    const vriEntries = readVriEntries(existingDss).filter(
+      ({ key }) => !replacedVriKeys.has(key),
+    );
+    const streamRefs = new Map<string, string>();
+
+    for (const ref of [...allCertRefs, ...allOcspRefs, ...allCrlRefs]) {
+      const objectNumber = Number(ref.split(' ')[0]);
+      const bytes = readStreamObject(
+        context.pdfBuffer,
+        context.text,
+        objectNumber,
+      )[0];
+
+      if (bytes) {
+        streamRefs.set(hashBytes(bytes), ref);
+      }
+    }
+
+    const addStream = (bytes: Buffer): string => {
+      const hash = hashBytes(bytes);
+      const existing = streamRefs.get(hash);
+
+      if (existing) {
+        return existing;
+      }
+
+      const ref = builder.addStreamObject(bytes);
+      streamRefs.set(hash, ref);
+      return ref;
+    };
 
     for (const evidence of evidences) {
-      const certRefs = evidence.certificateDer.map((bytes) =>
-        builder.addStreamObject(bytes),
-      );
-      const ocspRefs = evidence.ocspResponses.map((bytes) =>
-        builder.addStreamObject(bytes),
-      );
-      const crlRefs = evidence.crlResponses.map((bytes) =>
-        builder.addStreamObject(bytes),
-      );
+      const certRefs = unique(evidence.certificateDer.map(addStream));
+      const ocspRefs = unique(evidence.ocspResponses.map(addStream));
+      const crlRefs = unique(evidence.crlResponses.map(addStream));
+      const vriFields = [
+        certRefs.length ? `/Cert [${certRefs.join(' ')}]` : null,
+        ocspRefs.length ? `/OCSP [${ocspRefs.join(' ')}]` : null,
+        crlRefs.length ? `/CRL [${crlRefs.join(' ')}]` : null,
+      ].filter((field): field is string => Boolean(field));
       const vriRef = builder.addObject(
         builder.nextObjectNumber(),
-        [
-          '<<',
-          `/Cert [${certRefs.join(' ')}]`,
-          `/OCSP [${ocspRefs.join(' ')}]`,
-          `/CRL [${crlRefs.join(' ')}]`,
-          '>>',
-        ].join('\n'),
+        ['<<', ...vriFields, '>>'].join('\n'),
       );
 
       allCertRefs.push(...certRefs);
       allOcspRefs.push(...ocspRefs);
       allCrlRefs.push(...crlRefs);
-      vriEntries.push(`/${evidence.vriKey} ${vriRef}`);
+      vriEntries.push({ key: evidence.vriKey, ref: vriRef });
     }
 
     return builder.addObject(
       builder.nextObjectNumber(),
       [
         '<<',
-        `/Certs [${allCertRefs.join(' ')}]`,
-        `/OCSPs [${allOcspRefs.join(' ')}]`,
-        `/CRLs [${allCrlRefs.join(' ')}]`,
-        `/VRI << ${vriEntries.join(' ')} >>`,
+        `/Certs [${unique(allCertRefs).join(' ')}]`,
+        `/OCSPs [${unique(allOcspRefs).join(' ')}]`,
+        `/CRLs [${unique(allCrlRefs).join(' ')}]`,
+        `/VRI << ${vriEntries
+          .map(({ key, ref }) => `/${key} ${ref}`)
+          .join(' ')} >>`,
         '>>',
       ].join('\n'),
     );
@@ -221,18 +291,20 @@ class IncrementalPdfBuilder {
 type IncrementalPdfContext = {
   catalogBody: string;
   catalogObjectNumber: number;
+  dssObject: string | null;
+  pdfBuffer: Buffer;
   previousStartXref: number;
   size: number;
+  text: string;
 };
 
 function parseIncrementalContext(pdfBuffer: Buffer): IncrementalPdfContext {
   const text = pdfBuffer.toString('latin1');
-  const previousStartXref = Number(
-    /startxref\s+(\d+)\s+%%EOF\s*$/s.exec(text)?.[1],
-  );
-  const trailer = /trailer\s*<<(.*?)>>\s*startxref\s+\d+\s+%%EOF\s*$/s.exec(
-    text,
-  )?.[1];
+  const trailerMatch = [
+    ...text.matchAll(/trailer\s*<<([\s\S]*?)>>\s*startxref\s+(\d+)\s+%%EOF/g),
+  ].at(-1);
+  const trailer = trailerMatch?.[1];
+  const previousStartXref = Number(trailerMatch?.[2]);
 
   if (!Number.isSafeInteger(previousStartXref) || !trailer) {
     throw new Error('PDF trailer could not be parsed');
@@ -247,19 +319,33 @@ function parseIncrementalContext(pdfBuffer: Buffer): IncrementalPdfContext {
 
   const catalogObjectNumber = Number(rootMatch[1]);
   const catalogBody = readPdfObject(text, catalogObjectNumber);
+  const dssObjectNumber = Number(
+    /\/DSS\s+(\d+)\s+\d+\s+R/.exec(catalogBody)?.[1],
+  );
 
   return {
     catalogBody,
     catalogObjectNumber,
+    dssObject: Number.isSafeInteger(dssObjectNumber)
+      ? readPdfObject(text, dssObjectNumber)
+      : null,
+    pdfBuffer,
     previousStartXref,
     size: Number(sizeMatch[1]),
+    text,
   };
 }
 
 function readPdfObject(text: string, objectNumber: number): string {
-  const match = new RegExp(
-    `${objectNumber}\\s+0\\s+obj\\s*([\\s\\S]*?)endobj`,
-  ).exec(text);
+  const matches = [
+    ...text.matchAll(
+      new RegExp(
+        `(?:^|[\\r\\n])${objectNumber}\\s+0\\s+obj\\s*([\\s\\S]*?)endobj`,
+        'g',
+      ),
+    ),
+  ];
+  const match = matches.at(-1);
 
   if (!match) {
     throw new Error(`PDF object ${objectNumber} 0 could not be found`);
@@ -309,6 +395,32 @@ function readStreamRefs(
   return refs.flatMap((objectNumber) =>
     readStreamObject(pdfBuffer, text, objectNumber),
   );
+}
+
+function readReferenceArray(object: string, key: string): string[] {
+  const match = new RegExp(`/${key}\\s*\\[([^\\]]*)\\]`).exec(object);
+
+  return match
+    ? [...match[1].matchAll(/(\d+\s+\d+\s+R)/g)].map((ref) => ref[1])
+    : [];
+}
+
+function readVriEntries(object: string): Array<{ key: string; ref: string }> {
+  const dictionary = /\/VRI\s*<<([\s\S]*?)>>/.exec(object)?.[1];
+
+  return dictionary
+    ? [...dictionary.matchAll(/\/([A-Fa-f0-9]+)\s+(\d+\s+\d+\s+R)/g)].map(
+        (match) => ({ key: match[1], ref: match[2] }),
+      )
+    : [];
+}
+
+function hashBytes(bytes: Buffer): string {
+  return createHash('sha256').update(bytes).digest('base64url');
+}
+
+function unique<T>(values: T[]): T[] {
+  return [...new Set(values)];
 }
 
 function readStreamObject(

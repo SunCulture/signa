@@ -197,7 +197,11 @@ export function AuthShell({ mode }: AuthShellProps) {
   }
 
   return (
-    <main className="min-h-svh bg-[var(--auth-background)] text-[var(--auth-foreground)]">
+    <main
+      className="min-h-svh bg-[var(--auth-background)] text-[var(--auth-foreground)]"
+      id="main-content"
+      tabIndex={-1}
+    >
       <AuthHeader
         canRegister={canRegister}
         dictionary={dictionary}

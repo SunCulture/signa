@@ -244,17 +244,26 @@ export class TemplatesController {
   }
 
   @Post('docx')
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'documents' },
+      { name: 'files' },
+      { name: 'file', maxCount: 1 },
+    ]),
+  )
   @ApiOperation({
     description:
-      'Creates a template from DOCX files. Variables are expanded and the resulting documents are rendered to PDF for signing.',
+      'Creates a template from DOCX files supplied as multipart uploads or JSON base64/URL values. Variables are expanded and the resulting documents are rendered to PDF for signing.',
     summary: 'Create a template from DOCX documents',
   })
   @ApiOkResponse({ type: TemplateResponseDto })
   createTemplateFromDocx(
     @CurrentUser() user: User,
     @Body() body: CreateTemplateFromDocxDto,
+    @UploadedFiles()
+    files?: Record<string, UploadedBufferFile[]>,
   ): Promise<TemplateResponseDto> {
-    return this.templatesService.createTemplateFromDocx(user, body);
+    return this.templatesService.createTemplateFromDocx(user, body, files);
   }
 
   @Post('merge')

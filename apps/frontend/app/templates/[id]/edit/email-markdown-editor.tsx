@@ -74,7 +74,7 @@ export function EmailMarkdownEditor({
   value,
   variables,
 }: EmailMarkdownEditorProps) {
-  const editor = useEmailMarkdownEditor(value, onChange);
+  const editor = useEmailMarkdownEditor(value, onChange, label);
 
   return (
     <TooltipProvider>
@@ -89,14 +89,16 @@ export function EmailMarkdownEditor({
 function useEmailMarkdownEditor(
   value: string,
   onChange: (value: string) => void,
+  label: string,
 ) {
   const editor = useEditor({
     content: markdownToEditorContent(value),
     contentType: "markdown",
     editorProps: {
       attributes: {
+        "aria-label": label,
         class:
-          "min-h-72 px-3 py-4 outline-none [&_a]:cursor-text [&_a]:text-blue-600 [&_a]:underline [&_p]:my-0 [&_p+br]:hidden",
+          "min-h-72 px-3 py-4 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&_a]:cursor-text [&_a]:text-blue-600 [&_a]:underline [&_p]:my-0 [&_p+br]:hidden",
         dir: "auto",
       },
     },
@@ -156,7 +158,7 @@ function EmailEditorSurface({
   variables: EmailTemplateVariable[];
 }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-[var(--auth-input-border)] bg-card">
+    <div className="overflow-hidden rounded-2xl border border-[var(--auth-input-border)] bg-card focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/50">
       <EmailEditorToolbar editor={editor} variables={variables} />
       {editor ? (
         <>
@@ -164,8 +166,12 @@ function EmailEditorSurface({
           <EditorContent editor={editor} />
         </>
       ) : (
-        <div className="min-h-72 px-3 py-4 text-sm text-muted-foreground">
-          Loading editor...
+        <div
+          aria-live="polite"
+          className="min-h-72 px-3 py-4 text-sm text-muted-foreground"
+          role="status"
+        >
+          Loading editor…
         </div>
       )}
     </div>

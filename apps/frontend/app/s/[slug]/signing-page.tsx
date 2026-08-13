@@ -231,7 +231,7 @@ export function SigningPage({
 
   if (isLoading || isRedirectingCompletedForm) {
     return (
-      <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] text-[var(--auth-foreground)]">
+      <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] text-[var(--auth-foreground)]" id="main-content" tabIndex={-1}>
         <div className="flex items-center gap-3 text-sm font-semibold">
           <Spinner />
           Loading signing form
@@ -242,7 +242,7 @@ export function SigningPage({
 
   if (error || !form) {
     return (
-      <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] px-6 text-[var(--auth-foreground)]">
+      <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] px-6 text-[var(--auth-foreground)]" id="main-content" tabIndex={-1}>
         <div className="flex max-w-md flex-col items-center gap-4 text-center">
           <FileWarningIcon className="size-10 text-[var(--auth-primary)]" />
           <h1 className="text-2xl font-bold">Signing form unavailable</h1>
@@ -259,7 +259,11 @@ export function SigningPage({
   const isReadOnly = isCompleted || isDeclined;
 
   return (
-    <main className="min-h-svh bg-[var(--auth-background)] text-[var(--auth-foreground)]">
+    <main
+      className="min-h-svh bg-[var(--auth-background)] text-[var(--auth-foreground)]"
+      id="main-content"
+      tabIndex={-1}
+    >
       <div className="mx-auto flex w-full max-w-[1000px] flex-col px-3 py-3 sm:px-6 sm:py-4">
         <header className="mx-auto flex w-full max-w-[920px] flex-col gap-3 pb-1 sm:gap-4 sm:pb-2">
           <div className="flex justify-center">
@@ -625,7 +629,7 @@ function SigningFieldOverlay({
   const hasValue = hasAreaValue(form, field, area);
   const isOptionArea = isNativeChoiceArea(field, area);
   const className = cn(
-    "group/signing-field absolute flex appearance-none items-center justify-center overflow-visible px-0.5 text-left text-[var(--auth-primary)] transition focus:outline-none",
+    "group/signing-field absolute flex appearance-none items-center justify-center overflow-visible px-0.5 text-left text-[var(--auth-primary)] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
     isActive && !isReadOnly
       ? "z-10 outline outline-2 -outline-offset-1 outline-dashed outline-red-500"
       : "",
@@ -638,6 +642,8 @@ function SigningFieldOverlay({
   if (isReadOnly || isOptionArea) {
     return (
       <div
+        aria-label={`${label}${hasValue ? ", completed" : ""}`}
+        aria-pressed={isActive}
         className={cn(className, !isReadOnly && "cursor-pointer")}
         onClick={isReadOnly ? undefined : () => onSelectField(field)}
         onKeyDown={
@@ -713,7 +719,9 @@ function FieldDisplayValue({
         <img
           alt={field.name || field.title || field.type}
           className="h-full w-full object-contain"
+          height={160}
           src={attachment.url}
+          width={320}
         />
       );
     }
@@ -744,7 +752,9 @@ function FieldDisplayValue({
         <img
           alt={attachment.filename}
           className="h-full w-full object-contain"
+          height={160}
           src={attachment.url}
+          width={320}
         />
       );
     }

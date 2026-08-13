@@ -1,13 +1,19 @@
 import { PDFDocument } from 'pdf-lib';
 import { EncryptedConfig } from '../accounts/entities/encrypted-config.entity';
+import { PdfiumProcessingService } from '../pdf-processing/pdfium-processing.service';
 import { PdfSignatureVerifierService } from '../tools/pdf-signature-verifier.service';
 import {
   defaultSigningCertificateKey,
   signingCertificatePrefix,
   signaDefaultCertificateName,
+  timestampServerUrlKey,
 } from './pdf-signature-certificate';
-import { detectPdfSignatures } from './pdf-signature-detection';
+import {
+  detectPdfSignatures,
+  materializePdfSignedBytes,
+} from './pdf-signature-detection';
 import { PdfDssVriEmbedder } from './pdf-dss-vri-embedder';
+import { PdfDocumentTimestampEmbedder } from './pdf-document-timestamp-embedder';
 import { PdfRevocationEvidence } from './entities/pdf-revocation-evidence.entity';
 import { PdfRevocationEvidenceService } from './pdf-revocation-evidence.service';
 import { PdfRevocationCollectorService } from './pdf-revocation-collector.service';
@@ -17,6 +23,13 @@ describe('Signa PDF LTV flow', () => {
   it('signs generated Signa certificates with verifiable embedded DSS/VRI CRL evidence', async () => {
     const configs = new Map<string, EncryptedConfig>();
     const evidences: PdfRevocationEvidence[] = [];
+
+    configs.set(timestampServerUrlKey, {
+      accountId: '1',
+      id: 'timestamp-server-url',
+      key: timestampServerUrlKey,
+      value: 'https://tsa.example.com',
+    } as EncryptedConfig);
     const dssVriEmbedder = new PdfDssVriEmbedder();
     const evidenceService = new PdfRevocationEvidenceService({
       create: (value: Partial<PdfRevocationEvidence>) => value,
@@ -39,6 +52,16 @@ describe('Signa PDF LTV flow', () => {
       config as never,
       evidenceService,
     );
+    const timestampEmbedder = new PdfDocumentTimestampEmbedder(
+      config as never,
+      {
+        requestTimestampToken: jest.fn().mockResolvedValue({
+          attempts: [{ status: 'success', url: 'https://tsa.example.com' }],
+          token: Buffer.from('timestamp-token'),
+          url: 'https://tsa.example.com',
+        }),
+      } as never,
+    );
     const signingService = new PdfSignatureService(
       {
         create: (value: Partial<EncryptedConfig>) => value,
@@ -60,22 +83,7 @@ describe('Signa PDF LTV flow', () => {
       } as never,
       config as never,
       {} as never,
-      {
-        embedDocumentTimestamp: jest.fn(
-          (input: { pdfBuffer: Buffer; timestampServerUrl: string | null }) =>
-            Promise.resolve({
-              buffer: input.pdfBuffer,
-              timestamp: {
-                attempts: [],
-                embedded: false,
-                required: false,
-                status: 'disabled',
-                tokenSha256: null,
-                url: null,
-              },
-            }),
-        ),
-      } as never,
+      timestampEmbedder,
       revocationCollector,
       dssVriEmbedder,
       {
@@ -118,6 +126,10 @@ describe('Signa PDF LTV flow', () => {
       ltvRequired: true,
     });
     expect(signed.buffer.toString('latin1')).toContain('/DSS');
+    expect(signed.timestamp.status).toBe('embedded');
+    await expect(
+      new PdfiumProcessingService().inspectPdf(signed.buffer),
+    ).resolves.toBeDefined();
     expect(evidences).toHaveLength(1);
     expect(
       configs.has(`${signingCertificatePrefix}${signaDefaultCertificateName}`),
@@ -128,7 +140,12 @@ describe('Signa PDF LTV flow', () => {
     const verification = await verifier.verify({
       cmsContents: mainSignature?.contents ?? null,
       pdfBuffer: signed.buffer,
-      signedBytes: mainSignature?.byteRange.signedBytes ?? null,
+      signedBytes: mainSignature
+        ? materializePdfSignedBytes(
+            signed.buffer,
+            mainSignature.byteRange.ranges,
+          )
+        : null,
     });
 
     expect(verification).toMatchObject({
@@ -137,5 +154,5 @@ describe('Signa PDF LTV flow', () => {
       ltvStatus: 'valid',
       revocationStatus: 'good',
     });
-  });
+  }, 15_000);
 });
