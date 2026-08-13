@@ -77,7 +77,7 @@ export default function OAuthCallbackPage() {
 
   if (displayError) {
     return (
-      <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] px-5 text-[var(--auth-foreground)]">
+      <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] px-5 text-[var(--auth-foreground)]" id="main-content" tabIndex={-1}>
         <section className="w-full max-w-md rounded-3xl border border-[var(--auth-input-border)] bg-card p-6 text-center shadow-xl">
           <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-red-50 text-red-600">
             <TriangleAlertIcon className="size-6" />
@@ -98,7 +98,7 @@ export default function OAuthCallbackPage() {
   }
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] px-5 text-[var(--auth-foreground)]">
+    <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] px-5 text-[var(--auth-foreground)]" id="main-content" tabIndex={-1}>
       <section className="flex items-center gap-3 rounded-full border border-[var(--auth-input-border)] bg-card px-5 py-3 text-sm font-bold shadow-sm">
         <Loader2Icon className="size-4 animate-spin" />
         Completing secure sign-in...

@@ -115,7 +115,7 @@ export function CompletedSigningPage({ slug }: { slug: string }) {
 
   if (isLoading) {
     return (
-      <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] text-[var(--auth-foreground)]">
+      <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] text-[var(--auth-foreground)]" id="main-content" tabIndex={-1}>
         <div className="flex items-center gap-3 text-sm font-semibold">
           <Spinner />
           Loading completed document
@@ -126,7 +126,7 @@ export function CompletedSigningPage({ slug }: { slug: string }) {
 
   if (error || !form) {
     return (
-      <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] px-6 text-[var(--auth-foreground)]">
+      <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] px-6 text-[var(--auth-foreground)]" id="main-content" tabIndex={-1}>
         <div className="flex max-w-md flex-col items-center gap-4 text-center">
           <FileWarningIcon className="size-10 text-[var(--auth-primary)]" />
           <h1 className="text-2xl font-bold">Completed document unavailable</h1>
@@ -139,7 +139,11 @@ export function CompletedSigningPage({ slug }: { slug: string }) {
   }
 
   return (
-    <main className="min-h-svh bg-[var(--auth-background)] px-4 py-12 text-[var(--auth-foreground)]">
+    <main
+      className="min-h-svh bg-[var(--auth-background)] px-4 py-12 text-[var(--auth-foreground)]"
+      id="main-content"
+      tabIndex={-1}
+    >
       <section className="mx-auto flex w-full max-w-md flex-col items-stretch gap-5">
         <div className="flex justify-center">
           <Image

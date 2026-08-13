@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import Image from "next/image"
 import { PlusIcon, Trash2Icon, UploadCloudIcon } from "lucide-react"
 import { toast } from "sonner"
@@ -411,11 +411,16 @@ function LabeledInput({
   onChange: (value: string) => void
   value: string
 }) {
+  const id = useId()
+
   return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
+    <div className="flex flex-col gap-2">
+      <Label htmlFor={id}>{label}</Label>
       <Input
+        autoComplete="off"
         className="h-12 rounded-full"
+        id={id}
+        name={id}
         onChange={(event) => onChange(event.target.value)}
         value={value}
       />
@@ -432,11 +437,16 @@ function LabeledTextarea({
   onChange: (value: string) => void
   value: string
 }) {
+  const id = useId()
+
   return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
+    <div className="flex flex-col gap-2">
+      <Label htmlFor={id}>{label}</Label>
       <Textarea
+        autoComplete="off"
         className="min-h-28 rounded-2xl"
+        id={id}
+        name={id}
         onChange={(event) => onChange(event.target.value)}
         value={value}
       />

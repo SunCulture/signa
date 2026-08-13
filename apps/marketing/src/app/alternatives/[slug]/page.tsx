@@ -146,7 +146,7 @@ export default async function AlternativeDetailPage({ params }: PageProps) {
       <JsonLd data={comparisonJsonLd(alternative)} />
       <SiteHeader />
       <div className="site-gutter">
-        <main>
+        <main id="main-content" tabIndex={-1}>
           <section>
             <div className="page-frame border-b px-4 pb-16 pt-28 lg:pb-20">
               <nav

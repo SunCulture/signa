@@ -59,7 +59,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
     <>
       <SiteHeader />
       <div className="site-gutter">
-        <main className="pt-[69px]">
+        <main className="pt-[69px]" id="main-content" tabIndex={-1}>
           <article>
             <div className="page-frame px-4 pb-16 pt-16 lg:pb-24 lg:pt-20">
               <Link

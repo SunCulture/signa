@@ -31,7 +31,11 @@ type DocsShellProps = {
 
 export function DocsShell({ children }: DocsShellProps) {
   return (
-    <main className="min-h-svh bg-background text-foreground">
+    <main
+      className="min-h-svh bg-background text-foreground"
+      id="main-content"
+      tabIndex={-1}
+    >
       <DocsSidebar />
       <div className="min-h-svh lg:pl-80">
         <DocsHeader />
@@ -55,7 +59,10 @@ export function DocsHeader() {
 
 function DocsHeaderNav() {
   return (
-    <nav className="hidden items-center gap-7 text-sm font-medium text-muted-foreground md:flex">
+    <nav
+      aria-label="Documentation shortcuts"
+      className="hidden items-center gap-7 text-sm font-medium text-muted-foreground min-[900px]:flex"
+    >
       <Link className="transition hover:text-foreground" href="/docs/api">
         API
       </Link>

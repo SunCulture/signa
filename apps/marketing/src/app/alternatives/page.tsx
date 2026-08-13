@@ -112,7 +112,7 @@ export default function AlternativesPage() {
       <JsonLd data={hubJsonLd} />
       <SiteHeader />
       <div className="site-gutter">
-        <main>
+        <main id="main-content" tabIndex={-1}>
           <section>
             <div className="page-frame border-b px-4 pb-20 pt-32 lg:pb-24">
               <p className="eyebrow">Compare signing platforms</p>

@@ -13,7 +13,7 @@ export function LegalPage({
   children: React.ReactNode;
 }) {
   return (
-    <main className="site-gutter min-h-svh">
+    <main className="site-gutter min-h-svh" id="main-content" tabIndex={-1}>
       <article className="page-frame min-h-svh px-6 py-16 sm:px-10 lg:px-16 lg:py-24">
         <Link href="/" aria-label="Go to the Signa homepage">
           <Wordmark className="h-16 w-28" />

@@ -230,7 +230,7 @@ export function SubmissionDetailPage({ submissionId }: SubmissionDetailPageProps
 
   if (!submission) {
     return (
-      <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)]">
+      <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)]" id="main-content" tabIndex={-1}>
         <p className="text-sm font-semibold text-[var(--auth-muted-foreground)]">
           Submission not found.
         </p>
@@ -244,6 +244,7 @@ export function SubmissionDetailPage({ submissionId }: SubmissionDetailPageProps
     <main
       className="min-h-svh overflow-x-hidden bg-[var(--auth-background)] text-[var(--auth-foreground)]"
       id="main-content"
+      tabIndex={-1}
     >
       <div className="mx-auto flex w-full max-w-[1600px] flex-col px-4 py-1.5">
         <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 bg-[var(--auth-background)]/95 py-1.5 backdrop-blur">
@@ -359,7 +360,7 @@ function normalizeSubmissionDocuments(
 
 function SubmissionDetailLoading() {
   return (
-    <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] text-[var(--auth-foreground)]">
+    <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] text-[var(--auth-foreground)]" id="main-content" tabIndex={-1}>
       <div className="flex items-center gap-3 text-sm font-semibold">
         <Spinner />
         Loading submission

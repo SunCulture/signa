@@ -440,7 +440,7 @@ export function TemplateDetailPage({ templateId }: TemplateDetailPageProps) {
 
   if (!template) {
     return (
-      <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)]">
+      <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)]" id="main-content" tabIndex={-1}>
         <p className="text-sm font-semibold text-[var(--auth-muted-foreground)]">
           Template not found.
         </p>
@@ -452,6 +452,7 @@ export function TemplateDetailPage({ templateId }: TemplateDetailPageProps) {
     <main
       className="min-h-svh overflow-x-hidden bg-[var(--auth-background)] text-[var(--auth-foreground)]"
       id="main-content"
+      tabIndex={-1}
     >
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-7 px-5 py-4 md:px-2">
         <ConsoleHeader />
@@ -887,7 +888,7 @@ function ExportSubmissionsDialog({
 
         <div className="grid min-w-0 gap-5">
           <div className="grid gap-2">
-            <Label>Status</Label>
+            <Label htmlFor="export-status">Status</Label>
             <Select
               onValueChange={(value) =>
                 setStatus(
@@ -901,7 +902,10 @@ function ExportSubmissionsDialog({
               }
               value={status}
             >
-              <SelectTrigger className="h-12 rounded-full border-[var(--auth-input-border)] px-5 shadow-none">
+              <SelectTrigger
+                className="h-12 rounded-full border-[var(--auth-input-border)] px-5 shadow-none"
+                id="export-status"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1052,7 +1056,7 @@ function formatTemplateEventTime(value: string): string {
 
 function TemplateDetailLoading() {
   return (
-    <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] text-[var(--auth-foreground)]">
+    <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] text-[var(--auth-foreground)]" id="main-content" tabIndex={-1}>
       <div className="flex items-center gap-3 text-sm font-semibold">
         <Spinner />
         Loading template
