@@ -69,7 +69,7 @@ export default function IntegrationCallbackPage({
   }, [provider, router, searchParams])
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] px-5 text-[var(--auth-foreground)]">
+    <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] px-5 text-[var(--auth-foreground)]" id="main-content" tabIndex={-1}>
       <div className="flex items-center gap-3 rounded-2xl bg-[var(--auth-muted)] px-5 py-4 text-base font-bold">
         <LoaderCircleIcon className="animate-spin" data-icon="inline-start" />
         {message}

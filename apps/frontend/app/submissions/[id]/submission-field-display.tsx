@@ -28,7 +28,9 @@ export function SubmissionFieldValue({
         <img
           alt={attachment.filename}
           className="max-h-20 w-full object-contain"
+          height={160}
           src={attachment.url}
+          width={320}
         />
       )
     }
@@ -47,7 +49,9 @@ export function SubmissionFieldValue({
         <img
           alt={attachment.filename}
           className="max-h-28 w-full rounded-sm object-contain"
+          height={224}
           src={attachment.url}
+          width={320}
         />
       )
     }

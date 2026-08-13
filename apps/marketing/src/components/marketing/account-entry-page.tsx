@@ -8,7 +8,7 @@ export function AccountEntryPage({
   mode: "sign-in" | "sign-up";
 }) {
   return (
-    <main className="min-h-svh bg-white">
+    <main className="min-h-svh bg-white" id="main-content" tabIndex={-1}>
       <div className="flex min-h-svh">
         <div className="flex w-full items-center justify-center px-6 sm:px-10 lg:w-2/3 lg:px-16">
           <AccountEntryForm mode={mode} />

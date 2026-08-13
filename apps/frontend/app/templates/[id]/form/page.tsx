@@ -45,7 +45,7 @@ export default function TemplateFormPreviewPage() {
 
   if (!template) {
     return (
-      <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] text-[var(--auth-foreground)]">
+      <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] text-[var(--auth-foreground)]" id="main-content" tabIndex={-1}>
         <div className="flex items-center gap-3 text-sm font-semibold">
           <Spinner />
           Loading preview
@@ -59,7 +59,11 @@ export default function TemplateFormPreviewPage() {
 
 function TemplatePreview({ template }: { template: TemplateResponse }) {
   return (
-    <main className="min-h-svh bg-[var(--auth-background)] text-[var(--auth-foreground)]">
+    <main
+      className="min-h-svh bg-[var(--auth-background)] text-[var(--auth-foreground)]"
+      id="main-content"
+      tabIndex={-1}
+    >
       <div className="mx-auto flex w-full max-w-[1000px] flex-col px-4 py-4 sm:px-6">
         <header className="sticky top-0 z-20 mx-auto mb-4 flex w-full max-w-[920px] items-center justify-between gap-4 bg-[var(--auth-background)]/95 py-3 backdrop-blur">
           <div className="flex min-w-0 items-center gap-3">
@@ -137,7 +141,7 @@ function TemplatePreviewError({
   templateId: string;
 }) {
   return (
-    <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] px-6 text-[var(--auth-foreground)]">
+    <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] px-6 text-[var(--auth-foreground)]" id="main-content" tabIndex={-1}>
       <div className="flex max-w-md flex-col items-center gap-4 text-center">
         <FileWarningIcon className="size-10 text-[var(--auth-primary)]" />
         <h1 className="text-2xl font-bold">Preview unavailable</h1>

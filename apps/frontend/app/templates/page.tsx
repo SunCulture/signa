@@ -675,6 +675,7 @@ function TemplatesDashboard() {
       <main
         className="min-h-svh overflow-x-hidden bg-[var(--auth-background)] text-[var(--auth-foreground)]"
         id="main-content"
+        tabIndex={-1}
       >
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-5 py-4 md:px-2">
           <ConsoleHeader />
@@ -1343,7 +1344,7 @@ function TemplatesDashboard() {
 
 function TemplatesPageFallback() {
   return (
-    <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] text-[var(--auth-foreground)]">
+    <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] text-[var(--auth-foreground)]" id="main-content" tabIndex={-1}>
       <div className="flex items-center gap-3 text-sm font-semibold">
         <Spinner />
         Loading templates

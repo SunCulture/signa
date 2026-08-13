@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useEffect, useId, useState } from "react"
 import { InfoIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -239,7 +239,7 @@ function NotificationsPanel() {
           disabled={isSavingNotifications || !hasNotificationChanges}
           type="submit"
         >
-          {isSavingNotifications ? "SAVING..." : "SAVE"}
+          {isSavingNotifications ? "SAVING…" : "SAVE"}
         </Button>
       </form>
 
@@ -271,7 +271,7 @@ function NotificationsPanel() {
           disabled={isSavingReminders || !hasReminderChanges}
           type="submit"
         >
-          {isSavingReminders ? "SAVING..." : "SAVE"}
+          {isSavingReminders ? "SAVING…" : "SAVE"}
         </Button>
       </form>
     </section>
@@ -287,11 +287,16 @@ function ReminderSelect({
   onValueChange: (value: string) => void
   value: string | null
 }) {
+  const id = useId()
+
   return (
     <div className="grid gap-2">
-      <Label>{label}</Label>
+      <Label htmlFor={id}>{label}</Label>
       <Select onValueChange={onValueChange} value={value ?? "none"}>
-        <SelectTrigger className="h-12 min-h-12 w-full rounded-full px-5 py-3 text-base leading-none">
+        <SelectTrigger
+          className="h-12 min-h-12 w-full rounded-full px-5 py-3 text-base leading-none"
+          id={id}
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

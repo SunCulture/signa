@@ -393,22 +393,20 @@ export function RoleSelector({
               return (
                 <div
                   className={cn(
-                    "group/role flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5",
+                    "group/role relative flex items-center gap-2 rounded-md px-2 py-1.5 focus-within:ring-2 focus-within:ring-ring",
                     isSelected ? "bg-[var(--auth-muted)]" : "hover:bg-muted",
                   )}
                   key={submitter.uuid}
-                  onClick={() => onSelectSubmitter(submitter.uuid)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      onSelectSubmitter(submitter.uuid);
-                    }
-                  }}
                 >
+                  <button
+                    aria-label={`Select ${roleName}`}
+                    aria-pressed={isSelected}
+                    className="absolute inset-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => onSelectSubmitter(submitter.uuid)}
+                    type="button"
+                  />
                   <span
-                    className="size-3 shrink-0 rounded-full"
+                    className="pointer-events-none relative z-10 size-3 shrink-0 rounded-full"
                     style={{
                       backgroundColor:
                         submitterColors[index % submitterColors.length],
@@ -416,7 +414,8 @@ export function RoleSelector({
                   />
                   <input
                     aria-label={`Role ${index + 1} name`}
-                    className="min-w-0 flex-1 cursor-text bg-transparent text-sm font-medium outline-none"
+                    autoComplete="off"
+                    className="relative z-10 min-w-0 flex-1 cursor-text rounded bg-transparent text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     defaultValue={roleName}
                     disabled={isSaving}
                     onBlur={(event) =>
@@ -440,7 +439,7 @@ export function RoleSelector({
                         <AlertDialogTrigger asChild>
                           <button
                             aria-label={`Remove ${roleName}`}
-                            className="invisible rounded-full p-1 text-[var(--auth-label)] hover:bg-red-50 hover:text-red-600 group-hover/role:visible"
+                            className="invisible relative z-10 rounded-full p-1 text-[var(--auth-label)] hover:bg-red-50 hover:text-red-600 group-hover/role:visible focus:visible"
                             disabled={isSaving}
                             type="button"
                           >
@@ -488,7 +487,7 @@ export function RoleSelector({
                     ) : (
                       <button
                         aria-label={`Remove ${roleName}`}
-                        className="invisible rounded-full p-1 text-[var(--auth-label)] hover:bg-red-50 hover:text-red-600 group-hover/role:visible"
+                        className="invisible relative z-10 rounded-full p-1 text-[var(--auth-label)] hover:bg-red-50 hover:text-red-600 group-hover/role:visible focus:visible"
                         disabled={isSaving}
                         onClick={() => void onRemoveSubmitter(submitter.uuid)}
                         type="button"
@@ -613,7 +612,7 @@ export function SidebarFieldItem({
       <div
         aria-pressed={isSelected}
         className={cn(
-          "group/field w-full rounded border text-left text-sm transition-colors",
+          "group/field relative w-full rounded border text-left text-sm transition-colors focus-within:ring-2 focus-within:ring-ring",
           isSelected
             ? "border-red-300 bg-red-50 text-[var(--auth-primary)] shadow-sm dark:bg-red-950/25"
             : "border-[var(--auth-input-border)] bg-card hover:border-red-200 hover:bg-[var(--auth-muted)]",
@@ -632,17 +631,15 @@ export function SidebarFieldItem({
         onDragLeave={() => setDropPosition(null)}
         onDragOver={updateDropPosition}
         onDrop={dropField}
-        onClick={onSelect}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onSelect();
-          }
-        }}
-        role="button"
-        tabIndex={0}
       >
-        <div className="flex h-8 w-full items-center gap-1 px-1.5">
+        <button
+          aria-label={`Select ${title}`}
+          aria-pressed={isSelected}
+          className="absolute inset-x-0 top-0 h-8 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onSelect}
+          type="button"
+        />
+        <div className="pointer-events-none relative z-10 flex h-8 w-full items-center gap-1 px-1.5 [&_button]:pointer-events-auto [&_input]:pointer-events-auto">
           <GripVerticalIcon className="size-4 shrink-0 cursor-grab text-[var(--auth-label)] active:cursor-grabbing" />
           <span
             aria-label={`Assigned to ${getSubmitterName(submitters, field.submitter_uuid)}`}
@@ -691,7 +688,8 @@ export function SidebarFieldItem({
             <input
               aria-label={`Rename ${title}`}
               autoFocus
-              className="min-w-0 flex-1 bg-transparent text-sm font-medium outline-none"
+              autoComplete="off"
+              className="min-w-0 flex-1 rounded bg-transparent text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
               defaultValue={title}
               draggable={false}
               onBlur={(event) => saveName(event.target.value)}

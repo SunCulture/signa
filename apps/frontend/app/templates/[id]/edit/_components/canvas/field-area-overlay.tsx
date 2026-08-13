@@ -237,7 +237,7 @@ export function FieldAreaOverlay({
     <div
       aria-label={`${title} field`}
       className={cn(
-        "group/field field-area-container absolute cursor-default overflow-visible outline-none [container-type:size]",
+        "group/field field-area-container absolute cursor-default overflow-visible outline-none [container-type:size] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         isSelected || isMultiSelected ? "z-10" : "hover:z-10",
       )}
       onClick={(event) => {
@@ -257,6 +257,7 @@ export function FieldAreaOverlay({
       onPointerCancel={() => setInteraction(null)}
       onPointerMove={updateInteraction}
       onPointerUp={finishInteraction}
+      aria-pressed={isSelected || isMultiSelected}
       role="button"
       style={{
         ...areaToStyle(displayArea),
@@ -399,7 +400,7 @@ export function FieldAreaOverlay({
           {isRenamingLabel ? (
             <input
               aria-label={`${title} name`}
-              className="h-full max-w-40 bg-transparent px-0 pr-1 text-sm font-medium text-[var(--auth-primary)] outline-none ring-0 focus:outline-none focus:ring-0"
+              className="h-full max-w-40 bg-transparent px-0 pr-1 text-sm font-medium text-[var(--auth-primary)] outline-none ring-0 focus-visible:ring-2 focus-visible:ring-ring"
               onBlur={(event) => saveLabelName(event.target.value)}
               onChange={(event) => setLabelDraft(event.target.value)}
               onClick={(event) => event.stopPropagation()}
@@ -423,7 +424,7 @@ export function FieldAreaOverlay({
             />
           ) : (
             <button
-              className="block min-w-6 flex-1 cursor-text truncate pr-1 text-left outline-none"
+              className="block min-w-6 flex-1 cursor-text truncate rounded pr-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onClick={(event) => {
                 event.stopPropagation();
                 setLabelDraft(title);

@@ -181,22 +181,22 @@ export function TemplateDocumentCard({
     <div className="flex flex-col gap-3">
       <div
         className={cn(
-          "group/thumb relative overflow-hidden rounded border bg-white transition-colors",
+          "group/thumb relative overflow-hidden rounded border bg-white transition-colors focus-within:ring-2 focus-within:ring-ring",
           isSelected
             ? "border-[var(--auth-accent)] ring-1 ring-[var(--auth-accent)]"
             : "border-[var(--auth-input-border)] hover:border-[var(--auth-accent)]",
         )}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onSelect();
-          }
-        }}
-        onClick={onSelect}
-        role="button"
-        tabIndex={0}
       >
-        <DocumentThumbnail document={document} />
+        <button
+          aria-label={`Select document ${name}`}
+          aria-pressed={isSelected}
+          className="absolute inset-0 z-0 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onSelect}
+          type="button"
+        />
+        <div className="pointer-events-none relative z-10">
+          <DocumentThumbnail document={document} />
+        </div>
         <DocumentThumbnailOverlay
           canMoveDown={canMoveDown}
           canMoveUp={canMoveUp}
@@ -294,7 +294,7 @@ export function DocumentThumbnailOverlay({
   const replaceInputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <div className="absolute inset-0 flex cursor-pointer justify-between rounded bg-black/0 p-1 transition-colors group-hover/thumb:bg-black/10">
+    <div className="absolute inset-0 z-20 flex cursor-pointer justify-between rounded bg-black/0 p-1 transition-colors group-hover/thumb:bg-black/10">
       <input
         accept="application/pdf,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         className="hidden"

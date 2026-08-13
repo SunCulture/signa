@@ -39,7 +39,7 @@ export function FieldAreaValue({
     return (
       <input
         aria-label={`${title} value`}
-        className="h-full w-full bg-transparent px-[1cqw] py-0 text-left font-medium leading-none text-[var(--auth-primary)] outline-none ring-0 placeholder:text-[var(--auth-label)] [font-size:clamp(2px,45cqh,18px)] focus:outline-none focus:ring-0"
+        className="h-full w-full bg-transparent px-[1cqw] py-0 text-left font-medium leading-none text-[var(--auth-primary)] outline-none ring-0 placeholder:text-[var(--auth-label)] [font-size:clamp(2px,45cqh,18px)] focus-visible:ring-2 focus-visible:ring-ring"
         defaultValue={defaultValue}
         onBlur={(event) =>
           void onUpdateField(field.uuid, {

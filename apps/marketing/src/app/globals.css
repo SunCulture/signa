@@ -374,3 +374,24 @@ button {
     animation: none;
   }
 }
+
+.skip-link {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 100;
+  transform: translateY(-6rem);
+  border-radius: 0.5rem;
+  background: var(--color-ink);
+  padding: 0.625rem 1rem;
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 700;
+  transition: transform 150ms ease;
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: 3px solid var(--color-mint);
+  outline-offset: 3px;
+}

@@ -142,7 +142,7 @@ function FieldOptionRow({
         <input
           aria-label={`Option ${index + 1}`}
           className={cn(
-            "h-6 min-w-0 flex-1 rounded-full border border-[var(--auth-input-border)] bg-transparent px-3 text-sm outline-none transition-colors placeholder:text-[var(--auth-label)] focus:border-red-400",
+            "h-6 min-w-0 flex-1 rounded-full border border-[var(--auth-input-border)] bg-transparent px-3 text-sm outline-none transition-colors placeholder:text-[var(--auth-label)] focus:border-red-400 focus-visible:ring-2 focus-visible:ring-ring",
             canDrawOption ? "pr-8" : "",
           )}
           defaultValue={option.value}

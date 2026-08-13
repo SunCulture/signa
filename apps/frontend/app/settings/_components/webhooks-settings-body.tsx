@@ -225,7 +225,9 @@ function WebhookForm({
       onSubmit={save}
     >
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-        <Label className="text-sm font-bold">Webhook URL</Label>
+        <Label className="text-sm font-bold" htmlFor="webhook-url">
+          Webhook URL
+        </Label>
         {selectedWebhook ? (
           <div className="flex flex-wrap gap-2">
             <WebhookSecret webhook={selectedWebhook} />
@@ -235,7 +237,10 @@ function WebhookForm({
       </div>
       <div className="mt-2 flex flex-col gap-2 md:flex-row">
         <Input
+          autoComplete="url"
           className="h-12 min-w-0 flex-1 rounded-full bg-background font-mono"
+          id="webhook-url"
+          name="webhookUrl"
           onChange={(event) => setUrl(event.target.value)}
           placeholder="https://example.com/hook"
           required
@@ -246,7 +251,7 @@ function WebhookForm({
           className="h-12 rounded-full px-10 md:min-w-32"
           disabled={isSaving || !hasChanges}
         >
-          {isSaving ? "SAVING..." : "SAVE"}
+          {isSaving ? "SAVING…" : "SAVE"}
         </Button>
       </div>
       <EventSwitches events={events} onChange={setEvents} />
@@ -422,7 +427,13 @@ function WebhookEventsPanel({ webhook }: { webhook: WebhookUrl | null }) {
       </div>
       <div className="overflow-hidden rounded-b-2xl">
         {eventsQuery.isLoading ? (
-          <p className="p-4 text-sm text-muted-foreground">Loading...</p>
+          <p
+            aria-live="polite"
+            className="p-4 text-sm text-muted-foreground"
+            role="status"
+          >
+            Loading…
+          </p>
         ) : eventsQuery.isError ? (
           <p className="p-4 text-sm text-destructive">
             Webhook events could not be loaded.
@@ -458,10 +469,11 @@ function WebhookSecret({ webhook }: { webhook: WebhookUrl }) {
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-2">
-          <Label>HMAC secret</Label>
+          <Label htmlFor={`webhook-secret-${webhook.id}`}>HMAC secret</Label>
           <div className="flex gap-2">
             <Input
               className="h-11 min-w-0 rounded-full font-mono text-xs"
+              id={`webhook-secret-${webhook.id}`}
               readOnly
               value={webhook.hmac_secret}
             />

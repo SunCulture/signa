@@ -98,17 +98,23 @@ export function TeamForm({
       </DialogHeader>
       <form className="grid gap-4" onSubmit={onSubmit}>
         <div className="grid gap-2">
-          <Label>Name</Label>
+          <Label htmlFor="team-name">Name</Label>
           <Input
+            autoComplete="organization"
             className="h-11 rounded-full"
+            id="team-name"
+            name="teamName"
             onChange={(event) => onChange({ ...form, name: event.target.value })}
             required
             value={form.name}
           />
         </div>
         <div className="grid gap-2">
-          <Label>Description</Label>
+          <Label htmlFor="team-description">Description</Label>
           <Textarea
+            autoComplete="off"
+            id="team-description"
+            name="teamDescription"
             onChange={(event) =>
               onChange({ ...form, description: event.target.value })
             }
@@ -116,7 +122,7 @@ export function TeamForm({
           />
         </div>
         <Button className="h-11 rounded-full" disabled={isSaving} type="submit">
-          {isSaving ? "SAVING..." : "SAVE"}
+          {isSaving ? "SAVING…" : "SAVE"}
         </Button>
       </form>
     </>

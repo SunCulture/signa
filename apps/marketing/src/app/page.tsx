@@ -19,7 +19,7 @@ export default function HomePage() {
     <>
       <SiteHeader />
       <div className="site-gutter">
-        <main>
+        <main id="main-content" tabIndex={-1}>
           <HeroSection />
           <MainSections />
           <AlternativesSection />

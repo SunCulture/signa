@@ -86,6 +86,9 @@ export default function RootLayout({
       className={`${GeistSans.variable} ${GeistMono.variable} scroll-smooth antialiased`}
     >
       <body className="min-h-screen">
+        <a className="skip-link" href="#main-content">
+          Skip to main content
+        </a>
         <JsonLd data={siteJsonLd} />
         {children}
       </body>

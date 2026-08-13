@@ -137,7 +137,11 @@ export function TemplateEditor() {
   }
 
   return (
-    <main className="flex h-svh flex-col overflow-hidden bg-[var(--auth-background)] text-[var(--auth-foreground)]">
+    <main
+      className="flex h-svh flex-col overflow-hidden bg-[var(--auth-background)] text-[var(--auth-foreground)]"
+      id="main-content"
+      tabIndex={-1}
+    >
       {pendingFieldAttachmentUuids.length > 0 ? (
         <PendingImportedFieldsBanner
           isSaving={isSavingFields}
@@ -414,7 +418,7 @@ function TemplateTitleInlineEditor({
     return (
       <input
         aria-label="Template name"
-        className="min-w-0 max-w-[42vw] bg-transparent text-3xl font-bold tracking-normal outline-none ring-0 focus:outline-none focus:ring-0"
+        className="min-w-0 max-w-[42vw] rounded bg-transparent text-3xl font-bold tracking-normal outline-none ring-0 focus-visible:ring-2 focus-visible:ring-ring"
         disabled={isSaving}
         onBlur={() => void saveName()}
         onChange={(event) => setDraftName(event.target.value)}
@@ -513,7 +517,7 @@ function TemplateEditorStatus({
 }) {
   if (error) {
     return (
-      <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] px-6 text-[var(--auth-foreground)]">
+      <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] px-6 text-[var(--auth-foreground)]" id="main-content" tabIndex={-1}>
         <div className="flex max-w-md flex-col items-center gap-4 text-center">
           <p className="text-lg font-semibold">{error}</p>
           <Button
@@ -530,7 +534,7 @@ function TemplateEditorStatus({
   }
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] text-[var(--auth-foreground)]">
+    <main className="flex min-h-svh items-center justify-center bg-[var(--auth-background)] text-[var(--auth-foreground)]" id="main-content" tabIndex={-1}>
       <div className="flex items-center gap-3 text-sm font-semibold">
         <Spinner />
         Loading template editor

@@ -20,7 +20,10 @@ export function DocsSidebarNav({
   const activeHash = useActiveDocsHash(pathname, links);
 
   return (
-    <nav className="flex-1 overflow-y-auto px-6 py-6">
+    <nav
+      aria-label="Documentation sections"
+      className="flex-1 overflow-y-auto px-6 py-6"
+    >
       <DocsNavGroups
         activeHash={activeHash}
         groups={groups}
