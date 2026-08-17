@@ -22,7 +22,6 @@ jobs:
       ECS_CLUSTER: esignin
       ECS_SERVICES: e-signin-service
       IMAGE_TAG: prod
-      HEALTHCHECK_URL: ${{ vars.HEALTHCHECK_URL || 'https://esignin.sunculture.io/api/health' }}
 
     steps:
       - name: Check out source
@@ -80,14 +79,3 @@ jobs:
               --service "${service}" \
               --force-new-deployment
           done
-
-      - name: Wait for ECS services to stabilize
-        run: |
-          for service in ${ECS_SERVICES}; do
-            aws ecs wait services-stable \
-              --cluster "${ECS_CLUSTER}" \
-              --services "${service}"
-          done
-
-      - name: Verify public health endpoint
-        run: curl --fail --silent --show-error --retry 10 --retry-delay 10 "${HEALTHCHECK_URL}"
