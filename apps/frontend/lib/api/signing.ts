@@ -1,4 +1,5 @@
 import { apiFetch } from "./http";
+import { signingFetch } from "./signing-gate";
 import type {
   TemplateDocumentPreviewImage,
   TemplateSchemaItem,
@@ -100,15 +101,28 @@ export type SigningFieldValue = {
   attachment: SigningAttachment | null;
 };
 
+/** What an AMT-owned signer gets before entering the code AMT sent: no documents, fields or values. */
+export type SigningGatedForm = {
+  amt_otp_gate: { required: true };
+  submitter: { slug: string; name: string | null };
+  template: { name: string | null };
+};
+
+export function isGatedSigningForm(
+  form: SigningForm | SigningGatedForm,
+): form is SigningGatedForm {
+  return "amt_otp_gate" in form && form.amt_otp_gate?.required === true;
+}
+
 export function getSigningForm(
   slug: string,
   trackingParam?: string,
-): Promise<SigningForm> {
+): Promise<SigningForm | SigningGatedForm> {
   const path = trackingParam
     ? `/signing/${slug}?${new URLSearchParams({ t: trackingParam })}`
     : `/signing/${slug}`;
 
-  return apiFetch<SigningForm>(path);
+  return signingFetch<SigningForm | SigningGatedForm>(slug, path);
 }
 
 export function uploadSigningAttachment(
@@ -121,7 +135,7 @@ export function uploadSigningAttachment(
   formData.set("type", type);
   formData.set("file", file, file.name);
 
-  return apiFetch<SigningAttachment>(`/signing/${slug}/attachments`, {
+  return signingFetch<SigningAttachment>(slug, `/signing/${slug}/attachments`, {
     body: formData,
     method: "POST",
   });
@@ -138,14 +152,17 @@ export function getSigningFieldValue(
     params.set("after", after);
   }
 
-  return apiFetch<SigningFieldValue>(`/signing/${slug}/values?${params}`);
+  return signingFetch<SigningFieldValue>(
+    slug,
+    `/signing/${slug}/values?${params}`,
+  );
 }
 
 export function updateSigningValues(
   slug: string,
   values: Record<string, unknown>,
 ): Promise<SigningForm> {
-  return apiFetch<SigningForm>(`/signing/${slug}/values`, {
+  return signingFetch<SigningForm>(slug, `/signing/${slug}/values`, {
     body: JSON.stringify({ values }),
     method: "PUT",
   });
@@ -155,7 +172,7 @@ export function completeSigningForm(
   slug: string,
   values: Record<string, unknown>,
 ): Promise<SigningForm> {
-  return apiFetch<SigningForm>(`/signing/${slug}/complete`, {
+  return signingFetch<SigningForm>(slug, `/signing/${slug}/complete`, {
     body: JSON.stringify({ values }),
     method: "POST",
   });
@@ -165,14 +182,14 @@ export function declineSigningForm(
   slug: string,
   reason = "",
 ): Promise<SigningForm> {
-  return apiFetch<SigningForm>(`/signing/${slug}/decline`, {
+  return signingFetch<SigningForm>(slug, `/signing/${slug}/decline`, {
     body: JSON.stringify({ reason }),
     method: "POST",
   });
 }
 
 export function resubmitSigningForm(slug: string): Promise<SigningForm> {
-  return apiFetch<SigningForm>(`/signing/${slug}/resubmit`, {
+  return signingFetch<SigningForm>(slug, `/signing/${slug}/resubmit`, {
     method: "POST",
   });
 }
@@ -181,7 +198,8 @@ export function sendSigningPhoneVerification(
   slug: string,
   input: { field_uuid?: string; phone?: string },
 ): Promise<{ phone: string; status: string }> {
-  return apiFetch<{ phone: string; status: string }>(
+  return signingFetch<{ phone: string; status: string }>(
+    slug,
     `/signing/${slug}/phone-verification/send`,
     {
       body: JSON.stringify(input),
@@ -194,7 +212,8 @@ export function validateSigningPhoneNumber(
   slug: string,
   input: { field_uuid?: string; phone?: string },
 ): Promise<{ phone: string; valid: boolean }> {
-  return apiFetch<{ phone: string; valid: boolean }>(
+  return signingFetch<{ phone: string; valid: boolean }>(
+    slug,
     `/signing/${slug}/phone-verification/validate`,
     {
       body: JSON.stringify(input),
@@ -207,16 +226,21 @@ export function verifySigningPhoneCode(
   slug: string,
   input: { code: string; field_uuid?: string; phone?: string },
 ): Promise<SigningForm> {
-  return apiFetch<SigningForm>(`/signing/${slug}/phone-verification/check`, {
-    body: JSON.stringify(input),
-    method: "POST",
-  });
+  return signingFetch<SigningForm>(
+    slug,
+    `/signing/${slug}/phone-verification/check`,
+    {
+      body: JSON.stringify(input),
+      method: "POST",
+    },
+  );
 }
 
 export function getSigningDownload(
   slug: string,
 ): Promise<{ documents: SigningDocument[] }> {
-  return apiFetch<{ documents: SigningDocument[] }>(
+  return signingFetch<{ documents: SigningDocument[] }>(
+    slug,
     `/signing/${slug}/download`,
   );
 }

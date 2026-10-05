@@ -64,6 +64,7 @@ import {
   validateSigningPhoneNumber,
   verifySigningPhoneCode,
 } from "@/lib/api/signing";
+import { hasAmtOtpGateToken } from "@/lib/api/signing-gate";
 import phoneData from "@/lib/phone-data";
 import { cn } from "@/lib/utils";
 
@@ -1652,6 +1653,7 @@ function PhoneFieldInput({
   const nationalValue = getNationalPhoneValue(value, selectedCountry.dial);
   const examplePlaceholder = getPhonePlaceholder(selectedCountryCode);
   const isPhoneAccepted = isPhoneFieldAccepted(form, field, value);
+  const isAmtVerifiedSigner = hasAmtOtpGateToken(form.submitter.slug);
 
   function updatePhone(nextCountryDialCode: string, nextNationalValue: string) {
     const cleanedNationalValue = nextNationalValue.replace(/^\+/, "");
@@ -1825,31 +1827,35 @@ function PhoneFieldInput({
                 ? "Accepted"
                 : "Use valid number"}
           </Button>
-          <Button
-            className="h-11 rounded-full px-5 font-bold"
-            disabled={!phoneValidation.isValid || isSending}
-            onClick={() => void sendCode()}
-            type="button"
-            variant="outline"
-          >
-            {isSending ? "Sending..." : "Send SMS code"}
-          </Button>
-          <Input
-            className="h-11 rounded-full border-[var(--auth-input-border)] bg-white px-4 shadow-none focus-visible:ring-0"
-            inputMode="numeric"
-            maxLength={8}
-            onChange={(event) => setCode(event.target.value)}
-            placeholder="Code"
-            value={code}
-          />
-          <Button
-            className="h-11 rounded-full px-5 font-bold"
-            disabled={!code || isVerifying}
-            onClick={() => void verifyCode()}
-            type="button"
-          >
-            {isVerifying ? "Verifying..." : "Verify"}
-          </Button>
+          {isAmtVerifiedSigner ? null : (
+            <>
+              <Button
+                className="h-11 rounded-full px-5 font-bold"
+                disabled={!phoneValidation.isValid || isSending}
+                onClick={() => void sendCode()}
+                type="button"
+                variant="outline"
+              >
+                {isSending ? "Sending..." : "Send SMS code"}
+              </Button>
+              <Input
+                className="h-11 rounded-full border-[var(--auth-input-border)] bg-white px-4 shadow-none focus-visible:ring-0"
+                inputMode="numeric"
+                maxLength={8}
+                onChange={(event) => setCode(event.target.value)}
+                placeholder="Code"
+                value={code}
+              />
+              <Button
+                className="h-11 rounded-full px-5 font-bold"
+                disabled={!code || isVerifying}
+                onClick={() => void verifyCode()}
+                type="button"
+              >
+                {isVerifying ? "Verifying..." : "Verify"}
+              </Button>
+            </>
+          )}
         </div>
         {verificationSentTo ? (
           <FieldDescription>

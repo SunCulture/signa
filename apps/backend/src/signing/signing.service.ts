@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -52,6 +53,7 @@ import {
   SigningRequestMetadata,
 } from './signing-request-metadata';
 import { PhoneVerificationService } from './phone-verification/phone-verification.service';
+import { isAmtOtpRequired } from './amt-otp-gate/amt-otp-gate.policy';
 
 @Injectable()
 export class SigningService {
@@ -393,6 +395,11 @@ export class SigningService {
     metadata?: SigningRequestMetadata,
   ): Promise<{ phone: string; status: string }> {
     const submitter = await this.findSubmitterBySlugOrFail(slug);
+    if (isAmtOtpRequired(submitter)) {
+      throw new ConflictException({
+        error: 'This signer was verified by the code AMT sent',
+      });
+    }
     this.assertCanUpdate(submitter);
     await this.assertSigningOrderAvailable(submitter);
     const phone = this.resolvePhoneInput(submitter, input);

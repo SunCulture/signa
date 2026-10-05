@@ -221,6 +221,53 @@ export class SigningResponseDto {
   configs!: SigningFormConfigDto;
 }
 
+export class SigningAmtOtpGateDto {
+  @ApiProperty({ example: true })
+  required!: true;
+}
+
+export class SigningGatedSubmitterDto {
+  @ApiProperty({ example: 'pAMimKcyrLjqVt' })
+  slug!: string;
+
+  @ApiPropertyOptional({ example: 'Ada Lovelace', nullable: true })
+  name!: string | null;
+}
+
+export class SigningGatedTemplateDto {
+  @ApiPropertyOptional({ example: 'Employment contract', nullable: true })
+  name!: string | null;
+}
+
+export class SigningGatedResponseDto {
+  @ApiProperty({
+    description:
+      'Present when the signer must enter the code AMT sent before the form opens. Nothing else of the form is returned.',
+    type: SigningAmtOtpGateDto,
+  })
+  amt_otp_gate!: SigningAmtOtpGateDto;
+
+  @ApiProperty({ type: SigningGatedSubmitterDto })
+  submitter!: SigningGatedSubmitterDto;
+
+  @ApiProperty({ type: SigningGatedTemplateDto })
+  template!: SigningGatedTemplateDto;
+}
+
+export class AmtOtpGateTokenResponseDto {
+  @ApiProperty({
+    description:
+      'Send as the X-Signa-Gate-Token header on this slug’s signing requests.',
+  })
+  gate_token!: string;
+
+  @ApiProperty({
+    description: 'Seconds until the token expires.',
+    example: 7200,
+  })
+  expires_in!: number;
+}
+
 export class SigningDownloadResponseDto {
   @ApiProperty({ type: [SigningDocumentDto] })
   documents!: SigningDocumentDto[];

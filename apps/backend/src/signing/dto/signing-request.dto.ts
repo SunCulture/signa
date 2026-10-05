@@ -6,6 +6,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Matches,
 } from 'class-validator';
 
 export class UpdateSigningValuesDto {
@@ -61,6 +62,16 @@ export class VerifyPhoneCodeDto extends SendPhoneVerificationDto {
     example: '123456',
   })
   @IsString()
+  code!: string;
+}
+
+export class VerifyAmtOtpDto {
+  @ApiProperty({
+    description: 'The 6-digit code AMT sent the signer by SMS or email.',
+    example: '123456',
+  })
+  @IsString()
+  @Matches(/^\d{6}$/, { message: 'Enter the 6-digit code' })
   code!: string;
 }
 

@@ -8,6 +8,7 @@ import {
   Query,
   Req,
   UploadedFile,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -37,17 +38,30 @@ import {
   SigningAttachmentDto,
   SigningDownloadResponseDto,
   SigningFieldValueResponseDto,
+  SigningGatedResponseDto,
   SigningResponseDto,
 } from './dto/signing-response.dto';
-import { SigningRequestMetadata } from './signing-request-metadata';
+import { AmtOtpGateService } from './amt-otp-gate/amt-otp-gate.service';
+import {
+  AmtOtpGateCheckCurrent,
+  AmtOtpGateGuard,
+  SkipAmtOtpGate,
+} from './amt-otp-gate/amt-otp-gate.guard';
+import { readGateToken } from './amt-otp-gate/amt-otp-gate.policy';
+import { getSigningRequestMetadata } from './signing-request-metadata';
 import { SigningService } from './signing.service';
 
 @Controller('signing')
 @ApiTags('Signing')
+@UseGuards(AmtOtpGateGuard)
 export class SigningController {
-  constructor(private readonly signingService: SigningService) {}
+  constructor(
+    private readonly signingService: SigningService,
+    private readonly amtOtpGate: AmtOtpGateService,
+  ) {}
 
   @Get(':slug')
+  @SkipAmtOtpGate()
   @ApiParam({
     description: 'Public submitter signing slug.',
     name: 'slug',
@@ -64,16 +78,22 @@ export class SigningController {
   })
   @ApiOperation({
     description:
-      'Returns the public signing form payload, including documents, fields, submitter state, preferences, and existing values.',
+      'Returns the public signing form payload, including documents, fields, submitter state, preferences, and existing values. An AMT-owned signer without a passed gate gets only `amt_otp_gate` and the names needed to render it.',
     summary: 'Get public signing form by submitter slug',
   })
   @ApiOkResponse({ type: SigningResponseDto })
-  getSigningForm(
+  async getSigningForm(
     @Param('slug') slug: string,
     @Query('t') trackingParam: string | undefined,
     @Query('c') smsTrackingParam: string | undefined,
     @Req() request: Request,
-  ): Promise<SigningResponseDto> {
+  ): Promise<SigningResponseDto | SigningGatedResponseDto> {
+    const gated = await this.amtOtpGate.gatedFormFor(
+      slug,
+      readGateToken(request.headers),
+    );
+    if (gated) return gated;
+
     return this.signingService.getSigningForm(
       slug,
       getSigningRequestMetadata(request, trackingParam, smsTrackingParam),
@@ -167,6 +187,7 @@ export class SigningController {
   }
 
   @Post(':slug/complete')
+  @AmtOtpGateCheckCurrent()
   @ApiParam({
     description: 'Public submitter signing slug.',
     name: 'slug',
@@ -464,19 +485,4 @@ export class SigningController {
   download(@Param('slug') slug: string): Promise<SigningDownloadResponseDto> {
     return this.signingService.getDownload(slug);
   }
-}
-
-function getSigningRequestMetadata(
-  request: Request,
-  trackingParam?: string,
-  smsTrackingParam?: string,
-): SigningRequestMetadata {
-  return {
-    ip: request.ip,
-    locale: request.get('x-signa-locale') ?? request.get('accept-language'),
-    smsTrackingParam,
-    timezone: request.get('x-signa-timezone'),
-    trackingParam,
-    ua: request.get('user-agent'),
-  };
 }

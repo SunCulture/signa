@@ -34,14 +34,18 @@ import {
   declineSigningForm,
   getSigningDownload,
   getSigningForm,
+  isGatedSigningForm,
   sendSigningCompletedCopy,
   type SigningField,
   type SigningFieldArea,
   type SigningForm,
+  type SigningGatedForm,
   updateSigningValues,
   uploadSigningAttachment,
 } from "@/lib/api/signing";
+import { subscribeAmtOtpGateRequired } from "@/lib/api/signing-gate";
 import { cn } from "@/lib/utils";
+import { AmtOtpGate } from "./amt-otp-gate";
 import { SignaturePanel } from "./signature-panel";
 
 type ActivePanelState = {
@@ -70,6 +74,8 @@ export function SigningPage({
 }) {
   const router = useRouter();
   const [form, setForm] = useState<SigningForm | null>(null);
+  const [gatedForm, setGatedForm] = useState<SigningGatedForm | null>(null);
+  const [loadCount, setLoadCount] = useState(0);
   const [activePanel, setActivePanel] = useState<ActivePanelState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isDeclineOpen, setIsDeclineOpen] = useState(false);
@@ -85,6 +91,13 @@ export function SigningPage({
   useEffect(() => {
     getSigningForm(slug, trackingParam)
       .then((loadedForm) => {
+        if (isGatedSigningForm(loadedForm)) {
+          setForm(null);
+          setGatedForm(loadedForm);
+          return;
+        }
+
+        setGatedForm(null);
         if (loadedForm.submitter.completed_at) {
           setIsRedirectingCompletedForm(true);
           router.replace(`/s/${loadedForm.submitter.slug}/completed`);
@@ -114,7 +127,16 @@ export function SigningPage({
         });
       })
       .finally(() => setIsLoading(false));
-  }, [focusFieldPrefix, router, slug, trackingParam]);
+  }, [focusFieldPrefix, loadCount, router, slug, trackingParam]);
+
+  useEffect(
+    () =>
+      subscribeAmtOtpGateRequired(slug, () => {
+        setIsLoading(true);
+        setLoadCount((count) => count + 1);
+      }),
+    [slug],
+  );
 
   useEffect(() => {
     if (!isIframeEmbeddedSigningPage()) {
@@ -237,6 +259,18 @@ export function SigningPage({
           Loading signing form
         </div>
       </main>
+    );
+  }
+
+  if (gatedForm) {
+    return (
+      <AmtOtpGate
+        form={gatedForm}
+        onVerified={() => {
+          setIsLoading(true);
+          setLoadCount((count) => count + 1);
+        }}
+      />
     );
   }
 

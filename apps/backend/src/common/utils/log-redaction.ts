@@ -11,6 +11,9 @@ const sensitiveKeys = new Set([
   'access_token',
   'x-auth-token',
   'jwt_secret',
+  'code',
+  'gate_token',
+  'x-signa-gate-token',
 ]);
 
 export type SafeRequestLog = {

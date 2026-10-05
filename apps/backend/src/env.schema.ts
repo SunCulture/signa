@@ -223,6 +223,10 @@ const validationSchema = Joi.object({
   TWILIO_MESSAGING_SERVICE_SID: Joi.string().allow('').optional(),
   TWILIO_FROM_PHONE: Joi.string().allow('').optional(),
   SMS_CALLBACK_SECRET: Joi.string().allow('').optional(),
+
+  AMT_API_BASE_URL: Joi.string().uri().allow('').optional(),
+  AMT_API_KEY: Joi.string().allow('').optional(),
+  AMT_REQUEST_TIMEOUT_MS: Joi.number().integer().min(500).default(5_000),
 });
 
 export default validationSchema;

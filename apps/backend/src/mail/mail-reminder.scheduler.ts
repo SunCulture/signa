@@ -77,7 +77,8 @@ export class MailReminderScheduler {
       .andWhere('submitter.email IS NOT NULL')
       .andWhere('submission.archived_at IS NULL')
       .andWhere(
-        '(submission.expire_at IS NULL OR submission.expire_at >= NOW())',
+        '(submission.expire_at IS NULL OR submission.expire_at >= :now)',
+        { now: new Date() },
       )
       .andWhere('(template.id IS NULL OR template.archived_at IS NULL)')
       .orderBy('submitter.sent_at', 'ASC')

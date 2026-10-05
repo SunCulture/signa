@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { SubmissionEvent } from '../submissions/entities/submission-event.entity';
 import { Submission } from '../submissions/entities/submission.entity';
 import { Submitter } from '../submitters/entities/submitter.entity';
@@ -66,6 +67,33 @@ describe('SigningService', () => {
     expect(submitterSave).toHaveBeenCalledTimes(2);
     expect(eventDelete).toHaveBeenCalledWith('complete-event');
     expect(enqueueSubmitterCompletion).not.toHaveBeenCalled();
+  });
+
+  it('never sends a Twilio code to a signer AMT verifies itself', async () => {
+    const submitter = createSubmitter();
+    submitter.metadata = { amt_otp_required: true };
+    const sendCode = jest.fn();
+    const service = new SigningService(
+      { findOne: jest.fn().mockResolvedValue(submitter) } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { get: jest.fn() } as never,
+      { sendCode } as never,
+      {} as never,
+    );
+
+    await expect(
+      service.sendPhoneVerification('submitter-slug', {
+        phone: '+254700000000',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(sendCode).not.toHaveBeenCalled();
   });
 });
 

@@ -2041,7 +2041,7 @@ export class SubmissionsService {
       .leftJoinAndSelect('submission.submitters', 'submitter')
       .where('submission.archived_at IS NULL')
       .andWhere('submission.expire_at IS NOT NULL')
-      .andWhere('submission.expire_at < NOW()')
+      .andWhere('submission.expire_at < :now', { now: new Date() })
       .andWhere('template.archived_at IS NULL')
       .andWhere(
         'NOT EXISTS (SELECT 1 FROM submitters declined_submitter WHERE declined_submitter.submission_id = submission.id AND declined_submitter.declined_at IS NOT NULL)',

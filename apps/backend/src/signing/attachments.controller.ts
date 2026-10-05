@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Headers,
   Post,
   UploadedFile,
   UseInterceptors,
@@ -14,13 +15,18 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { UploadedBufferFile } from '../storage/storage.types';
+import { AmtOtpGateService } from './amt-otp-gate/amt-otp-gate.service';
+import { readGateToken } from './amt-otp-gate/amt-otp-gate.policy';
 import { AttachmentUploadResponseDto } from './dto/attachment-upload-response.dto';
 import { SigningService } from './signing.service';
 
 @Controller('attachments')
 @ApiTags('Attachments')
 export class AttachmentsController {
-  constructor(private readonly signingService: SigningService) {}
+  constructor(
+    private readonly signingService: SigningService,
+    private readonly amtOtpGate: AmtOtpGateService,
+  ) {}
 
   @Post()
   @UseInterceptors(FileInterceptor('file'))
@@ -45,11 +51,17 @@ export class AttachmentsController {
     summary: 'Upload public submitter attachment',
   })
   @ApiOkResponse({ type: AttachmentUploadResponseDto })
-  uploadAttachment(
+  async uploadAttachment(
     @Body('submitter_slug') submitterSlug: string,
     @UploadedFile() file: UploadedBufferFile,
+    @Headers() headers: Record<string, string | string[] | undefined>,
     @Body('type') type?: string,
   ): Promise<AttachmentUploadResponseDto> {
+    await this.amtOtpGate.assertPassedForSlug(
+      submitterSlug,
+      readGateToken(headers),
+      { checkCurrent: false },
+    );
     return this.signingService.uploadApiAttachment(submitterSlug, file, type);
   }
 }

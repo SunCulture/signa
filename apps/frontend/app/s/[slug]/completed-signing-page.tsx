@@ -18,6 +18,7 @@ import { ApiError } from "@/lib/api/http";
 import {
   getSigningDownload,
   getSigningForm,
+  isGatedSigningForm,
   resubmitSigningForm,
   sendSigningCompletedCopy,
   type SigningForm,
@@ -35,7 +36,10 @@ export function CompletedSigningPage({ slug }: { slug: string }) {
   useEffect(() => {
     getSigningForm(slug)
       .then((loadedForm) => {
-        if (!loadedForm.submitter.completed_at) {
+        if (
+          isGatedSigningForm(loadedForm) ||
+          !loadedForm.submitter.completed_at
+        ) {
           router.replace(`/s/${loadedForm.submitter.slug}`);
           return;
         }

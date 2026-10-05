@@ -347,6 +347,16 @@
   - Twilio delivery receipts can persist `sms_*` submission events through `POST /api/sms-events/twilio/status`;
   - `POST /api/tools/verify` now returns the checked SHA-256, verifies Signa-generated completed-document checksum matches, and reports detected embedded signatures as cryptographic-verification unsupported instead of silently returning an empty signature list.
 - Added initial `@repo/shared` Zod contracts for stable DocuSeal-style templates, submissions, submitters, documents, and cursor pagination responses.
+- Added the AMT OTP gate on public signing (Jira FSS-793). This is an intentional Signa-specific extension with no DocuSeal equivalent:
+  - AMT marks the submitters it sends an invitation code to with `metadata.amt_otp_required: true`. Until such a signer enters that code, `GET /api/signing/:slug` returns only `{ amt_otp_gate, submitter: { slug, name }, template: { name } }`, with no documents, fields, values or attachments;
+  - `POST /api/signing/:slug/amt-otp/verify` (limited to 5 requests per minute) checks the code server to server against AMT `POST {AMT_API_BASE_URL}/e-signing/signa/otp/verify`, using AMT's `api_key` header. On success it returns a gate token valid for 2 hours, bound to the slug and to the AMT challenge, and records an `amt_otp_verified` submission event;
+  - every other `:slug` route in `SigningController` is gated by the class-level `AmtOtpGateGuard`, and `POST /api/attachments` checks the gate itself because its slug arrives in a multipart body. Completing the form (`POST :slug/complete`, or `PUT :slug/values` with `completed: true`) also asks AMT whether the challenge is still the signer's newest code, so a resend makes old gate tokens lapse;
+  - gate tokens are signed with `${JWT_SECRET}:amt_otp_gate`, so a gate token can never be used as a session JWT and a session JWT can never open a gate;
+  - the client fails closed: missing `AMT_API_BASE_URL`/`AMT_API_KEY`, a timeout (`AMT_REQUEST_TIMEOUT_MS`) or a non-2xx answer becomes 503 and never opens the gate;
+  - `POST :slug/phone-verification/send` answers 409 for gated signers, so Twilio is never called for them, and the frontend hides the SMS controls for them;
+  - the gating lives in the guard, the controllers and `AmtOtpGateService`, not in `SigningService` (over 1,600 lines), so that file did not grow; `SigningService` only gained the Twilio 409;
+  - a completed submitter is no longer gated, so a completed signing link opens the completed view without a code, as before;
+  - the frontend keeps the token in sessionStorage under `signa:amt-gate:{slug}` and sends it as `X-Signa-Gate-Token`. When it gets a 403 `amt_otp_gate_required`, it clears the token and reloads, which brings back the gate screen.
 
 ## In Progress
 

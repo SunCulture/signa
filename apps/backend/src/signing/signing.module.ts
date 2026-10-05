@@ -15,6 +15,9 @@ import { SigningService } from './signing.service';
 import { PhoneVerificationService } from './phone-verification/phone-verification.service';
 import { AttachmentsController } from './attachments.controller';
 import { SubmitterTrackingController } from './submitter-tracking.controller';
+import { AmtOtpGateService } from './amt-otp-gate/amt-otp-gate.service';
+import { AmtOtpGateController } from './amt-otp-gate/amt-otp-gate.controller';
+import { AmtOtpClient } from './amt-otp-gate/amt-otp.client';
 
 @Module({
   imports: [
@@ -35,7 +38,13 @@ import { SubmitterTrackingController } from './submitter-tracking.controller';
     SigningController,
     AttachmentsController,
     SubmitterTrackingController,
+    AmtOtpGateController,
   ],
-  providers: [SigningService, PhoneVerificationService],
+  providers: [
+    SigningService,
+    PhoneVerificationService,
+    AmtOtpGateService,
+    AmtOtpClient,
+  ],
 })
 export class SigningModule {}

@@ -10,6 +10,7 @@ type SubmitterSummary = {
 };
 
 const eventIconByType: Record<string, string> = {
+  amt_otp_verified: 'shield_check',
   api_complete_form: 'check',
   click_email: 'hand_click',
   click_sms: 'hand_click',
@@ -32,6 +33,7 @@ const eventIconByType: Record<string, string> = {
 };
 
 const eventTitleByType: Record<string, string> = {
+  amt_otp_verified: 'Access code verified',
   api_complete_form: 'Submission completed',
   click_email: 'Email link opened',
   click_sms: 'SMS link opened',
