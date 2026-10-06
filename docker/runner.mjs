@@ -8,15 +8,21 @@ let shuttingDown = false;
 await startLocalRedis();
 
 start("backend", "node", ["apps/backend/dist/main"], {
+  BACKEND_HOST: process.env.BACKEND_HOST ?? "0.0.0.0",
   PORT: process.env.BACKEND_PORT ?? process.env.PORT ?? "3001",
 });
 
 start(
   "frontend",
   "node",
-  ["apps/frontend/node_modules/next/dist/bin/next", "start", "apps/frontend"],
+  [
+    "apps/frontend/node_modules/next/dist/bin/next",
+    "start",
+    "apps/frontend",
+    "--hostname",
+    process.env.FRONTEND_HOST ?? "0.0.0.0",
+  ],
   {
-    HOSTNAME: process.env.HOSTNAME ?? "0.0.0.0",
     PORT: process.env.FRONTEND_PORT ?? "3000",
   },
 );

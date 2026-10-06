@@ -31,10 +31,12 @@ async function bootstrap() {
   setupSwagger(app);
 
   const port = Number(process.env.PORT ?? 3001);
-  const host = process.env.HOSTNAME ?? '0.0.0.0';
+  const host = process.env.BACKEND_HOST ?? '0.0.0.0';
 
   // Bind explicitly so Docker and production runtimes publish the API outside
   // the container instead of relying on platform-specific loopback defaults.
+  // Never read HOSTNAME: ECS/Fargate overwrite it with the task hostname, which
+  // binds the API to the private IP and breaks the frontend's loopback proxy.
   await app.listen(port, host);
   logger.log(`Server is running on: ${await app.getUrl()}`);
 }

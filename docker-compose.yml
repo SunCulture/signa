@@ -18,7 +18,8 @@ services:
       APP_URL: ${APP_URL:-http://localhost:3000}
       BACKEND_PORT: 3001
       FRONTEND_PORT: 3000
-      HOSTNAME: 0.0.0.0
+      BACKEND_HOST: 0.0.0.0
+      FRONTEND_HOST: 0.0.0.0
       APP_VERSION: ${APP_VERSION:-0.1.0}
       APP_COMMIT_SHA: ${APP_COMMIT_SHA:-}
       APP_BUILD_TIME: ${APP_BUILD_TIME:-}
