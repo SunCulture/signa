@@ -80,6 +80,7 @@ export function ContractSigningScreen() {
 | `javaScriptEnabled`, `domStorageEnabled` | Required WebView features. Both default to `true`. |
 | `originWhitelist` | WebView origin whitelist. Defaults to `["https://*", "http://*"]`. |
 | `onLoad` | Called when Signa posts `signa:loaded`. |
+| `onOtpRequired` | Called when Signa posts `signa:otp_required`: the signer must enter the invitation code they were sent, and Signa is showing its code screen. `signa:loaded` follows once the code is accepted. |
 | `onComplete` | Called when Signa posts `signa:completed`. |
 | `onDecline` | Called when Signa posts `signa:declined`. |
 | `onError` | Called when Signa posts `signa:error`. |
@@ -92,7 +93,7 @@ export function ContractSigningScreen() {
 | Create a submission | Your backend calls Signa and receives a submitter signing URL or slug. |
 | Open the WebView | Your app renders `SignaSigningView` with `src` or `host` plus `slug`. |
 | Signer completes fields | The hosted Signa UI handles PDF rendering, field validation, signatures, and completion. |
-| Native callback fires | The page posts `signa:completed`, `signa:declined`, `signa:loaded`, or `signa:error` to React Native. |
+| Native callback fires | The page posts `signa:otp_required`, `signa:loaded`, `signa:completed`, `signa:declined`, or `signa:error` to React Native. |
 | App continues workflow | Navigate back, refresh your backend state, or show the completed-document action. |
 
 ## Mobile App Permissions
@@ -134,6 +135,7 @@ events are the native bridge that lets the app react without polling.
 | The WebView is blank. | Open the same `src` in the mobile browser, confirm the route is public, and check TLS/certificate trust. |
 | Android cannot load local Signa. | Use your machine LAN IP or `10.0.2.2` for Android emulator networking where applicable. |
 | File upload does not open. | Configure native camera, photo, and document permissions in the host app. |
+| Your loading overlay never clears for some signers. | Signers who must enter an invitation code get `signa:otp_required`, not `signa:loaded`, until the code is accepted. Treat either event as "the page is up". |
 | Completion callback does not fire. | Confirm the deployed Signa signing page includes the React Native postMessage bridge. |
 | The host refuses to render. | Configure Signa embed/frame policy for the application origin or use the hosted public signing route. |
 

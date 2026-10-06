@@ -5,6 +5,7 @@ export type {
   SignaLoadPayload,
   SignaNativeEventName,
   SignaNativeMessage,
+  SignaOtpRequiredPayload,
   SignaSignerStatus,
   SignaSubmitterPayload,
 } from "./signa-events";

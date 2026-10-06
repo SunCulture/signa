@@ -13,6 +13,7 @@ import type {
   SignaErrorPayload,
   SignaLoadPayload,
   SignaNativeMessage,
+  SignaOtpRequiredPayload,
   SignaSubmitterPayload,
 } from "./signa-events";
 import { dispatchSignaMessage } from "./signa-message";
@@ -44,6 +45,7 @@ export type SignaSigningViewProps = {
   domStorageEnabled?: boolean;
   originWhitelist?: string[];
   onLoad?: (payload: SignaLoadPayload) => void;
+  onOtpRequired?: (payload: SignaOtpRequiredPayload) => void;
   onComplete?: (payload: SignaSubmitterPayload) => void;
   onDecline?: (payload: SignaSubmitterPayload) => void;
   onError?: (payload: SignaErrorPayload) => void;
@@ -134,6 +136,7 @@ function useSignaMessageHandler(
         onError: props.onError,
         onLoad: props.onLoad,
         onMessage: props.onMessage,
+        onOtpRequired: props.onOtpRequired,
       });
     },
     [
@@ -142,6 +145,7 @@ function useSignaMessageHandler(
       props.onError,
       props.onLoad,
       props.onMessage,
+      props.onOtpRequired,
     ],
   );
 }

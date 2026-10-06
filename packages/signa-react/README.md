@@ -76,7 +76,7 @@ import { DocusealForm } from "@signajs/react";
 | `allowToResubmit`, `allowTypedSignature`, `rememberSignature`, `reuseSignature` | Signer behavior toggles. |
 | `signature`, `values`, `metadata`, `fields`, `readonlyFields`, `i18n` | Saved signature, prefilled values, field schema overrides, and runtime configuration. |
 | `className`, `customCss`, `style` | Host application styling hooks. |
-| `onInit`, `onLoad`, `onComplete`, `onDecline` | Lifecycle callbacks. |
+| `onInit`, `onLoad`, `onOtpRequired`, `onComplete`, `onDecline` | Lifecycle callbacks. |
 
 ### Signing callbacks
 
@@ -84,6 +84,7 @@ import { DocusealForm } from "@signajs/react";
 | --- | --- | --- |
 | `onInit` | The custom element is initialized. | Start loading state and analytics. |
 | `onLoad` | The hosted signing UI has loaded. | Hide skeletons and show the signing area. |
+| `onOtpRequired` | The signer must enter the invitation code they were sent; Signa is showing its code screen. `onLoad` follows once the code is accepted. | Hide skeletons too, so the signer can see the code screen. |
 | `onComplete` | The signer completes or the submission reaches completion. | Update local state, navigate, or fetch completed documents from your backend. |
 | `onDecline` | The signer declines. | Record the decline and route the user back to your workflow. |
 

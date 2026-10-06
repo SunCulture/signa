@@ -2,11 +2,13 @@ import type {
   SignaErrorPayload,
   SignaLoadPayload,
   SignaNativeMessage,
+  SignaOtpRequiredPayload,
   SignaSubmitterPayload,
 } from "./signa-events";
 
 export type SignaMessageHandlers = {
   onLoad?: (payload: SignaLoadPayload) => void;
+  onOtpRequired?: (payload: SignaOtpRequiredPayload) => void;
   onComplete?: (payload: SignaSubmitterPayload) => void;
   onDecline?: (payload: SignaSubmitterPayload) => void;
   onError?: (payload: SignaErrorPayload) => void;
@@ -27,6 +29,11 @@ export function dispatchSignaMessage(
 
   if (message.type === "signa:loaded") {
     handlers.onLoad?.(message.payload as SignaLoadPayload);
+    return;
+  }
+
+  if (message.type === "signa:otp_required") {
+    handlers.onOtpRequired?.(message.payload as SignaOtpRequiredPayload);
     return;
   }
 

@@ -1,5 +1,6 @@
 export type SignaNativeEventName =
   | "signa:loaded"
+  | "signa:otp_required"
   | "signa:completed"
   | "signa:declined"
   | "signa:error";
@@ -36,6 +37,21 @@ export type SignaLoadPayload = {
     uuid?: string;
     external_id?: string | null;
   } | null;
+};
+
+/**
+ * The signer must enter the invitation code they were sent before the form
+ * opens. Signa is showing its code screen; `signa:loaded` follows once the
+ * code is accepted.
+ */
+export type SignaOtpRequiredPayload = {
+  submitter: {
+    slug: string;
+    name: string | null;
+  };
+  template: {
+    name: string | null;
+  };
 };
 
 export type SignaSubmitterPayload = {

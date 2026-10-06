@@ -356,7 +356,8 @@
   - `POST :slug/phone-verification/send` answers 409 for gated signers, so Twilio is never called for them, and the frontend hides the SMS controls for them;
   - the gating lives in the guard, the controllers and `AmtOtpGateService`, not in `SigningService` (over 1,600 lines), so that file did not grow; `SigningService` only gained the Twilio 409;
   - a completed submitter is no longer gated, so a completed signing link opens the completed view without a code, as before;
-  - the frontend keeps the token in sessionStorage under `signa:amt-gate:{slug}` and sends it as `X-Signa-Gate-Token`. When it gets a 403 `amt_otp_gate_required`, it clears the token and reloads, which brings back the gate screen.
+  - the frontend keeps the token in sessionStorage under `signa:amt-gate:{slug}` and sends it as `X-Signa-Gate-Token`. When it gets a 403 `amt_otp_gate_required`, it clears the token and reloads, which brings back the gate screen;
+  - when the gate screen shows, embedded pages post an `otp_required` event (`signa:otp_required` for React Native) with `{ submitter: { slug, name }, template: { name } }`. Hosts that hide the frame until `load` would otherwise never show the code screen; FMA did exactly this and timed out with "Couldn't load the contract". `load` still fires after the code is accepted. `<signa-form>` relays it as an `otp_required` DOM event, and both SDKs expose `onOtpRequired`.
 
 ## In Progress
 

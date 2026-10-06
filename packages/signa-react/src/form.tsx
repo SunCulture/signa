@@ -115,6 +115,21 @@ type SignaFormSubmitterData = {
 export type SignaFormCompleteData = SignaFormSubmitterData;
 export type SignaFormDeclineData = SignaFormSubmitterData;
 
+/**
+ * The signer must enter the invitation code they were sent before the form
+ * opens. Signa is showing its code screen; `onLoad` follows once the code is
+ * accepted.
+ */
+export type SignaFormOtpRequiredData = {
+  submitter: {
+    slug: string;
+    name: string | null;
+  };
+  template: {
+    name: string | null;
+  };
+};
+
 export type SignaFormProps = {
   src?: string;
   token?: string;
@@ -169,6 +184,7 @@ export type SignaFormProps = {
   onInit?: () => void;
   onDecline?: (data: SignaFormDeclineData) => void;
   onLoad?: (data: SignaFormLoadData) => void;
+  onOtpRequired?: (data: SignaFormOtpRequiredData) => void;
   className?: string;
   customCss?: string;
   style?: React.CSSProperties;
@@ -222,6 +238,7 @@ const SignaForm = ({
   onInit = () => {},
   onDecline = () => {},
   onLoad = () => {},
+  onOtpRequired = () => {},
   className = "",
   customCss = "",
   style = {},
@@ -287,6 +304,18 @@ const SignaForm = ({
       el?.removeEventListener("load", handleLoad);
     };
   }, [onLoad]);
+
+  React.useEffect(() => {
+    const el = formRef.current;
+    const handleOtpRequired = (e: Event) =>
+      onOtpRequired((e as CustomEvent).detail);
+
+    el?.addEventListener("otp_required", handleOtpRequired);
+
+    return () => {
+      el?.removeEventListener("otp_required", handleOtpRequired);
+    };
+  }, [onOtpRequired]);
 
   const booleanToAttr = (value: unknown) =>
     value === true ? "true" : value === false ? "false" : value;

@@ -47,6 +47,7 @@
         declined: "declined",
         init: "init",
         load: "load",
+        otp_required: "otp_required",
       }[data.type];
 
       if (eventName) {

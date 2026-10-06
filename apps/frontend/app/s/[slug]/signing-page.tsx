@@ -94,6 +94,12 @@ export function SigningPage({
         if (isGatedSigningForm(loadedForm)) {
           setForm(null);
           setGatedForm(loadedForm);
+          // Embedding hosts hide the frame until it reports in; without this they
+          // never show the code screen. `load` follows once the code is accepted.
+          postSignaEmbedEvent("otp_required", {
+            submitter: loadedForm.submitter,
+            template: loadedForm.template,
+          });
           return;
         }
 
