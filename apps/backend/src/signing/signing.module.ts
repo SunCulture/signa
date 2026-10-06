@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AccountConfig } from '../accounts/entities/account-config.entity';
 import { StorageModule } from '../storage/storage.module';
@@ -21,6 +22,8 @@ import { AmtOtpClient } from './amt-otp-gate/amt-otp.client';
 
 @Module({
   imports: [
+    // Gate tokens pass their own secret and expiry on every call; no session defaults.
+    JwtModule.register({}),
     StorageModule,
     MailModule,
     SubmissionsModule,
